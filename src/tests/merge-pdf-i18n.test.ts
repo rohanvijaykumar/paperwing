@@ -39,6 +39,13 @@ describe('merge PDF notifications are localized', () => {
     expect(literalCalls).toHaveLength(0);
   });
 
+  it('never surfaces the raw worker message to the user', () => {
+    const rawWorkerMessageInAlert = [
+      ...source.matchAll(/\bshowAlert\([^;]*?\be\.data\.message/gs),
+    ];
+    expect(rawWorkerMessageInAlert).toHaveLength(0);
+  });
+
   it('references at least the alert and loader keys added for the merge tool', () => {
     expect(usedKeys).toContain('tools:mergePdf.alert.mergeSuccess');
     expect(usedKeys).toContain('tools:mergePdf.loader.merging');

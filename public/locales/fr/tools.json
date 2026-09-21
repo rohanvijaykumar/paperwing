@@ -20,6 +20,7 @@
     "subtitle": "Assembler plusieurs PDF en un seul fichier, tout en conservant les signets.",
     "retainPageLabels": "Conserver les étiquettes de page d'origine de chaque fichier",
     "retainPageLabelsHint": "Désactivé (par défaut) : le PDF fusionné utilise une numérotation naturelle 1–N. Activé : les étiquettes de page d'origine de chaque fichier sont conservées (peut produire des étiquettes en double).",
+    "removeDuplicateFonts": "Supprimer les polices en double",
     "alert": {
       "thumbnailError": "Échec du rendu des aperçus de pages",
       "noSelection": "Aucun fichier ni page sélectionné pour la fusion.",

@@ -419,11 +419,10 @@ export async function merge() {
           }
         );
       } else {
+        // The worker has no access to i18next: its message is technical and
+        // English-only, so it goes to the console, not to the user.
         console.error('Worker merge error:', e.data.message);
-        showAlert(
-          t('common.error'),
-          e.data.message || t('tools:mergePdf.alert.mergeFailed')
-        );
+        showAlert(t('common.error'), t('tools:mergePdf.alert.mergeFailed'));
       }
     };
 
