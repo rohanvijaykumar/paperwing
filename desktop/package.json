@@ -23,8 +23,8 @@
     "docs:shortcuts": "node scripts/gen-shortcuts-doc.mjs"
   },
   "devDependencies": {
-    "electron": "44.4.5",
-    "electron-builder": "26.16.1",
-    "puppeteer-core": "25.12.0"
+    "electron": "44.7.0",
+    "electron-builder": "26.17.0",
+    "puppeteer-core": "25.13.0"
   }
 }
