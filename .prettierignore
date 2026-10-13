@@ -1,2 +1,6 @@
 # Handlebars partials with template syntax inside HTML attributes
 src/partials/footer.html
+
+# Vendored PDF.js viewer builds
+public/pdfjs-viewer/
+public/pdfjs-annotation-viewer/
