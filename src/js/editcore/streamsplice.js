@@ -61,7 +61,7 @@ const ESCAPES = { n: 10, r: 13, t: 9, b: 8, f: 12, '(': 40, ')': 41, '\\': 92 };
 
 function showOperators(txt) {
   const re =
-    /\[(?:[^\][]|\\.)*\]\s*TJ|\((?:[^()\\]|\\.)*\)\s*Tj|<[0-9A-Fa-f\s]*>\s*Tj/g;
+    /\[(?:[^\][\\]|\\.)*\]\s*TJ|\((?:[^()\\]|\\.)*\)\s*Tj|<[0-9A-Fa-f\s]*>\s*Tj/g;
   return [...txt.matchAll(re)].map((m) => ({ at: m.index, len: m[0].length }));
 }
 
