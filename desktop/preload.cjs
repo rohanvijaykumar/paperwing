@@ -2,7 +2,7 @@
  * Paperwing preload: exposes a minimal, explicit file bridge to the app.
  * Only the top-level app page receives it (tool frames do not).
  */
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('paperwing', {
   platform: process.platform,
@@ -11,6 +11,17 @@ contextBridge.exposeInMainWorld('paperwing', {
   openDialog: () => ipcRenderer.invoke('paperwing:open-dialog'),
   readFile: (path) => ipcRenderer.invoke('paperwing:read-file', path),
   readPreview: (path) => ipcRenderer.invoke('paperwing:read-preview', path),
+  /** Path on disk of a dropped file ('' if it has none, e.g. from a browser) */
+  pathForFile: (file) => webUtils.getPathForFile(file),
+  allowPath: (path) => ipcRenderer.invoke('paperwing:allow-path', path),
+  showInFolder: (path) => ipcRenderer.invoke('paperwing:show-in-folder', path),
+  recovery: {
+    save: (id, name, data) =>
+      ipcRenderer.invoke('paperwing:recovery-save', id, name, data),
+    list: () => ipcRenderer.invoke('paperwing:recovery-list'),
+    read: (id) => ipcRenderer.invoke('paperwing:recovery-read', id),
+    delete: (id) => ipcRenderer.invoke('paperwing:recovery-delete', id),
+  },
   writeFile: (path, data) =>
     ipcRenderer.invoke('paperwing:write-file', path, data),
   saveAs: (name, data) => ipcRenderer.invoke('paperwing:save-as', name, data),

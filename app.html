@@ -68,18 +68,6 @@
           </label>
         </div>
         <div class="home-body">
-          <nav class="home-nav">
-            <button
-              type="button"
-              class="hn-item is-active"
-              data-home-tab="recent"
-            >
-              Recent
-            </button>
-            <button type="button" class="hn-item" data-home-tab="starred">
-              Starred
-            </button>
-          </nav>
           <div class="home-main">
             <div class="home-glow"></div>
             <div class="rec-head">
@@ -101,7 +89,26 @@
               <div class="rec-tools" id="rec-tools"></div>
             </div>
             <div class="recent-head">
-              <h2 id="recent-title">Recent</h2>
+              <div class="home-tabs" role="tablist" aria-label="Files">
+                <button
+                  type="button"
+                  role="tab"
+                  class="ht-btn is-active"
+                  data-home-tab="recent"
+                  aria-selected="true"
+                >
+                  Recent
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  class="ht-btn"
+                  data-home-tab="starred"
+                  aria-selected="false"
+                >
+                  Starred
+                </button>
+              </div>
               <div class="view-toggle">
                 <button
                   type="button"

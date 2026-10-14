@@ -642,6 +642,95 @@ ipcMain.handle('paperwing:open-dialog', async (e) => {
   );
 });
 
+// Recent files' "Show in File Explorer / Finder"
+ipcMain.handle('paperwing:show-in-folder', (e, filePath) => {
+  if (!senderIsApp(e) || !isPdfPath(filePath)) return;
+  shell.showItemInFolder(filePath);
+});
+
+// Files dropped onto the window: the page gets their real path (webUtils in
+// preload.cjs) and registers it, so "Save" can write back to the file, as
+// for files opened with the dialog
+ipcMain.handle('paperwing:allow-path', (e, filePath) => {
+  if (!senderIsApp(e) || !isPdfPath(filePath)) return false;
+  knownPaths.add(pathKey(filePath));
+  return true;
+});
+
+/* Unsaved documents (tool results not saved yet) ------------------------
+ * While such a document is open, a recovery copy is kept in the Unsaved
+ * folder of the user data, so it survives a crash. The copy is deleted as
+ * soon as the document is saved or discarded; anything left behind is
+ * reopened at the next launch, and removed after RECOVERY_MAX_AGE.
+ */
+const RECOVERY_DIR = () => path.join(app.getPath('userData'), 'Unsaved');
+const RECOVERY_MAX_AGE = 14 * 24 * 60 * 60 * 1000;
+const isRecoveryId = (id) =>
+  typeof id === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(id);
+const recoveryFile = (id, ext) => path.join(RECOVERY_DIR(), `${id}.${ext}`);
+
+ipcMain.handle('paperwing:recovery-save', async (e, id, name, data) => {
+  if (!senderIsApp(e) || !isRecoveryId(id) || typeof name !== 'string')
+    return false;
+  await fsp.mkdir(RECOVERY_DIR(), { recursive: true });
+  await writeAtomic(recoveryFile(id, 'pdf'), data);
+  await fsp.writeFile(
+    recoveryFile(id, 'json'),
+    JSON.stringify({ name: name.slice(0, 255), savedAt: Date.now() })
+  );
+  return true;
+});
+
+ipcMain.handle('paperwing:recovery-list', async (e) => {
+  if (!senderIsApp(e)) return [];
+  const names = await fsp.readdir(RECOVERY_DIR()).catch(() => []);
+  const found = [];
+  for (const file of names) {
+    const id = file.replace(/\.json$/, '');
+    if (id === file || !isRecoveryId(id)) continue;
+    try {
+      const meta = JSON.parse(
+        await fsp.readFile(recoveryFile(id, 'json'), 'utf8')
+      );
+      await fsp.access(recoveryFile(id, 'pdf'));
+      found.push({
+        id,
+        name: String(meta.name || 'Untitled.pdf'),
+        savedAt: Number(meta.savedAt) || 0,
+      });
+    } catch {
+      /* incomplete copy */
+    }
+  }
+  return found.sort((a, b) => a.savedAt - b.savedAt);
+});
+
+ipcMain.handle('paperwing:recovery-read', async (e, id) => {
+  if (!senderIsApp(e) || !isRecoveryId(id)) return null;
+  return fsp.readFile(recoveryFile(id, 'pdf')).catch(() => null);
+});
+
+ipcMain.handle('paperwing:recovery-delete', async (e, id) => {
+  if (!senderIsApp(e) || !isRecoveryId(id)) return;
+  await Promise.all(
+    ['pdf', 'json'].map((ext) => fsp.rm(recoveryFile(id, ext), { force: true }))
+  );
+});
+
+/** Removes recovery copies nobody came back for */
+async function pruneRecovery() {
+  const dir = RECOVERY_DIR();
+  const names = await fsp.readdir(dir).catch(() => []);
+  const now = Date.now();
+  await Promise.all(
+    names.map(async (file) => {
+      const full = path.join(dir, file);
+      const { mtimeMs } = await fsp.stat(full).catch(() => ({ mtimeMs: now }));
+      if (now - mtimeMs > RECOVERY_MAX_AGE) await fsp.rm(full, { force: true });
+    })
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Menu                                                                */
 /* ------------------------------------------------------------------ */
@@ -805,7 +894,10 @@ app.whenReady().then(() => {
   );
 
   createWindow();
-  setTimeout(() => pruneOldEngines().catch(() => {}), 10000);
+  setTimeout(() => {
+    pruneOldEngines().catch(() => {});
+    pruneRecovery().catch(() => {});
+  }, 10000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

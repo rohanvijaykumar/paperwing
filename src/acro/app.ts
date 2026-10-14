@@ -311,6 +311,9 @@ interface Tab {
   savedVersion: number;
   /** Restored from the last session: the document loads when first shown */
   pending?: RecentFile;
+  /** Not saved to disk yet (a tool's result): its recovery copy, kept until
+   *  it's saved or discarded (see main.cjs) */
+  recoveryId?: string;
 }
 
 const isDirty = (t: Tab) => t.version !== t.savedVersion;
@@ -351,7 +354,11 @@ function renderTabs() {
           class: `tab${t.id === activeId ? ' is-active' : ''}${isDirty(t) ? ' is-dirty' : ''}`,
           role: 'tab',
           'aria-selected': String(t.id === activeId),
-          title: isDirty(t) ? `${t.name} (unsaved changes)` : t.name,
+          title: !isDirty(t)
+            ? t.name
+            : t.blank || t.path || t.handle
+              ? `${t.name} (unsaved changes)`
+              : `${t.name} (not saved yet)`,
           draggable: 'true',
           onDragstart: (e: DragEvent) => {
             e.dataTransfer!.setData('application/x-paperwing-tab', t.id);
@@ -484,6 +491,7 @@ function closeTab(id: string) {
     .querySelectorAll(`[data-owner="${CSS.escape(id)}"]`)
     .forEach((el) => el.remove());
   viewer.close(tab.id);
+  if (tab.recoveryId) void desktop?.recovery?.delete(tab.recoveryId);
   if (activeId === id) {
     const next = tabs[Math.min(i, tabs.length - 1)];
     activate(next ? next.id : 'home');
@@ -611,12 +619,16 @@ async function openDocument(
   source: FileSource = {},
   recentId?: string,
   /** Load into this empty workspace (or restored tab) instead of a new tab */
-  into?: Tab
-) {
+  into?: Tab,
+  /** Not on disk (a tool's result, a file dragged from a browser): it opens
+   *  unsaved, stays out of Recent, and keeps a recovery copy until it's
+   *  saved or discarded. recoveryId: reopening an existing copy */
+  unsaved?: { recoveryId?: string }
+): Promise<Tab | undefined> {
   const existing = await findOpenTab(source, into);
   if (existing) {
     activate(existing.id);
-    return;
+    return existing;
   }
   let tab: Tab;
   if (into && (into.blank || into.loading) && tabs.includes(into)) {
@@ -630,6 +642,7 @@ async function openDocument(
   tab.handle = source.handle;
   tab.path = source.path;
   tab.recentId = recentId;
+  tab.recoveryId = unsaved?.recoveryId;
   const id = tab.id;
   activate(id);
 
@@ -645,14 +658,21 @@ async function openDocument(
       }
       closeTab(id);
     }
-    return;
+    return undefined;
   }
   // Closed while it was loading
-  if (!tabs.includes(tab)) return;
+  if (!tabs.includes(tab)) return undefined;
   tab.loading = false;
   tab.page = viewer.pageInfo(id) ?? tab.page;
   if (activeId === id) renderDocChrome(tab);
   else renderTabs();
+
+  if (unsaved) {
+    tab.savedVersion = -1; // shows as unsaved; closing asks first
+    renderTabs();
+    tab.recoveryId ??= await keepRecoveryCopy(file);
+    return tab;
+  }
 
   tab.recentId = (await rememberFile(file, source)) ?? recentId;
   persistSession();
@@ -661,6 +681,50 @@ async function openDocument(
     tab.starred = true;
     renderTabs();
   }
+  return tab;
+}
+
+/** Recovery copy of a document that isn't on disk yet; returns its id */
+async function keepRecoveryCopy(file: File): Promise<string | undefined> {
+  const recovery = desktop?.recovery;
+  if (!recovery) return undefined;
+  try {
+    const id = crypto.randomUUID();
+    const data = new Uint8Array(await file.arrayBuffer());
+    return (await recovery.save(id, file.name, data)) ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Unsaved documents left by a crash: reopen them, still unsaved */
+async function recoverUnsaved() {
+  const recovery = desktop?.recovery;
+  if (!recovery) return;
+  const found = await recovery
+    .list()
+    .catch((): { id: string; name: string }[] => []);
+  let reopened = 0;
+  for (const r of found) {
+    const data = await recovery.read(r.id).catch((): null => null);
+    if (!data) {
+      void recovery.delete(r.id);
+      continue;
+    }
+    const file = new File([new Uint8Array(data)], r.name, {
+      type: 'application/pdf',
+    });
+    const tab = await openDocument(file, {}, undefined, undefined, {
+      recoveryId: r.id,
+    });
+    if (tab) reopened++;
+  }
+  if (reopened)
+    toast(
+      reopened === 1
+        ? 'Reopened 1 document that was never saved'
+        : `Reopened ${reopened} documents that were never saved`
+    );
 }
 
 async function openFiles(files: File[]) {
@@ -750,24 +814,29 @@ window.addEventListener('message', async (e: MessageEvent) => {
         disposeFrameTool(owner.panelTool);
         disposeFrameTool(owner.fullTool);
         owner.panelTool = owner.fullTool = undefined;
-        await openDocument(file, {}, undefined, owner);
-        toast(`Created ${name}`, {
-          label: 'Download',
-          onClick: () => saveBlob(blob, name),
-        });
+        const tab = await openDocument(file, {}, undefined, owner, {});
+        if (tab) savePrompt(tab, `Created ${name}. It isn't saved yet`);
         return;
       }
-      await openDocument(file);
-      toast(`Opened ${name} in a new tab`, {
-        label: 'Download',
-        onClick: () => saveBlob(blob, name),
-      });
+      const tab = await openDocument(file, {}, undefined, undefined, {});
+      if (tab)
+        savePrompt(tab, `Opened ${name} in a new tab. It isn't saved yet`);
     } else {
       saveBlob(blob, name);
       toast(`Saved ${name}`);
     }
   }
 });
+
+/** Toast for a new document that isn't on disk yet, with a Save button */
+function savePrompt(tab: Tab, message: string) {
+  toast(message, {
+    label: 'Save',
+    onClick: () => {
+      if (tabs.includes(tab)) void saveDoc(tab);
+    },
+  });
+}
 
 /** "report.pdf" -> "report (1).pdf" if a tab already uses that name */
 function uniqueTabName(name: string) {
@@ -1543,6 +1612,11 @@ async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
     toast(`Saved ${name}`);
     // The first page may have changed: Home makes a new preview
     if (tab.recentId) void thumbs.invalidate(tab.recentId);
+    // It's on disk now
+    if (tab.recoveryId) {
+      void desktop?.recovery?.delete(tab.recoveryId);
+      tab.recoveryId = undefined;
+    }
     return true;
   };
 
@@ -1664,7 +1738,7 @@ function renderRecommended() {
   );
 }
 
-async function openRecent(entry: RecentFile) {
+async function openRecent(entry: RecentFile): Promise<Tab | undefined> {
   const got = await reopenRecent(entry);
   if (!got) {
     toast(`${entry.name} is no longer available`, {
@@ -1674,13 +1748,106 @@ async function openRecent(entry: RecentFile) {
         void refreshRecent();
       },
     });
-    return;
+    return undefined;
   }
-  await openDocument(
+  return openDocument(
     got.file,
     { handle: got.handle, path: got.path },
     entry.id
   );
+}
+
+async function setStarred(entry: RecentFile, starred: boolean) {
+  await updateRecent(entry.id, { starred });
+  tabs.forEach((t) => {
+    if (t.recentId === entry.id) t.starred = starred;
+  });
+  renderTabs();
+  void refreshRecent();
+}
+
+/** Right-click menu of a recent file (also the Menu key / Shift+F10) */
+function recentMenu(entry: RecentFile, e: MouseEvent) {
+  e.preventDefault();
+  // From the keyboard the event has no position: open it under the row
+  const row = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const fromKeyboard = e.clientX === 0 && e.clientY === 0;
+  const x = fromKeyboard ? row.left + 48 : e.clientX;
+  const y = fromKeyboard ? row.bottom : e.clientY;
+  const onDisk = !!(desktop?.showInFolder && entry.path);
+  const items: MenuItem[] = [
+    { label: 'Open', onClick: () => void openRecent(entry) },
+  ];
+  if (onDisk) {
+    items.push(
+      {
+        label: isMac ? 'Show in Finder' : 'Show in File Explorer',
+        onClick: () => void desktop!.showInFolder!(entry.path!),
+      },
+      {
+        label: 'Copy path',
+        onClick: () => void navigator.clipboard.writeText(entry.path!),
+      }
+    );
+  }
+  items.push(
+    { divider: true },
+    {
+      label: 'Compress…',
+      onClick: () => void recentWithTool(entry, 'compress-pdf'),
+    },
+    {
+      label: 'Combine with other files…',
+      onClick: () => void combineRecent(entry),
+    },
+    { divider: true },
+    {
+      label: entry.starred ? 'Unstar' : 'Star',
+      onClick: () => void setStarred(entry, !entry.starred),
+    },
+    {
+      label: 'Remove from Recent',
+      onClick: async () => {
+        await forgetRecent(entry.id);
+        void refreshRecent();
+      },
+    }
+  );
+  showMenu(menuPoint(x, y), items, 'below');
+}
+
+/** Open a recent file and run a tool on it */
+async function recentWithTool(entry: RecentFile, toolId: string) {
+  const tool = getTool(toolId);
+  const tab = await openRecent(entry);
+  if (!tab || !tool) return;
+  // Already open but still loading (e.g. restored from the last session)
+  for (let i = 0; i < 200 && tab.loading && tabs.includes(tab); i++)
+    await new Promise((r) => setTimeout(r, 50));
+  if (tabs.includes(tab) && !tab.loading) await openToolOnDoc(tab, tool);
+}
+
+/** Combine: a workspace with the file already added; add the others there */
+async function combineRecent(entry: RecentFile) {
+  const tool = getTool('merge-pdf');
+  const got = await reopenRecent(entry);
+  if (!tool || !got) {
+    if (!got) toast(`${entry.name} is no longer available`);
+    return;
+  }
+  await openToolOnDoc(newWorkspace(tool.name), tool, [got.file]);
+}
+
+/** A point on screen to anchor a menu at (right-click menus) */
+function menuPoint(x: number, y: number): HTMLElement {
+  let el = document.getElementById('menu-point');
+  if (!el) {
+    el = h('div', { id: 'menu-point', 'aria-hidden': 'true' });
+    document.body.append(el);
+  }
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  return el;
 }
 
 /** A recent file's first-page preview, or the PDF glyph until there is one */
@@ -1698,7 +1865,6 @@ async function refreshRecent() {
   let items = await listRecent();
   if (homeTab === 'starred') items = items.filter((r) => r.starred);
   if (q) items = items.filter((r) => r.name.toLowerCase().includes(q));
-  $('#recent-title').textContent = homeTab === 'starred' ? 'Starred' : 'Recent';
 
   const list = $('#recent-list');
   list.classList.toggle('is-grid', homeLayout === 'grid');
@@ -1724,14 +1890,9 @@ async function refreshRecent() {
     const star = iconBtn(
       'star',
       r.starred ? 'Unstar' : 'Star',
-      async (e) => {
+      (e) => {
         e.stopPropagation();
-        await updateRecent(r.id, { starred: !r.starred });
-        tabs.forEach((t) => {
-          if (t.recentId === r.id) t.starred = !r.starred;
-        });
-        renderTabs();
-        void refreshRecent();
+        void setStarred(r, !r.starred);
       },
       `row-star${r.starred ? ' is-on' : ''}`
     );
@@ -1754,6 +1915,7 @@ async function refreshRecent() {
         dataset: { id: r.id },
         onClick: () => openRecent(r),
         onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && openRecent(r),
+        onContextmenu: (e: MouseEvent) => recentMenu(r, e),
       },
       h('span', { class: 'rr-file' }, fileThumb(r)),
       h(
@@ -1786,9 +1948,10 @@ async function refreshRecent() {
 document.querySelectorAll<HTMLButtonElement>('[data-home-tab]').forEach((b) =>
   b.addEventListener('click', () => {
     homeTab = b.dataset.homeTab as typeof homeTab;
-    document
-      .querySelectorAll('[data-home-tab]')
-      .forEach((x) => x.classList.toggle('is-active', x === b));
+    document.querySelectorAll('[data-home-tab]').forEach((x) => {
+      x.classList.toggle('is-active', x === b);
+      x.setAttribute('aria-selected', String(x === b));
+    });
     void refreshRecent();
   })
 );
@@ -2357,6 +2520,12 @@ window.addEventListener('beforeunload', (e) => {
 desktop?.onCloseRequested?.(async () => {
   if (await settleUnsaved()) {
     persistSession();
+    // Saved ones dropped theirs already; any left were discarded
+    await Promise.all(
+      tabs
+        .filter((t) => t.recoveryId)
+        .map((t) => desktop!.recovery?.delete(t.recoveryId!))
+    );
     void desktop!.confirmClose();
   }
 });
@@ -3147,11 +3316,19 @@ window.addEventListener('drop', async (e) => {
   const pdfs = files.filter(isPdf);
   let into = activeTab()?.blank ? activeTab() : undefined;
   for (const f of pdfs) {
-    const handle = handles.find(
-      (hd): hd is FileSystemFileHandle =>
-        hd?.kind === 'file' && hd.name === f.name
-    );
-    await openDocument(f, { handle }, undefined, into);
+    if (desktop) {
+      // A file on disk opens like one from the dialog; one dragged from a
+      // browser or an email has no path, so it opens unsaved
+      const path = desktop.pathForFile?.(f) || undefined;
+      if (path && !(await desktop.allowPath?.(path))) continue;
+      await openDocument(f, { path }, undefined, into, path ? undefined : {});
+    } else {
+      const handle = handles.find(
+        (hd): hd is FileSystemFileHandle =>
+          hd?.kind === 'file' && hd.name === f.name
+      );
+      await openDocument(f, { handle }, undefined, into);
+    }
     into = undefined;
   }
   const others = files.filter((f) => !isPdf(f));
@@ -3231,7 +3408,7 @@ document.documentElement.dataset.ready = '';
 // The first screen is drawn: the desktop shell can show the window now, and
 // hands over any file the OS asked it to open
 void desktop?.ready();
-void restoreSession();
+void restoreSession().then(recoverUnsaved);
 // Start the PDF engine straight away (it compiles in a worker), so the first
 // document doesn't wait for it
 void viewer.warmUp();

@@ -17,6 +17,19 @@ interface DesktopBridge {
   readFile(path: string): Promise<Uint8Array | null>;
   /** Read a recent file for its Home preview (doesn't allow writing it) */
   readPreview?(path: string): Promise<Uint8Array | null>;
+  /** Path on disk of a dropped file ('' if it has none) */
+  pathForFile?(file: File): string;
+  /** Let "Save" write back to a dropped file */
+  allowPath?(path: string): Promise<boolean>;
+  /** Show a file in File Explorer / Finder */
+  showInFolder?(path: string): Promise<void>;
+  /** Recovery copies of unsaved documents (see main.cjs) */
+  recovery?: {
+    save(id: string, name: string, data: Uint8Array): Promise<boolean>;
+    list(): Promise<{ id: string; name: string; savedAt: number }[]>;
+    read(id: string): Promise<Uint8Array | null>;
+    delete(id: string): Promise<void>;
+  };
   writeFile(path: string, data: Uint8Array): Promise<boolean>;
   saveAs(
     name: string,

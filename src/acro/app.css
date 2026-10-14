@@ -493,32 +493,6 @@ button:disabled {
   min-height: 0;
   display: flex;
 }
-.home-nav {
-  flex: none;
-  width: 220px;
-  padding: 12px 10px;
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
-}
-.hn-item {
-  display: block;
-  width: 100%;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 6px;
-  text-align: left;
-  font-size: 14px;
-  color: var(--text-2);
-}
-.hn-item:hover {
-  background: var(--hover-soft);
-  color: var(--text);
-}
-.hn-item.is-active {
-  background: var(--active);
-  color: var(--text);
-  font-weight: 600;
-}
 .home-main {
   position: relative;
   flex: 1;
@@ -646,6 +620,34 @@ body.is-dragging .drop-inner {
   justify-content: space-between;
   margin-bottom: 8px;
 }
+/* Recent | Starred, styled as the section heading */
+.home-tabs {
+  display: flex;
+  gap: 20px;
+}
+.ht-btn {
+  position: relative;
+  padding: 4px 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-3);
+}
+.ht-btn:hover {
+  color: var(--text-2);
+}
+.ht-btn.is-active {
+  color: var(--text);
+}
+.ht-btn.is-active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text);
+}
 .view-toggle {
   display: flex;
   align-items: center;
@@ -712,6 +714,14 @@ body.is-dragging .drop-inner {
   font-size: 9px;
   font-weight: 700;
 }
+/* Anchor for right-click menus */
+#menu-point {
+  position: fixed;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
 /* First-page previews (see thumbnails.ts) */
 .rr-thumb {
   width: 30px;
