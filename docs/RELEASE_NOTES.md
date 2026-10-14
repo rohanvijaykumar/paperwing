@@ -1,17 +1,34 @@
-## Paperwing 1.0.1
+## Paperwing 1.1.0
 
-A small update to the free, open-source alternative to Adobe Acrobat.
+Faster, smoother and a little more polished, everywhere.
 
-### What's changed
+### Faster
 
-- **Annotation styles open on the right.** Colour, opacity, stroke width and the other style
-  options now slide out beside the navigation rail, like comments and thumbnails, instead of
-  covering the floating annotation toolbar on the left.
-- **New Annotation style button** on the right rail, to open and close the styles at any time.
+- **Opens in about a second.** The launch screen is gone: the window appears as soon as it's
+  ready, less than half the time it took before.
+- **Smooth scrolling**, even through long and scanned documents: a steady 60 fps using a quarter
+  of the CPU it used to.
+- **Quicker restores.** Your last session's tabs come back instantly; each document loads when
+  you open its tab.
 
-If you have 1.0.0, Paperwing will let you know this version is available (it checks once a day):
-download it below and install it over the old one. New to Paperwing? See the [1.0 release notes](https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.0.0)
-and the [full changelog](https://github.com/rohanvijaykumar/paperwing/blob/main/CHANGELOG.md).
+### New
+
+- **Previews on Home.** Recent files show their first page, in the list and the grid.
+- **PDF thumbnails in File Explorer** (Windows) while Paperwing is your default PDF app.
+- **Any zoom level.** Click the zoom percentage on the right rail (or press Ctrl+Y) to pick a
+  preset or type your own.
+- **Collapsible side panel.** The open panel's button is highlighted; click it again, or
+  **Hide panel**, to close it.
+- **Clear recent** on Home. Starred files stay.
+
+### Fixed
+
+- **Ctrl+scroll zoom** jumped to the smallest size on the first notch out. It now zooms in
+  even, smooth steps both ways.
+- The **Automatic** zoom preference is applied reliably again.
+
+Paperwing will tell you about this update (it checks once a day). Download it below and install
+it over the old version. Full list of changes: [CHANGELOG.md](https://github.com/rohanvijaykumar/paperwing/blob/main/CHANGELOG.md).
 
 ### Downloads
 

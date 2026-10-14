@@ -16,7 +16,8 @@ integration for the tool pages (`src/reskin/`, `reskin/`), and the Electron
 application (`desktop/`). These additions are released under the same
 AGPL-3.0 license. BentoPDF's own application source is included unmodified
 apart from a two-line change in `vite.config.ts` that registers the Paperwing
-plugin. Repository-level files were adapted for this project: the README
+plugin and a few security fixes, all listed in
+[`docs/UPSTREAM-PATCHES.md`](docs/UPSTREAM-PATCHES.md). Repository-level files were adapted for this project: the README
 (BentoPDF's original is kept in `docs/BENTOPDF.md`), CONTRIBUTING, SECURITY,
 CODE_OF_CONDUCT, the issue and pull request templates and the GitHub workflows.
 BentoPDF's web-hosting files (Docker, nginx, Helm, Cloudflare and Unraid
@@ -53,6 +54,13 @@ Each remains under its own license.
 
 The complete dependency list is in [`package.json`](package.json) and
 [`desktop/package.json`](desktop/package.json).
+
+## Added by Paperwing
+
+| Component                                                       | Purpose                                                                            | License                                                               |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| [Noto Sans](https://notofonts.github.io/) (Regular)             | Fallback font for text in fonts a PDF doesn't embed (`src/acro/fonts/`)            | SIL Open Font License 1.1 (`src/acro/fonts/OFL.txt`)                  |
+| [PDFium binaries](https://github.com/bblanchon/pdfium-binaries) | Windows only: renders File Explorer thumbnails (`resources/thumbnails/pdfium.dll`) | BSD-3-Clause / Apache-2.0 (`resources/thumbnails/pdfium-LICENSE.txt`) |
 
 ## Trademarks
 

@@ -17,3 +17,16 @@ has fixed each one; if it has, take upstream's version and remove the entry.
 Upstream commits cherry-picked ahead of a full merge:
 
 - `46bf0fb` Enforce file origin check in annotation PDF viewer
+
+## Patches to the viewer package
+
+The EmbedPDF viewer (`bentopdf-viewer`, a BentoPDF dependency) is patched while
+building, by `reskin/vite-plugin-reskin.ts`; the package itself isn't changed.
+Each patch checks that the code it replaces is there exactly as expected and is
+skipped with a warning otherwise (for example after a viewer update).
+`PAPERWING_VIEWER_PATCHES=0` builds without them.
+
+| Patch          | Why                                                                                                                                                              |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| State snapshot | The viewer's store copied its whole state on every read, once per listener on every change: half of the main thread while scrolling. One snapshot per change now |
+| Wheel zoom     | Ctrl+mouse wheel zoomed out to the minimum in one notch (and doubled per notch in). About 15% per notch now, eased; trackpad pinches unchanged                   |

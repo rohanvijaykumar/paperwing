@@ -4,6 +4,34 @@ All notable changes to Paperwing are documented here. Paperwing follows
 [Semantic Versioning](https://semver.org). Changes to the underlying PDF engine are listed in
 [BentoPDF's releases](https://github.com/alam00000/bentopdf/releases).
 
+## [Unreleased]
+
+### Added
+
+- Home shows a preview of each recent file's first page, in the list and the grid
+- File Explorer shows PDF thumbnails (Windows) while Paperwing is the default PDF app
+- Pick or type any zoom percentage from the right rail (or Ctrl+Y)
+- The open side panel's rail button is highlighted, pressing it again closes the panel, and a
+  **Hide panel** button appears while one is open
+- **Clear recent** on Home (starred files stay)
+
+### Changed
+
+- No launch screen: the window appears as soon as it's ready, in about a second instead of
+  two and a half
+- Session restore brings back every tab at once but loads only the one in front; the others
+  load when you open them
+- Scrolling uses a quarter of the CPU it did and stays at 60 fps on long and scanned documents
+- The Latin fallback font ships with the app, so opening a PDF never downloads one
+- About uses the launch screen's look; Home no longer has a **Your computer** entry (it only
+  opened the file dialog, like **Select a file**)
+
+### Fixed
+
+- Ctrl+mouse wheel zoomed out to the minimum in one notch; it now zooms in even, smooth steps
+- The Automatic zoom preference (fit width, up to 150%) was sometimes ignored
+- Escape didn't close a popover pressed right after it opened
+
 ## [1.0.1] — 2026-10-12
 
 ### Changed

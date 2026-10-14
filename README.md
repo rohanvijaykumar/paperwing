@@ -54,11 +54,11 @@ monthly bill. Every feature is free, and your files never leave your computer.
 
 **A complete PDF workspace**
 
-- Tabbed documents and a Home view with recent and starred files
+- Tabbed documents and a Home view with recent and starred files, shown with a preview of their first page
 - A searchable **All tools** sidebar: every tool, grouped like Acrobat's, with pinned and recently used tools on top
 - Every tool opens right beside your document — no separate tool pages
 - Floating quick-action toolbar: select, comment, highlight, draw, text box, sign, shapes, stamps
-- Right rail with comments, bookmarks, page thumbnails, find, page navigation, rotate and zoom
+- Right rail with comments, bookmarks, page thumbnails, find, page navigation, rotate and zoom (pick a level or type any percentage)
 - **Light and dark themes** that follow your system automatically (neutral, Acrobat-style dark mode)
 
 **100+ tools from [BentoPDF](https://github.com/alam00000/bentopdf)**
@@ -72,7 +72,8 @@ monthly bill. Every feature is free, and your files never leave your computer.
 **Designed around Acrobat's most common complaints**
 
 - 🔒 **Private by default** — everything runs locally; no account, telemetry or uploads
-- ⚡ **Fast and light** — opens in about a second, with the PDF viewer warmed up in the background
+- ⚡ **Fast and light** — opens in about a second, scrolls at a steady 60 fps, and restores your last session without loading every document up front
+- 🖼️ **PDF thumbnails in File Explorer** (Windows) while Paperwing is your default PDF app
 - ⌨️ **Acrobat shortcuts** — including the single-key tool accelerators (H, V, S, U, D, X…), on by default
 - 🔎 **Command palette** — <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> finds any tool or command instantly
 - 📌 **Pin your tools** — pinned and recently used tools sit at the top of the tools panel
@@ -164,7 +165,9 @@ The only network requests it makes are:
   installer to keep the download small, and it's checked against a SHA-256 hash before it's used;
 - a few advanced tools (PDF/A conversion, font outlining and some extraction tools) download their
   open-source engines from a CDN the first time you use them, as in BentoPDF;
-- the text editor may fetch fallback fonts from a CDN when a document uses fonts that aren't embedded.
+- for text in fonts a document doesn't embed, a fallback font is used. The Latin one ships with
+  Paperwing; for other scripts (Chinese, Japanese, Korean, Arabic, Hebrew) it's downloaded from a
+  CDN the first time it's needed, as is the Latin font in the **Edit text** tool.
 
 ## How Paperwing works
 
