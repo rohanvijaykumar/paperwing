@@ -15,50 +15,85 @@ import { resolve } from 'path';
 const APP_ENTRY = 'app.html';
 
 /**
- * Performance fix for the EmbedPDF viewer (bentopdf-viewer): its store copies
- * the whole state on every getState() call, and plugins call it constantly,
- * once per listener on every state change. While scrolling a document that
- * used half of the main thread's time. The snapshot is now built once per
- * state change and shared until the next one. Returns the code unchanged
- * (with a warning) if a viewer update has changed the store.
+ * Fixes for the EmbedPDF viewer (bentopdf-viewer), applied to its bundle at
+ * build time. Each patch checks that the code it replaces is there exactly as
+ * expected; if a viewer update has changed it, that patch is skipped with a
+ * warning and the viewer works as upstream ships it.
  */
-function patchViewerStore(code: string, id: string): string | null {
-  const getState =
-    'return{core:{...this.state.core},plugins:{...this.state.plugins}}}';
-  if (!code.includes(getState)) return null;
-  const edits: [string, string, number][] = [
-    // Reuse one snapshot until the state changes...
-    [
-      getState,
-      `return this.__pwSnap??={core:{...this.state.core},plugins:{...this.state.plugins}}}`,
-      1,
+interface ViewerPatch {
+  name: string;
+  edits: [from: string, to: string, count: number][];
+}
+
+const VIEWER_PATCHES: ViewerPatch[] = [
+  {
+    // Its store copied the whole state on every getState() call, and plugins
+    // call it constantly (once per listener on every change): while scrolling
+    // that used half of the main thread. Now one snapshot is built per state
+    // change and shared until the next.
+    name: 'state snapshot',
+    edits: [
+      [
+        'return{core:{...this.state.core},plugins:{...this.state.plugins}}}',
+        'return this.__pwSnap??={core:{...this.state.core},plugins:{...this.state.plugins}}}',
+        1,
+      ],
+      // The state changes only in these places
+      [
+        'finally{this.isDispatching=!1}',
+        'finally{this.isDispatching=!1,this.__pwSnap=null}',
+        3,
+      ],
+      [
+        'addPluginReducer(e,t,n){',
+        'addPluginReducer(e,t,n){this.__pwSnap=null,',
+        1,
+      ],
+      [
+        'this.state.plugins={},this.state.core={...this.initialCoreState}',
+        'this.state.plugins={},this.state.core={...this.initialCoreState},this.__pwSnap=null',
+        1,
+      ],
     ],
-    // ...which happens only in these places
-    [
-      'finally{this.isDispatching=!1}',
-      'finally{this.isDispatching=!1,this.__pwSnap=null}',
-      3,
+  },
+  {
+    // Ctrl+wheel zoom scaled by (1 - deltaY/100), tuned for trackpad pinches.
+    // A mouse wheel notch is deltaY 100, so zooming out went straight to the
+    // minimum and zooming in doubled per notch. Now: about 15% per notch,
+    // same in both directions, pinches still follow the fingers exactly, and
+    // the page eases to each new scale instead of jumping.
+    name: 'wheel zoom',
+    edits: [
+      [
+        'F=e=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault(),null===g?(d=c().currentZoomLevel,p=1,_(e.clientX,e.clientY)):clearTimeout(g);const t=1-.01*e.deltaY;p*=t,p=Math.max(.1,Math.min(10,p)),T(p),g=setTimeout(()=>{g=null,N(),p=1},150)}',
+        'F=(()=>{let __pwRaf=0;const __pwEase=()=>{const k=u+(p-u)*.4;Math.abs(p-k)<.001?(T(p),__pwRaf=0):(T(k),__pwRaf=requestAnimationFrame(__pwEase))};return e=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault(),null===g?(d=c().currentZoomLevel,p=1,_(e.clientX,e.clientY)):clearTimeout(g);const __pwDy=1===e.deltaMode?40*e.deltaY:2===e.deltaMode?800*e.deltaY:e.deltaY,t=Number.isInteger(__pwDy)?Math.exp(-.0015*__pwDy):Math.exp(-__pwDy/100);p*=t,p=Math.max(.1,Math.min(10,p)),__pwRaf||(__pwRaf=requestAnimationFrame(__pwEase)),g=setTimeout(()=>{cancelAnimationFrame(__pwRaf),__pwRaf=0,T(p),g=null,N(),p=1},200)}})()',
+        1,
+      ],
     ],
-    [
-      'addPluginReducer(e,t,n){',
-      'addPluginReducer(e,t,n){this.__pwSnap=null,',
-      1,
-    ],
-    [
-      'this.state.plugins={},this.state.core={...this.initialCoreState}',
-      'this.state.plugins={},this.state.core={...this.initialCoreState},this.__pwSnap=null',
-      1,
-    ],
-  ];
-  for (const [from, , count] of edits) {
-    if (code.split(from).length - 1 !== count) {
-      console.warn(
-        `[reskin] viewer store changed, performance patch skipped (${id})`
-      );
-      return null;
+  },
+];
+
+function patchViewer(code: string, id: string): string | null {
+  // PAPERWING_VIEWER_PATCHES=0 builds the viewer exactly as upstream ships it
+  if (process.env.PAPERWING_VIEWER_PATCHES === '0') return null;
+  let out = code;
+  let applied = 0;
+  for (const patch of VIEWER_PATCHES) {
+    const fits = patch.edits.every(
+      ([from, , count]) => out.split(from).length - 1 === count
+    );
+    if (!fits) {
+      // Only the bundle chunk that holds the viewer has these
+      if (patch.edits.some(([from]) => out.includes(from)))
+        console.warn(
+          `[reskin] viewer changed: "${patch.name}" patch skipped (${id})`
+        );
+      continue;
     }
+    out = patch.edits.reduce((c, [from, to]) => c.split(from).join(to), out);
+    applied++;
   }
-  return edits.reduce((c, [from, to]) => c.split(from).join(to), code);
+  return applied ? out : null;
 }
 
 export function reskinPlugin(): Plugin {
@@ -88,7 +123,7 @@ export function reskinPlugin(): Plugin {
 
     transform(code, id) {
       if (!id.replace(/\\/g, '/').includes('/bentopdf-viewer/dist/')) return;
-      const patched = patchViewerStore(code, id);
+      const patched = patchViewer(code, id);
       return patched ? { code: patched, map: null } : undefined;
     },
 
