@@ -12,8 +12,9 @@ untouched and adds three layers on top:
 | `src/reskin/`, `reskin/` | **Integration layer** — Acrobat-style light/dark theme for every tool page, frame embedding, a Vite plugin that injects it all at build time |
 | `desktop/`               | **Electron app** — window, `app://` protocol, file associations, native dialogs, packaging                                                   |
 
-The only upstream source file that Paperwing modifies is `vite.config.ts` (two lines registering
-`reskin/vite-plugin-reskin.ts`). This keeps merging new BentoPDF releases easy.
+Paperwing modifies upstream code as little as possible: `vite.config.ts` (two lines registering
+`reskin/vite-plugin-reskin.ts`) plus a few security fixes. Every change is listed in
+[UPSTREAM-PATCHES.md](UPSTREAM-PATCHES.md); check it when merging a new BentoPDF release.
 
 ## Prerequisites
 

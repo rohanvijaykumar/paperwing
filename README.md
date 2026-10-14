@@ -183,7 +183,8 @@ When you open a PDF, it appears in BentoPDF's viewer. When you pick a tool, Pape
 BentoPDF tool page beside the document and hands it your file. BentoPDF's code does the work on your
 computer, and Paperwing opens the result in a new tab or saves it where you choose.
 
-Apart from two lines in `vite.config.ts` that register Paperwing's build plugin, BentoPDF's code is
+Apart from two lines in `vite.config.ts` that register Paperwing's build plugin and a handful of
+security fixes (listed in [docs/UPSTREAM-PATCHES.md](docs/UPSTREAM-PATCHES.md)), BentoPDF's code is
 included unmodified, so new BentoPDF releases can be merged in directly.
 
 ## Build from source
