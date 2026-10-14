@@ -150,6 +150,11 @@ export class Viewer {
     (tabId: string, toolId: string | null) => void
   >();
   private changeListeners = new Set<(tabId: string) => void>();
+  /** The right-hand panel (comments, thumbnails, find…) opened or closed */
+  private sidebarListeners = new Set<(tabId: string) => void>();
+  private zoomListeners = new Set<(tabId: string) => void>();
+  /** Opened documents still waiting for their first layout to be zoomed */
+  private pendingZoom = new Set<string>();
 
   constructor(private host: HTMLElement) {}
 
@@ -188,9 +193,9 @@ export class Viewer {
         } else {
           this.docIds.set(tabId, doc.id);
           this.stripChrome(doc.id);
-          // Before the first layout, so the first page is drawn once, at the
-          // right size, instead of at the viewer's default and then again
-          this.applyDefaultZoom(tabId);
+          // The preferred zoom is applied once the first layout is ready
+          // (the viewer ignores zoom requests before it can measure pages)
+          this.pendingZoom.add(tabId);
         }
         this.settle(tabId);
       });
@@ -238,7 +243,16 @@ export class Viewer {
       // on the left, whatever the schema says: move them to the right
       ui.onSidebarChanged?.((e: { documentId?: string }) => {
         const ids = e?.documentId ? [e.documentId] : [...this.docIds.values()];
-        ids.forEach((id) => this.keepStylesRight(id));
+        ids.forEach((id) => {
+          this.keepStylesRight(id);
+          const tabId = this.tabFor(id);
+          if (tabId) this.sidebarListeners.forEach((fn) => fn(tabId));
+        });
+      });
+
+      this.cap('zoom').onZoomChange?.((e: { documentId?: string }) => {
+        const tabId = e?.documentId && this.tabFor(e.documentId);
+        if (tabId) this.zoomListeners.forEach((fn) => fn(tabId));
       });
 
       // Keep the viewer's own toolbars closed whenever it tries to show them
@@ -264,7 +278,9 @@ export class Viewer {
       });
       this.cap('scroll').onLayoutReady?.((e: any) => {
         const tabId = this.tabFor(e.documentId);
-        if (tabId) this.emitPage(tabId);
+        if (!tabId) return;
+        if (this.pendingZoom.delete(tabId)) this.applyDefaultZoom(tabId);
+        this.emitPage(tabId);
       });
     })();
     return this.ready;
@@ -503,6 +519,52 @@ export class Viewer {
       }
     }
     d.toggleSidebar(placement, slot, sidebarId, tab);
+  }
+
+  /** The open right-hand panel: its id and, for thumbnails/bookmarks, tab */
+  activePanel(tabId: string): { id: string; tab?: string } | null {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return null;
+    const d = this.cap('ui').forDocument(id);
+    const panel = d.getActiveSidebar('right', 'main');
+    if (!panel) return null;
+    return { id: panel, tab: d.getSidebarTab?.(panel) ?? undefined };
+  }
+
+  /** Close the right-hand panel */
+  closePanel(tabId: string) {
+    const id = this.docIds.get(tabId);
+    if (id) this.cap('ui').forDocument(id).closeSidebarSlot('right', 'main');
+  }
+
+  onPanel(fn: (tabId: string) => void): Unsub {
+    this.sidebarListeners.add(fn);
+    return () => this.sidebarListeners.delete(fn);
+  }
+
+  /** Current zoom as a scale (1 = 100%) */
+  zoom(tabId: string): number | null {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return null;
+    try {
+      const level = this.cap('zoom')
+        .forDocument(id)
+        .getState()?.currentZoomLevel;
+      return typeof level === 'number' ? level : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Zoom to a scale (1 = 100%) or a mode such as 'fit-page' */
+  setZoom(tabId: string, level: number | string) {
+    const id = this.docIds.get(tabId);
+    if (id) this.cap('zoom').forDocument(id).requestZoom(level);
+  }
+
+  onZoom(fn: (tabId: string) => void): Unsub {
+    this.zoomListeners.add(fn);
+    return () => this.zoomListeners.delete(fn);
   }
 
   /** Toggle the annotation styles panel (right sidebar) */

@@ -597,6 +597,16 @@ ipcMain.handle('paperwing:read-file', async (e, filePath) => {
   return data;
 });
 
+// Previews of recent files on Home: read-only, so (unlike read-file) this
+// doesn't make the file writable. Very large files get no preview.
+const PREVIEW_MAX_BYTES = 150 * 1024 * 1024;
+ipcMain.handle('paperwing:read-preview', async (e, filePath) => {
+  if (!senderIsApp(e) || !isPdfPath(filePath)) return null;
+  const { size } = await fsp.stat(filePath);
+  if (size > PREVIEW_MAX_BYTES) return null;
+  return fsp.readFile(filePath);
+});
+
 // "Save" back to a file the user opened
 ipcMain.handle('paperwing:write-file', async (e, filePath, data) => {
   if (!senderIsApp(e) || typeof filePath !== 'string') return false;

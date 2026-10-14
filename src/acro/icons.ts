@@ -40,6 +40,7 @@ import {
   SunMoon,
   Settings,
   Pin,
+  PanelRightClose,
   type IconNode,
 } from 'lucide';
 
@@ -83,6 +84,7 @@ const ICONS = {
   theme: SunMoon,
   settings: Settings,
   pin: Pin,
+  panelClose: PanelRightClose,
 } satisfies Record<string, IconNode>;
 
 export type IconName = keyof typeof ICONS;

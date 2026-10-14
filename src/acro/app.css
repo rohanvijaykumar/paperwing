@@ -519,12 +519,6 @@ button:disabled {
   color: var(--text);
   font-weight: 600;
 }
-.hn-head {
-  padding: 18px 12px 6px;
-  font-size: 14px;
-  font-weight: 700;
-}
-
 .home-main {
   position: relative;
   flex: 1;
@@ -654,7 +648,13 @@ body.is-dragging .drop-inner {
 }
 .view-toggle {
   display: flex;
+  align-items: center;
   gap: 2px;
+}
+#clear-recent {
+  height: 30px;
+  margin-right: 8px;
+  font-size: 13px;
 }
 .vt-btn {
   display: grid;
@@ -711,6 +711,16 @@ body.is-dragging .drop-inner {
   color: var(--brand);
   font-size: 9px;
   font-weight: 700;
+}
+/* First-page previews (see thumbnails.ts) */
+.rr-thumb {
+  width: 30px;
+  height: 38px;
+  object-fit: cover;
+  object-position: top;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: #fff;
 }
 .rr-name {
   display: flex;
@@ -771,7 +781,7 @@ body.is-dragging .drop-inner {
 .recent-list.is-grid .recent-row {
   position: relative;
   grid-template-columns: 1fr;
-  grid-template-rows: 130px auto auto;
+  grid-template-rows: 150px auto auto;
   gap: 2px;
   padding: 10px;
   border: 1px solid var(--border);
@@ -781,6 +791,21 @@ body.is-dragging .drop-inner {
   background: var(--canvas);
   border-radius: 6px;
   align-self: stretch;
+  overflow: hidden;
+  padding: 10px;
+}
+/* The page as a sheet of paper, whole and centred */
+.recent-list.is-grid .rr-thumb {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  /* the 150px preview row, less padding */
+  max-height: 130px;
+  border: none;
+  border-radius: 2px;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.08),
+    0 2px 6px rgb(0 0 0 / 0.18);
 }
 .recent-list.is-grid .pdf-glyph {
   width: 56px;
@@ -1100,6 +1125,53 @@ body.is-dragging .drop-inner {
   background: var(--hover);
   color: var(--text);
 }
+/* The open panel's button (pressing it again closes the panel) */
+.rr-btn.is-on {
+  background: var(--active);
+  color: var(--accent);
+}
+.rr-collapse {
+  margin-bottom: 4px;
+}
+.rr-collapse[hidden] {
+  display: none;
+}
+/* Current zoom; opens the zoom menu */
+.rr-zoom {
+  width: 40px;
+  height: 24px;
+  border-radius: 5px;
+  color: var(--text-2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.rr-zoom:hover,
+.rr-zoom.is-open {
+  background: var(--hover);
+  color: var(--text);
+}
+.zoom-custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 8px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.zoom-custom input {
+  width: 64px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.zoom-custom input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
 .rr-page {
   width: 32px;
   height: 26px;
@@ -1323,23 +1395,85 @@ body.is-dragging #drop-overlay {
   display: grid;
 }
 
-/* About dialog */
+/* About dialog: the launch screen's red card, with its flight path and
+   wing watermark, in both themes */
+.dlg.dlg-about {
+  position: relative;
+  overflow: hidden;
+  width: min(560px, calc(100vw - 32px));
+  color: #fff;
+  background:
+    radial-gradient(70% 90% at 85% 15%, #ff6b5e 0%, transparent 60%),
+    radial-gradient(60% 80% at 15% 100%, #5a0a1e 0%, transparent 60%),
+    linear-gradient(135deg, #e8283f 0%, #c8102e 55%, #7d0a24 100%);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.35);
+}
+.dlg-about .dlg-head {
+  position: relative;
+  z-index: 1;
+  justify-content: flex-end;
+  padding: 10px 10px 0;
+}
+/* The brand lockup is the title; keep it for screen readers */
+.dlg-about .dlg-head h2 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.dlg-about .dlg-head button {
+  color: #fff;
+}
+.dlg-about .dlg-head button:hover {
+  background: rgb(255 255 255 / 0.16);
+}
+.about {
+  padding: 0 28px 24px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.about-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.about > :not(.about-art) {
+  position: relative;
+}
 .about-brand {
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-bottom: 14px;
+  margin: -6px 0 18px;
 }
 .about-logo {
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
+  filter: drop-shadow(0 2px 6px rgb(0 0 0 / 0.25));
 }
 .about-name {
-  font-size: 20px;
+  font-size: 26px;
   font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.about-version {
+  opacity: 0.85;
+}
+.about p {
+  color: rgb(255 255 255 / 0.94);
+}
+.about-legal {
+  margin-top: 16px !important;
+  font-size: 12px;
+  opacity: 0.85;
 }
 .about a {
-  color: var(--accent);
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* ------------------------------------------------------------------ */

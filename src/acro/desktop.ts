@@ -15,6 +15,8 @@ interface DesktopBridge {
   setTheme(pref: 'system' | 'light' | 'dark'): Promise<void>;
   openDialog(): Promise<DesktopFile[]>;
   readFile(path: string): Promise<Uint8Array | null>;
+  /** Read a recent file for its Home preview (doesn't allow writing it) */
+  readPreview?(path: string): Promise<Uint8Array | null>;
   writeFile(path: string, data: Uint8Array): Promise<boolean>;
   saveAs(
     name: string,

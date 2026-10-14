@@ -16,6 +16,9 @@ export interface RecentFile {
   /** Path on disk (desktop app) */
   path?: string;
   data?: Blob;
+  /** First-page preview for Home (see thumbnails.ts) and when it was made */
+  thumb?: Blob;
+  thumbAt?: number;
 }
 
 const DB_NAME = 'bentopdf-desktop';
@@ -96,6 +99,8 @@ export async function rememberFile(
       handle,
       path,
       data: !handle && !path && file.size <= MAX_COPY_BYTES ? file : undefined,
+      thumb: existing?.thumb,
+      thumbAt: existing?.thumbAt,
     };
     await tx('readwrite', (s) => s.put(entry));
 
@@ -167,4 +172,25 @@ export async function reopenRecent(entry: RecentFile): Promise<{
     };
   }
   return null;
+}
+
+/** Store a first-page preview for an entry */
+export async function saveThumbnail(
+  id: string,
+  thumb: Blob,
+  thumbAt = Date.now()
+): Promise<void> {
+  await updateRecent(id, { thumb, thumbAt });
+}
+
+/** Forget an entry's preview (the file has changed) */
+export async function clearThumbnail(id: string): Promise<void> {
+  await updateRecent(id, { thumb: undefined, thumbAt: undefined });
+}
+
+/** Forget every recent file except starred ones; returns how many went */
+export async function clearRecent(): Promise<number> {
+  const gone = (await listRecent()).filter((r) => !r.starred);
+  for (const r of gone) await forgetRecent(r.id);
+  return gone.length;
 }

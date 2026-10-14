@@ -19,6 +19,7 @@ import {
   type ToolGroup,
 } from './catalog';
 import { OpenCancelled, Viewer, type PageInfo } from './viewer';
+import { Thumbnails, thumbUrl } from './thumbnails';
 import { desktop, isMac, key, toFile } from './desktop';
 import { checkForUpdates, scheduleUpdateCheck } from './updates';
 import {
@@ -44,6 +45,7 @@ import {
 } from '../reskin/theme';
 import { toolsOrigin } from '../reskin/origins';
 import {
+  clearRecent,
   forgetRecent,
   listRecent,
   rememberFile,
@@ -147,7 +149,7 @@ let closePopover: (() => void) | null = null;
 function showPopover(
   anchor: HTMLElement,
   content: HTMLElement,
-  placement: 'below' | 'right' = 'below'
+  placement: 'below' | 'right' | 'left' = 'below'
 ) {
   closePopover?.();
   const layer = $('#popover-layer');
@@ -155,7 +157,12 @@ function showPopover(
   layer.append(pop);
   const r = anchor.getBoundingClientRect();
   const pr = pop.getBoundingClientRect();
-  let left = placement === 'below' ? r.left : r.right + 6;
+  let left =
+    placement === 'below'
+      ? r.left
+      : placement === 'left'
+        ? r.left - pr.width - 6
+        : r.right + 6;
   let top = placement === 'below' ? r.bottom + 4 : r.top;
   left = Math.max(8, Math.min(left, innerWidth - pr.width - 8));
   top = Math.max(8, Math.min(top, innerHeight - pr.height - 8));
@@ -176,9 +183,12 @@ function showPopover(
     window.removeEventListener('blur', close);
     if (closePopover === close) closePopover = null;
   };
+  // Escape works at once, even pressed right after opening; outside clicks
+  // count from the next tick, so the click that opened it doesn't close it
+  document.addEventListener('keydown', onKey, true);
   setTimeout(() => {
+    if (closePopover !== close) return; // already closed
     document.addEventListener('pointerdown', onDown, true);
-    document.addEventListener('keydown', onKey, true);
     window.addEventListener('blur', close);
   });
   closePopover = close;
@@ -188,9 +198,11 @@ function showPopover(
 function showMenu(
   anchor: HTMLElement,
   items: MenuItem[],
-  placement?: 'below' | 'right'
+  placement?: 'below' | 'right' | 'left',
+  /** Shown above the items (e.g. an input) */
+  header?: HTMLElement
 ) {
-  const list = h('div', { class: 'menu', role: 'menu' });
+  const list = h('div', { class: 'menu', role: 'menu' }, header);
   for (const it of items) {
     if (it.divider) {
       list.append(h('div', { class: 'menu-div' }));
@@ -215,7 +227,7 @@ function showMenu(
       )
     );
   }
-  showPopover(anchor, list, placement);
+  return showPopover(anchor, list, placement);
 }
 
 function toast(
@@ -308,6 +320,16 @@ let activeId = 'home';
 let tabSeq = 0;
 
 const viewer = new Viewer($('#viewer-host'));
+/** Home's previews of recent files; made in the background only on Home */
+const thumbs = new Thumbnails(
+  () => activeId === 'home' && !document.hidden,
+  (id, url) => {
+    const cell = document.querySelector(
+      `#recent-list [data-id="${CSS.escape(id)}"] .rr-file`
+    );
+    cell?.replaceChildren(thumbImg(url));
+  }
+);
 const activeTab = () => tabs.find((t) => t.id === activeId);
 /** The active tab if it holds a document (not an empty workspace) */
 const activeDoc = () => {
@@ -1351,38 +1373,40 @@ function makeDraggable(el: HTMLElement, handle: HTMLElement) {
 
 function renderRightRail(tab: Tab) {
   const rail = $('#right-rail');
+  /** A rail button that opens a panel ("panel" or "panel:tab") */
+  const panelBtn = (
+    name: IconName,
+    label: string,
+    panel: string,
+    open: () => void
+  ) => {
+    const btn = iconBtn(name, label, open, 'rr-btn');
+    btn.dataset.panel = panel;
+    return btn;
+  };
   const top = h(
     'div',
     { class: 'rr-top' },
     iconBtn(
-      'comments',
-      'Comments',
-      () => viewer.toggleSidebar(tab.id, 'comment-panel'),
-      'rr-btn'
+      'panelClose',
+      'Hide panel',
+      () => viewer.closePanel(tab.id),
+      'rr-btn rr-collapse'
     ),
-    iconBtn(
-      'bookmark',
-      'Bookmarks',
-      () => viewer.toggleSidebar(tab.id, 'sidebar-panel', 'outline'),
-      'rr-btn'
+    panelBtn('comments', 'Comments', 'comment-panel', () =>
+      viewer.toggleSidebar(tab.id, 'comment-panel')
     ),
-    iconBtn(
-      'thumbnails',
-      'Page thumbnails',
-      () => viewer.toggleSidebar(tab.id, 'sidebar-panel', 'thumbnails'),
-      'rr-btn'
+    panelBtn('bookmark', 'Bookmarks', 'sidebar-panel:outline', () =>
+      viewer.toggleSidebar(tab.id, 'sidebar-panel', 'outline')
     ),
-    iconBtn(
-      'style',
-      'Annotation style',
-      () => viewer.toggleStyles(tab.id),
-      'rr-btn'
+    panelBtn('thumbnails', 'Page thumbnails', 'sidebar-panel:thumbnails', () =>
+      viewer.toggleSidebar(tab.id, 'sidebar-panel', 'thumbnails')
     ),
-    iconBtn(
-      'search',
-      'Find text',
-      () => viewer.command(tab.id, 'panel:toggle-search'),
-      'rr-btn'
+    panelBtn('style', 'Annotation style', 'annotation-panel', () =>
+      viewer.toggleStyles(tab.id)
+    ),
+    panelBtn('search', 'Find text', 'search-panel', () =>
+      viewer.command(tab.id, 'panel:toggle-search')
     )
   );
   const pageInput = h('input', {
@@ -1397,6 +1421,18 @@ function renderRightRail(tab: Tab) {
     if (n >= 1 && n <= tab.page.total) viewer.goToPage(tab.id, n);
     pageInput.blur();
   });
+  const zoomBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'rr-zoom',
+      title: `Zoom level (${key('Ctrl+Y')})`,
+      'aria-label': 'Zoom level',
+      onClick: (e: MouseEvent) =>
+        showZoomMenu(tab, e.currentTarget as HTMLElement),
+    },
+    zoomLabel(tab)
+  );
   const bottom = h(
     'div',
     { class: 'rr-bottom' },
@@ -1427,6 +1463,7 @@ function renderRightRail(tab: Tab) {
       () => viewer.command(tab.id, 'zoom:in'),
       'rr-btn'
     ),
+    zoomBtn,
     iconBtn(
       'zoomOut',
       'Zoom out',
@@ -1435,7 +1472,43 @@ function renderRightRail(tab: Tab) {
     )
   );
   rail.replaceChildren(top, bottom);
+  updateRailPanels(tab);
 }
+
+const zoomLabel = (tab: Tab) => {
+  const z = viewer.zoom(tab.id);
+  return z ? `${Math.round(z * 100)}%` : '–';
+};
+
+/** Highlight the rail button of the open panel (pressing it again closes
+ *  the panel), and show "Hide panel" while one is open */
+function updateRailPanels(tab: Tab) {
+  const open = viewer.activePanel(tab.id);
+  const keyOf = open && (open.tab ? `${open.id}:${open.tab}` : open.id);
+  document
+    .querySelectorAll<HTMLElement>('#right-rail [data-panel]')
+    .forEach((b) => {
+      const on =
+        !!open && (b.dataset.panel === keyOf || b.dataset.panel === open.id);
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+  const collapse = document.querySelector<HTMLElement>(
+    '#right-rail .rr-collapse'
+  );
+  if (collapse) collapse.hidden = !open;
+}
+
+viewer.onPanel((tabId) => {
+  const tab = activeTab();
+  if (tab?.id === tabId) updateRailPanels(tab);
+});
+
+viewer.onZoom((tabId) => {
+  const tab = activeTab();
+  const label = document.querySelector('#right-rail .rr-zoom');
+  if (tab?.id === tabId && label) label.textContent = zoomLabel(tab);
+});
 
 viewer.onPage((tabId, info) => {
   const tab = tabs.find((t) => t.id === tabId);
@@ -1468,6 +1541,8 @@ async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
     renderTabs();
     persistSession();
     toast(`Saved ${name}`);
+    // The first page may have changed: Home makes a new preview
+    if (tab.recentId) void thumbs.invalidate(tab.recentId);
     return true;
   };
 
@@ -1608,6 +1683,16 @@ async function openRecent(entry: RecentFile) {
   );
 }
 
+/** A recent file's first-page preview, or the PDF glyph until there is one */
+function fileThumb(entry: RecentFile): HTMLElement {
+  const url = thumbUrl(entry);
+  return url ? thumbImg(url) : h('span', { class: 'pdf-glyph' }, 'PDF');
+}
+
+function thumbImg(url: string): HTMLElement {
+  return h('img', { class: 'rr-thumb', src: url, alt: '', draggable: 'false' });
+}
+
 async function refreshRecent() {
   const q = $<HTMLInputElement>('#home-search').value.trim().toLowerCase();
   let items = await listRecent();
@@ -1617,6 +1702,9 @@ async function refreshRecent() {
 
   const list = $('#recent-list');
   list.classList.toggle('is-grid', homeLayout === 'grid');
+  // Starred files are kept, so there's only something to clear on Recent
+  $('#clear-recent').hidden =
+    homeTab !== 'recent' || !items.some((r) => !r.starred) || !!q;
   if (!items.length) {
     list.replaceChildren(
       h(
@@ -1663,10 +1751,11 @@ async function refreshRecent() {
         class: 'recent-row',
         role: 'button',
         tabindex: '0',
+        dataset: { id: r.id },
         onClick: () => openRecent(r),
         onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && openRecent(r),
       },
-      h('span', { class: 'rr-file' }, h('span', { class: 'pdf-glyph' }, 'PDF')),
+      h('span', { class: 'rr-file' }, fileThumb(r)),
       h(
         'span',
         { class: 'rr-name' },
@@ -1679,6 +1768,7 @@ async function refreshRecent() {
     );
   });
 
+  thumbs.fill(items);
   list.replaceChildren(
     h(
       'div',
@@ -1712,9 +1802,23 @@ document.querySelectorAll<HTMLButtonElement>('[data-layout]').forEach((b) =>
   })
 );
 $('#home-search').addEventListener('input', () => void refreshRecent());
+$('#clear-recent').addEventListener('click', async () => {
+  const choice = await askDialog(
+    'Clear recent files?',
+    "They're removed from this list only, not from your computer. Starred files stay.",
+    [
+      { label: 'Cancel', value: false, kind: 'quiet' },
+      { label: 'Clear', value: true, kind: 'primary' },
+    ],
+    false
+  );
+  if (!choice) return;
+  const n = await clearRecent();
+  void refreshRecent();
+  toast(n === 1 ? 'Cleared 1 recent file' : `Cleared ${n} recent files`);
+});
 $('#home-select').addEventListener('click', openFromDialog);
 $('#doc-empty-open').addEventListener('click', openFromDialog);
-$('#open-computer').addEventListener('click', openFromDialog);
 $('#see-all-tools').addEventListener('click', () => showToolsSidebar());
 
 /* ------------------------------------------------------------------ */
@@ -1902,7 +2006,12 @@ function showThemeMenu(anchor: HTMLElement) {
 }
 
 /** Modal with a close button; Escape or a click outside closes it too */
-function dialog(title: string, body: Node): () => void {
+function dialog(
+  title: string,
+  body: Node,
+  /** Extra class for the dialog box (its own look, like About) */
+  className?: string
+): () => void {
   const backdrop = h('div', { class: 'dlg-backdrop' });
   const close = () => {
     backdrop.remove();
@@ -1918,7 +2027,11 @@ function dialog(title: string, body: Node): () => void {
   backdrop.append(
     h(
       'div',
-      { class: 'dlg', role: 'dialog', 'aria-label': title },
+      {
+        class: className ? `dlg ${className}` : 'dlg',
+        role: 'dialog',
+        'aria-label': title,
+      },
       h(
         'div',
         { class: 'dlg-head' },
@@ -1939,11 +2052,28 @@ function dialog(title: string, body: Node): () => void {
 function showAbout() {
   const link = (href: string, text: string) =>
     h('a', { href, target: '_blank', rel: 'noopener' }, text);
+  // The launch-screen look: the flight path and a faint wing behind the text
+  const art = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  art.setAttribute('class', 'about-art');
+  art.setAttribute('viewBox', '0 0 560 360');
+  art.setAttribute('preserveAspectRatio', 'none');
+  art.setAttribute('aria-hidden', 'true');
+  art.innerHTML = `
+    <path d="M-20 300 C 120 250, 260 330, 400 210 S 600 80, 620 60" fill="none"
+      stroke="rgb(255 255 255 / 0.22)" stroke-width="2" stroke-dasharray="2 10" stroke-linecap="round" />
+    <path d="M-20 340 C 160 300, 300 360, 440 250 S 600 140, 620 120" fill="none"
+      stroke="rgb(255 255 255 / 0.12)" stroke-width="2" stroke-dasharray="2 10" stroke-linecap="round" />
+    <g transform="translate(330 40) scale(0.36)" opacity="0.16">
+      <polygon points="322,248 452,248 452,806 322,740" fill="#fff" />
+      <polygon points="452,248 772,398 452,414" fill="#fff" />
+      <polygon points="452,414 772,398 452,586" fill="#fff" />
+    </g>`;
   dialog(
     'About Paperwing',
     h(
       'div',
       { class: 'dlg-body about' },
+      art,
       h(
         'div',
         { class: 'about-brand' },
@@ -1952,7 +2082,11 @@ function showAbout() {
           'div',
           {},
           h('div', { class: 'about-name' }, 'Paperwing'),
-          h('div', { class: 'muted' }, `Version ${__PAPERWING_VERSION__}`)
+          h(
+            'div',
+            { class: 'about-version' },
+            `Version ${__PAPERWING_VERSION__}`
+          )
         )
       ),
       h(
@@ -1969,13 +2103,14 @@ function showAbout() {
       ),
       h(
         'p',
-        { class: 'muted' },
+        { class: 'about-legal' },
         'Licensed under the GNU AGPL-3.0. ',
         link(REPO_URL, 'Source code'),
         ' · ',
         link(`${REPO_URL}/blob/main/NOTICE.md`, 'Third-party notices')
       )
-    )
+    ),
+    'dlg-about'
   );
 }
 
@@ -2337,28 +2472,55 @@ document.addEventListener('fullscreenchange', () => {
 
 function showZoomMenu(
   doc: Tab,
-  anchor: HTMLElement = $('#right-rail .rr-bottom') ?? $('#find-btn')
+  anchor: HTMLElement = $('#right-rail .rr-zoom') ?? $('#find-btn')
 ) {
-  const level = (label: string, command: string): MenuItem => ({
+  const level = (label: string, zoom: number | string): MenuItem => ({
     label,
-    onClick: () => viewer.command(doc.id, command),
+    onClick: () => viewer.setZoom(doc.id, zoom),
+  });
+  // Or type any percentage
+  const current = viewer.zoom(doc.id);
+  const input = h('input', {
+    type: 'text',
+    inputmode: 'numeric',
+    value: current ? String(Math.round(current * 100)) : '',
+    'aria-label': 'Zoom percentage',
+    spellcheck: 'false',
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const pct = parseFloat(input.value.replace('%', ''));
+    if (!Number.isFinite(pct)) return;
+    closePopover?.();
+    viewer.setZoom(doc.id, Math.min(6000, Math.max(20, pct)) / 100);
   });
   showMenu(
     anchor,
     [
-      level('Fit page', 'zoom:fit-page'),
-      level('Fit width', 'zoom:fit-width'),
+      level('Fit page', 'fit-page'),
+      level('Fit width', 'fit-width'),
       { divider: true },
-      level('25%', 'zoom:25'),
-      level('50%', 'zoom:50'),
-      level('100% (actual size)', 'zoom:100'),
-      level('125%', 'zoom:125'),
-      level('150%', 'zoom:150'),
-      level('200%', 'zoom:200'),
-      level('400%', 'zoom:400'),
+      level('50%', 0.5),
+      level('75%', 0.75),
+      level('100% (actual size)', 1),
+      level('125%', 1.25),
+      level('150%', 1.5),
+      level('200%', 2),
+      level('300%', 3),
+      level('400%', 4),
     ],
-    'right'
+    anchor.closest('#right-rail') ? 'left' : 'below',
+    h(
+      'label',
+      { class: 'zoom-custom' },
+      h('span', {}, 'Zoom'),
+      input,
+      h('span', {}, '%')
+    )
   );
+  input.focus();
+  input.select();
 }
 
 /* Document properties (Ctrl+D) ----------------------------------------- */

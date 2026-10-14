@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('paperwing', {
   setTheme: (pref) => ipcRenderer.invoke('paperwing:set-theme', pref),
   openDialog: () => ipcRenderer.invoke('paperwing:open-dialog'),
   readFile: (path) => ipcRenderer.invoke('paperwing:read-file', path),
+  readPreview: (path) => ipcRenderer.invoke('paperwing:read-preview', path),
   writeFile: (path, data) =>
     ipcRenderer.invoke('paperwing:write-file', path, data),
   saveAs: (name, data) => ipcRenderer.invoke('paperwing:save-as', name, data),
