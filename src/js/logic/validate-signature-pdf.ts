@@ -783,18 +783,9 @@ async function performCryptoVerification(
     signedBytesForVerify = signedContent;
   }
 
-  if (scheme.kind === 'rsa-pkcs1') {
-    try {
-      const publicKey = signerCert.publicKey as forge.pki.rsa.PublicKey;
-      const md2 = createMd(fields.digestOid)!;
-      md2.update(uint8ToLatin1(signedBytesForVerify));
-      const ok = publicKey.verify(md2.digest().bytes(), signatureBytes);
-      if (ok) return { status: 'verified' };
-    } catch {
-      // fall through to Web Crypto
-    }
-  }
-
+  // RSA signatures are verified with Web Crypto only: node-forge's PKCS#1 v1.5
+  // verification accepts malformed DigestInfo structures (GHSA-86w9-cpqp-85rv),
+  // which would let a forged signature report as valid.
   const spkiDer = extractSpkiDer(p7);
   if (!spkiDer) {
     return {
