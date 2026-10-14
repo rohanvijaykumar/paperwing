@@ -72,7 +72,7 @@ async function openApp(scheme = 'light') {
     { name: 'prefers-color-scheme', value: scheme },
   ]);
   await page.goto(`${BASE}/app.html`, { waitUntil: 'domcontentloaded' });
-  await waitFor(page, () => !document.getElementById('splash'));
+  await waitFor(page, () => 'ready' in document.documentElement.dataset);
 }
 
 /** Drop a PDF onto the window like a user would, without waiting for it */

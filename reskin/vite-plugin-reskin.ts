@@ -14,6 +14,53 @@ import { resolve } from 'path';
 
 const APP_ENTRY = 'app.html';
 
+/**
+ * Performance fix for the EmbedPDF viewer (bentopdf-viewer): its store copies
+ * the whole state on every getState() call, and plugins call it constantly,
+ * once per listener on every state change. While scrolling a document that
+ * used half of the main thread's time. The snapshot is now built once per
+ * state change and shared until the next one. Returns the code unchanged
+ * (with a warning) if a viewer update has changed the store.
+ */
+function patchViewerStore(code: string, id: string): string | null {
+  const getState =
+    'return{core:{...this.state.core},plugins:{...this.state.plugins}}}';
+  if (!code.includes(getState)) return null;
+  const edits: [string, string, number][] = [
+    // Reuse one snapshot until the state changes...
+    [
+      getState,
+      `return this.__pwSnap??={core:{...this.state.core},plugins:{...this.state.plugins}}}`,
+      1,
+    ],
+    // ...which happens only in these places
+    [
+      'finally{this.isDispatching=!1}',
+      'finally{this.isDispatching=!1,this.__pwSnap=null}',
+      3,
+    ],
+    [
+      'addPluginReducer(e,t,n){',
+      'addPluginReducer(e,t,n){this.__pwSnap=null,',
+      1,
+    ],
+    [
+      'this.state.plugins={},this.state.core={...this.initialCoreState}',
+      'this.state.plugins={},this.state.core={...this.initialCoreState},this.__pwSnap=null',
+      1,
+    ],
+  ];
+  for (const [from, , count] of edits) {
+    if (code.split(from).length - 1 !== count) {
+      console.warn(
+        `[reskin] viewer store changed, performance patch skipped (${id})`
+      );
+      return null;
+    }
+  }
+  return edits.reduce((c, [from, to]) => c.split(from).join(to), code);
+}
+
 export function reskinPlugin(): Plugin {
   return {
     name: 'acrobat-reskin',
@@ -37,6 +84,12 @@ export function reskinPlugin(): Plugin {
           __PAPERWING_REPO__: JSON.stringify(desktopPkg.paperwing.repository),
         },
       };
+    },
+
+    transform(code, id) {
+      if (!id.replace(/\\/g, '/').includes('/bentopdf-viewer/dist/')) return;
+      const patched = patchViewerStore(code, id);
+      return patched ? { code: patched, map: null } : undefined;
     },
 
     transformIndexHtml: {

@@ -297,6 +297,8 @@ interface Tab {
   /** Incremented on every edit; compared with savedVersion for "unsaved" */
   version: number;
   savedVersion: number;
+  /** Restored from the last session: the document loads when first shown */
+  pending?: RecentFile;
 }
 
 const isDirty = (t: Tab) => t.version !== t.savedVersion;
@@ -422,7 +424,8 @@ function activate(id: string) {
 
   if (id === 'home') refreshRecent();
   if (tab) {
-    if (!tab.blank) void viewer.activate(tab.id);
+    if (tab.pending) void loadPending(tab);
+    else if (!tab.blank) void viewer.activate(tab.id);
     renderDocChrome(tab);
   }
   renderTabs();
@@ -533,8 +536,12 @@ async function openFromDialog() {
 }
 
 /** An already-open tab for the same file on disk, if any */
-async function findOpenTab(source: FileSource): Promise<Tab | undefined> {
+async function findOpenTab(
+  source: FileSource,
+  except?: Tab
+): Promise<Tab | undefined> {
   for (const t of tabs) {
+    if (t === except) continue;
     if (source.path && t.path === source.path) return t;
     if (
       source.handle &&
@@ -581,16 +588,16 @@ async function openDocument(
   file: File,
   source: FileSource = {},
   recentId?: string,
-  /** Load into this empty workspace instead of a new tab */
+  /** Load into this empty workspace (or restored tab) instead of a new tab */
   into?: Tab
 ) {
-  const existing = await findOpenTab(source);
+  const existing = await findOpenTab(source, into);
   if (existing) {
     activate(existing.id);
     return;
   }
   let tab: Tab;
-  if (into && into.blank && tabs.includes(into)) {
+  if (into && (into.blank || into.loading) && tabs.includes(into)) {
     tab = into;
     tab.blank = false;
     tab.loading = true;
@@ -605,7 +612,9 @@ async function openDocument(
   activate(id);
 
   try {
+    performance.mark('pw:open-start');
     await viewer.open(id, await file.arrayBuffer());
+    performance.mark('pw:doc-opened');
   } catch (err) {
     if (tabs.includes(tab)) {
       if (!(err instanceof OpenCancelled)) {
@@ -2244,30 +2253,57 @@ async function restoreSession() {
     saved = null;
   }
   if (!saved?.docs?.length) return;
+  // Tabs come back at once; only the one in front loads its document now,
+  // the rest when they're first shown (see loadPending)
   restoring = true;
+  const restored: Tab[] = [];
   try {
     const recent = await listRecent();
     for (const id of saved.docs) {
       const entry = recent.find((r) => r.id === id);
       // Files remembered only by browser handle need a click to re-grant access
       if (!entry || (!entry.path && !entry.data)) continue;
-      const got = await reopenRecent(entry).catch((): null => null);
-      if (got)
-        await openDocument(
-          got.file,
-          { handle: got.handle, path: got.path },
-          entry.id
-        );
+      // Already opened meanwhile (the file the OS launched us with)
+      if (entry.path && tabs.some((t) => t.path === entry.path)) continue;
+      const tab = createTab(entry.name, false);
+      tab.pending = entry;
+      tab.path = entry.path;
+      tab.recentId = entry.id;
+      tab.starred = entry.starred;
+      restored.push(tab);
     }
   } finally {
     restoring = false;
   }
-  const active = tabs.find((t) =>
-    launchPath ? t.path === launchPath : t.recentId === saved!.active
-  );
+  // The file the OS asked for stays in front; otherwise the last active one
+  const front = launchPath
+    ? tabs.find((t) => t.path === launchPath)
+    : (restored.find((t) => t.recentId === saved!.active) ?? restored.at(-1));
   launchPath = undefined;
-  if (active) activate(active.id);
+  if (front && (activeId === 'home' || front.id !== activeId))
+    activate(front.id);
+  else renderTabs();
   persistSession();
+}
+
+/** A tab restored from the last session loads its document on first view */
+async function loadPending(tab: Tab) {
+  const entry = tab.pending;
+  if (!entry) return;
+  tab.pending = undefined;
+  const got = await reopenRecent(entry).catch((): null => null);
+  if (!tabs.includes(tab)) return;
+  if (!got) {
+    toast(`${entry.name} is no longer available`);
+    closeTab(tab.id);
+    return;
+  }
+  await openDocument(
+    got.file,
+    { handle: got.handle, path: got.path },
+    entry.id,
+    tab
+  );
 }
 
 /* Read mode & full screen -------------------------------------------- */
@@ -2977,10 +3013,10 @@ void desktop?.setTheme(getThemePref());
 if (desktop) {
   document.body.classList.add('is-desktop', isMac ? 'is-mac' : 'is-win');
   desktop.onOpenFile((f) => {
+    performance.mark('pw:file-received');
     if (restoring) launchPath = f.path;
     void openDocument(toFile(f), { path: f.path });
   });
-  void desktop.ready();
   desktop.onMenuCommand?.((command) => {
     // Like shortcut keys, menu commands wait while a dialog is open
     if (document.querySelector('.dlg-backdrop')) return;
@@ -3029,24 +3065,11 @@ declare const __PAPERWING_REPO__: string;
 hydrateIcons();
 renderRecommended();
 activate('home');
+document.documentElement.dataset.ready = '';
+// The first screen is drawn: the desktop shell can show the window now, and
+// hands over any file the OS asked it to open
+void desktop?.ready();
 void restoreSession();
-
-// Dismiss the launch screen as soon as the UI is ready. It stays up for a
-// beat on very fast starts so it reads as a splash rather than a flicker.
-{
-  const splash = document.getElementById('splash');
-  const version = document.getElementById('sp-version');
-  if (version) version.textContent = `Version ${__PAPERWING_VERSION__}`;
-  const wait = Math.max(0, 900 - performance.now());
-  setTimeout(() => {
-    splash?.classList.add('is-done');
-    setTimeout(() => splash?.remove(), 300);
-    // Warm the PDF engine while the user looks at Home
-    const warm = (): void => void viewer.warmUp();
-    if ('requestIdleCallback' in window) {
-      window.requestIdleCallback(warm, { timeout: 2000 });
-    } else {
-      setTimeout(warm, 600);
-    }
-  }, wait);
-}
+// Start the PDF engine straight away (it compiles in a worker), so the first
+// document doesn't wait for it
+void viewer.warmUp();

@@ -70,6 +70,9 @@ function portableDataDir() {
 
 const portableDir = app.isPackaged ? portableDataDir() : null;
 if (portableDir) app.setPath('userData', portableDir);
+// Development and benchmarks: a throwaway profile instead of the real one
+if (!app.isPackaged && process.env.PAPERWING_USER_DATA)
+  app.setPath('userData', process.env.PAPERWING_USER_DATA);
 
 /* ------------------------------------------------------------------ */
 /* Single instance + files opened from the OS                          */
@@ -382,71 +385,19 @@ function registerProtocol() {
 /* ------------------------------------------------------------------ */
 
 const TITLEBAR_HEIGHT = 40;
+
 /**
- * The launch screen stays up this long (or until the app is ready, if that
- * takes longer). The main window loads hidden behind it, so it appears
- * fully drawn the moment the launch screen closes.
+ * The window is created hidden and shown once it has painted and the app has
+ * rendered its first screen, so it appears fully drawn, with no launch screen.
  */
-const SPLASH_MIN_MS = 2000;
+let windowPainted = false;
 
-let splashWindow = null;
-let splashShownAt = 0;
-let appReady = false;
-
-/** Small frameless launch window, shown alone while the app loads */
-function createSplash() {
-  splashWindow = new BrowserWindow({
-    width: 560,
-    height: 360,
-    frame: false,
-    resizable: false,
-    maximizable: false,
-    minimizable: false,
-    fullscreenable: false,
-    center: true,
-    show: false,
-    title: 'Paperwing',
-    // Opaque (transparent windows take noticeably longer to appear on Windows)
-    backgroundColor: '#c8102e',
-    roundedCorners: true,
-    webPreferences: {
-      sandbox: true,
-      contextIsolation: true,
-      spellcheck: false,
-    },
-  });
-  splashWindow.loadFile(path.join(__dirname, 'splash.html'), {
-    query: { v: app.getVersion() },
-  });
-  // Show as soon as it's parsed: 'ready-to-show' waits on the first paint,
-  // which the main window's start-up delays by half a second. The window's
-  // background matches the card, so there's no flash.
-  splashWindow.webContents.once('dom-ready', () => {
-    if (!splashWindow) return;
-    splashShownAt = Date.now();
-    splashWindow.show();
-    trace('launch screen shown');
-    if (appReady) revealMainWindow();
-  });
-  splashWindow.on('closed', () => {
-    splashWindow = null;
-  });
-}
-
-/** Swap the launch screen for the main window once the app is ready */
 function revealMainWindow() {
-  appReady = true;
   if (!mainWindow || mainWindow.isVisible()) return;
-  // Launch screen still loading: reveal once it has been seen briefly
-  if (splashWindow && !splashShownAt) return;
-  const wait = Math.max(0, SPLASH_MIN_MS - (Date.now() - splashShownAt));
-  setTimeout(() => {
-    if (!mainWindow || mainWindow.isVisible()) return;
-    mainWindow.show();
-    mainWindow.focus();
-    splashWindow?.close();
-    trace('main window shown');
-  }, wait);
+  if (!windowPainted || !rendererReady) return;
+  mainWindow.show();
+  mainWindow.focus();
+  trace('main window shown');
 }
 
 /** Title bar colours matching the app's light/dark chrome */
@@ -475,7 +426,7 @@ function createWindow() {
     height: 900,
     minWidth: 960,
     minHeight: 620,
-    // Hidden until loaded; the launch window is shown meanwhile
+    // Hidden until the first screen is drawn (see revealMainWindow)
     show: false,
     title: 'Paperwing',
     backgroundColor: chromeColors().color,
@@ -533,12 +484,20 @@ function createWindow() {
   });
 
   mainWindow.webContents.once('dom-ready', () => trace('app.html parsed'));
-  mainWindow.loadURL(`${ORIGIN}/app.html`);
-  // Safety net: never leave the user with only the launch screen
-  setTimeout(() => {
-    splashShownAt ||= 1;
+  windowPainted = false;
+  mainWindow.once('ready-to-show', () => {
+    windowPainted = true;
+    trace('first paint');
     revealMainWindow();
-  }, 12000);
+  });
+  mainWindow.loadURL(`${ORIGIN}/app.html`);
+  // Safety net: show the window even if the page never reports ready
+  const win = mainWindow;
+  setTimeout(() => {
+    if (win.isDestroyed() || win.isVisible()) return;
+    win.show();
+    trace('main window shown (timeout)');
+  }, 6000);
 }
 
 /** "app://host/…" or "blob:app://host/…" -> "host", otherwise null */
@@ -804,7 +763,6 @@ function buildMenu() {
 
 app.whenReady().then(() => {
   trace('electron ready');
-  createSplash();
   registerProtocol();
   buildMenu();
 
@@ -814,6 +772,17 @@ app.whenReady().then(() => {
       defaultPath: path.join(app.getPath('downloads'), item.getFilename()),
     });
   });
+
+  // PAPERWING_TRACE=1 also lists every request that leaves the machine
+  if (process.env.PAPERWING_TRACE) {
+    session.defaultSession.webRequest.onBeforeRequest(
+      { urls: ['http://*/*', 'https://*/*'] },
+      (details, callback) => {
+        trace(`network ${details.method} ${details.url}`);
+        callback({});
+      }
+    );
+  }
 
   // Nothing in Paperwing needs the camera, location, notifications etc.
   const allowed = new Set([

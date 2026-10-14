@@ -5,6 +5,7 @@
  */
 import type { EmbedPdfContainer, PluginRegistry } from 'bentopdf-viewer';
 import { editorFontFallback } from '../js/config/editor-fonts.js';
+import notoSansUrl from './fonts/NotoSans-Regular.ttf?url';
 import { getThemePref, onThemeChange } from '../reskin/theme';
 import { getPrefs } from './prefs';
 
@@ -76,6 +77,26 @@ function viewerTheme() {
 
 const wasmUrl = new URL('bentopdf-pdfium/editcore.wasm', import.meta.url).href;
 
+/**
+ * Fallback fonts for text in fonts a PDF doesn't embed (which is most PDFs).
+ * The Latin font ships with the app, so opening a document never needs the
+ * network; other scripts still come from the CDN the first time they're needed.
+ */
+const fontFallback = (() => {
+  const latin = editorFontFallback.defaultFont;
+  const local = (font: string) => (font === latin ? notoSansUrl : font);
+  return {
+    ...editorFontFallback,
+    fonts: Object.fromEntries(
+      Object.entries(editorFontFallback.fonts).map(([charset, font]) => [
+        charset,
+        local(font),
+      ])
+    ),
+    defaultFont: notoSansUrl,
+  };
+})();
+
 type Unsub = () => void;
 // The plugin capabilities are loosely typed in the published d.ts; keep the
 // surface we use small and explicit.
@@ -138,13 +159,14 @@ export class Viewer {
 
   private init(): Promise<void> {
     this.ready ??= (async () => {
+      performance.mark('pw:engine-start');
       const { default: EmbedPDF } = await import('bentopdf-viewer');
       this.container = EmbedPDF.init({
         type: 'container',
         target: this.host,
         worker: true,
         wasmUrl,
-        fontFallback: editorFontFallback,
+        fontFallback,
         tabBar: 'never',
         documentManager: { maxDocuments: 50 },
         theme: viewerTheme(),
@@ -154,6 +176,7 @@ export class Viewer {
         },
       } as any) as EmbedPdfContainer;
       this.registry = await (this.container as any).registry;
+      performance.mark('pw:engine-ready');
       onThemeChange(() => (this.container as any)?.setTheme?.(viewerTheme()));
 
       const dm = this.cap('document-manager');
@@ -165,6 +188,9 @@ export class Viewer {
         } else {
           this.docIds.set(tabId, doc.id);
           this.stripChrome(doc.id);
+          // Before the first layout, so the first page is drawn once, at the
+          // right size, instead of at the viewer's default and then again
+          this.applyDefaultZoom(tabId);
         }
         this.settle(tabId);
       });
@@ -289,6 +315,7 @@ export class Viewer {
   applyDefaultZoom(tabId: string) {
     const id = this.docIds.get(tabId);
     if (!id) return;
+    performance.mark('pw:zoom');
     let level: number | string = zoomLevel();
     if (level === 'automatic') {
       const info = this.docInfo(tabId);
@@ -299,16 +326,18 @@ export class Viewer {
           : 'fit-width';
     }
     this.cap('zoom').forDocument(id).requestZoom(level);
-    // Zooming keeps the centre in place; new documents should start at the top
+    // Zooming keeps the centre in place, which can leave a document zoomed in
+    // past its first page; new documents start at the top. (Only when needed:
+    // a scroll restarts the viewer's layout debounce and delays the first page.)
     setTimeout(() => {
       try {
-        this.cap('scroll')
-          .forDocument(id)
-          .scrollToPage({ pageNumber: 1, behavior: 'instant' });
+        const scroll = this.cap('scroll').forDocument(id);
+        if (scroll.getCurrentPage() !== 1)
+          scroll.scrollToPage({ pageNumber: 1, behavior: 'instant' });
       } catch {
         /* document closed meanwhile */
       }
-    }, 120);
+    });
   }
 
   /** Fires after every undoable edit in a document */
@@ -372,9 +401,6 @@ export class Viewer {
             this.settle(tabId, new Error(e.reason?.message ?? 'Open failed'))
         );
     });
-    // Apply the preferred zoom once the first page is laid out
-    if (this.docIds.has(tabId))
-      setTimeout(() => this.applyDefaultZoom(tabId), 60);
   }
 
   private async askPassword(tabId: string, docId: string, wrong: boolean) {
