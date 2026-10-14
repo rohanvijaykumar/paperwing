@@ -28,7 +28,11 @@ function walk(dir) {
       continue;
     }
     if (e.isDirectory()) walk(full);
-    else if (/\.(ts|js|mjs)$/.test(e.name) && !/\.test\.|\.d\.ts$/.test(e.name))
+    else if (
+      /\.(ts|js|mjs)$/.test(e.name) &&
+      !e.name.includes('.test.') &&
+      !e.name.endsWith('.d.ts')
+    )
       checkFile(full);
   }
 }

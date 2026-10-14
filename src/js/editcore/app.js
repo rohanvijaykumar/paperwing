@@ -200,7 +200,15 @@ const engineReady = new Promise((resolve) => {
   if (demo) {
     try {
       trace('fetching ' + demo);
-      const bytes = new Uint8Array(await (await fetch(demo)).arrayBuffer());
+      // Only same-origin demo files: a crafted link must not make the page
+      // fetch (and open) a document from an arbitrary server.
+      const demoUrl = new URL(demo, location.href);
+      if (demoUrl.origin !== location.origin) {
+        throw new Error('demo file must be same-origin');
+      }
+      const bytes = new Uint8Array(
+        await (await fetch(demoUrl.href)).arrayBuffer()
+      );
       trace('fetched ' + bytes.length);
       const file = new File([bytes], demo.split('/').pop() || 'demo.pdf', {
         type: 'application/pdf',

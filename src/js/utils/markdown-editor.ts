@@ -720,8 +720,13 @@ export class MarkdownEditor {
           wrapper.className = 'mermaid-diagram';
           // Mermaid already sanitizes SVG at securityLevel: 'strict' (including
           // foreignObject HTML labels). A second DOMPurify pass with the SVG-only
-          // profile strips those labels and leaves empty flowchart nodes.
-          wrapper.innerHTML = svg;
+          // profile strips those labels and leaves empty flowchart nodes, so
+          // re-sanitize with Mermaid's own strict settings instead.
+          wrapper.innerHTML = DOMPurify.sanitize(svg, {
+            ADD_TAGS: ['foreignobject'],
+            ADD_ATTR: ['dominant-baseline'],
+            HTML_INTEGRATION_POINTS: { foreignobject: true },
+          });
 
           pre.replaceWith(wrapper);
         } catch (error) {
