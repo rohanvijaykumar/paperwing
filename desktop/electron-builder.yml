@@ -10,7 +10,6 @@ directories:
 files:
   - main.cjs
   - preload.cjs
-  - splash.html
   - engines.json
   - package.json
 
@@ -33,6 +32,8 @@ extraResources:
 
 fileAssociations:
   - ext: pdf
+    # Also the Windows ProgID; build/installer.nsh refers to it. Don't rename:
+    # it would break Paperwing as the default PDF app for existing users.
     name: PDF Document
     description: PDF Document
     mimeType: application/pdf
@@ -66,6 +67,8 @@ nsis:
   shortcutName: Paperwing
   artifactName: ${productName}-Setup-${version}-x64.${ext}
   license: ../LICENSE
+  # Registers the File Explorer PDF thumbnail provider (see build/installer.nsh)
+  include: build/installer.nsh
 
 
 mac:

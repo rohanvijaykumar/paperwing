@@ -56,8 +56,15 @@ jobs:
         working-directory: desktop
         run: npm run build:web
 
+      - name: Build the File Explorer thumbnail provider
+        if: matrix.name == 'Windows'
+        shell: pwsh
+        run: desktop/native/win-thumbnails/build.ps1 -Test
+
       - name: Package desktop app
         working-directory: desktop
+        env:
+          PAPERWING_REQUIRE_THUMBNAILS: ${{ matrix.name == 'Windows' && '1' || '' }}
         run: npx electron-builder ${{ matrix.target }} --publish never
 
       - name: Upload artifacts

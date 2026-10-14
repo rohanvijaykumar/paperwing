@@ -1,0 +1,4 @@
+LIBRARY PaperwingThumbnails
+EXPORTS
+  DllGetClassObject PRIVATE
+  DllCanUnloadNow PRIVATE

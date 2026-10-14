@@ -37,3 +37,15 @@ jobs:
 
       - name: Run tests
         run: npm run test:run
+
+  # The File Explorer thumbnail provider (desktop/native/win-thumbnails):
+  # builds it and renders real PDFs through it the way Explorer does
+  windows-thumbnails:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Build and test
+        shell: pwsh
+        run: desktop/native/win-thumbnails/build.ps1 -Test
