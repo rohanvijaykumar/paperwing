@@ -1,0 +1,20 @@
+# Desktop benchmarks
+
+Scripts that drive the real Electron app (unpackaged, serving `../dist`) with a
+throwaway profile, so they never touch your own recent files or settings.
+Build the web app first (`npm run build:web`). Windows open and close while
+they run.
+
+| Script                                                                   | Measures                                                                                                                                                                           |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `startup.mjs [runs]`                                                     | Time until the window is shown, plus renderer paint timings                                                                                                                        |
+| `interact.mjs <pdf> [runs] [session pdfs…]`                              | Launch with a file, opening while running, session restore, scrolling (frame times and unrendered area), jumping, Home, opening a tool. `BENCH_ONLY=open,scroll,…` picks scenarios |
+| `wheel-zoom.mjs <pdf>`                                                   | Ctrl+mouse-wheel zoom steps (pass/fail)                                                                                                                                            |
+| `profile.mjs <pdf>` / `profile-scroll.mjs <pdf>`                         | CPU profile (top functions) while opening / scrolling                                                                                                                              |
+| `network.mjs <pdf…>`                                                     | Every request that leaves the machine                                                                                                                                              |
+| `screens.mjs <out-dir> <pdf…>`                                           | Screenshots of the main screens                                                                                                                                                    |
+| `make-fixture.mjs <out> [pages]` / `make-scan-fixture.mjs <out> [pages]` | Heavy test PDFs (text and vector / scanned pages)                                                                                                                                  |
+
+Set `BENCH_TMP` to keep profiles and Chromium's temp files off the system drive.
+Timings vary with what else the machine is doing: compare medians over several
+runs, before and after a change.

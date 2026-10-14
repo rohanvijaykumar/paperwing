@@ -1,3 +1,5 @@
+// Lists every request that leaves the machine while the app starts and opens files:
+//   node bench/network.mjs <a.pdf> [b.pdf ...]
 import { launch, sleep } from './harness.mjs';
 const app = await launch();
 const lines = [];
