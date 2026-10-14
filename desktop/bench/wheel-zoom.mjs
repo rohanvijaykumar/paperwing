@@ -14,9 +14,11 @@ await sleep(3000);
 
 const zoom = () =>
   page.evaluate(() => {
+    // Through the viewer's zoom plugin, so it also measures older builds
     const v = window.__acro.viewer;
-    const id = [...v.docIds.keys()][0];
-    return Math.round(v.zoom(id) * 1000) / 10;
+    const id = [...v.docIds.values()][0];
+    const z = v.cap('zoom').forDocument(id).getState().currentZoomLevel;
+    return Math.round(z * 1000) / 10;
   });
 const box = await page.evaluate(() => {
   const r = document.querySelector('#viewer-host').getBoundingClientRect();

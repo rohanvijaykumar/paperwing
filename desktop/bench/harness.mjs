@@ -12,7 +12,8 @@ import puppeteer from 'puppeteer-core';
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
-export const DESKTOP = resolve(here, '..');
+/** The app to measure (BENCH_DESKTOP: another checkout's desktop folder) */
+export const DESKTOP = process.env.BENCH_DESKTOP || resolve(here, '..');
 const ELECTRON = require('electron');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
