@@ -10,7 +10,9 @@
  */
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
@@ -132,7 +134,11 @@ describe('Paperwing UI', () => {
     });
     page = await browser.newPage();
     await page.setViewport({ width: 1366, height: 860 });
-    page.on('dialog', (d) => d.dismiss());
+    // Native dialogs: reloading the app with an unsaved document asks
+    // "Leave site?" (leave); anything else is dismissed
+    page.on('dialog', (d) =>
+      (d.type() === 'beforeunload' ? d.accept() : d.dismiss()).catch(() => {})
+    );
     await page.goto(`${BASE}/app.html`);
     await page.evaluate(() => {
       localStorage.clear();
@@ -141,6 +147,9 @@ describe('Paperwing UI', () => {
   });
 
   after(async () => {
+    // Close the page without its "Leave site?" check (there may be an
+    // unsaved document open), then the browser
+    await page?.close({ runBeforeUnload: false }).catch(() => {});
     await browser?.close();
   });
 
@@ -521,5 +530,54 @@ describe('Paperwing UI', () => {
     await sleep(500);
     assert.equal(await page.$('.dlg-backdrop'), null, 'forged key ignored');
     assert.equal((await tabNames()).length, tabs, 'forged download ignored');
+  });
+  test('runs a tool on several files at once from Home', async () => {
+    await openApp('light');
+    // Pick files through an <input>, which the test can fill in
+    await page.evaluate(() => (window.showOpenFilePicker = undefined));
+    const second = join(tmpdir(), 'Second.pdf');
+    copyFileSync(SAMPLE, second);
+    await page.click('#home-btn');
+    await page.click('#see-all-tools');
+    await page.waitForSelector('.lp:not([hidden]) .lp-tool');
+    const [chooser] = await Promise.all([
+      page.waitForFileChooser(),
+      page.evaluate(() =>
+        [...document.querySelectorAll('.lp:not([hidden]) .lp-tool')]
+          .find((b) => b.textContent.includes('Compress'))
+          .click()
+      ),
+    ]);
+    await chooser.accept([SAMPLE, second]);
+    // Both files go to the tool; neither opens as a document
+    const frame = await page.waitForSelector(
+      '#left-panel .lp:not([hidden]) iframe'
+    );
+    const content = await frame.contentFrame();
+    await content.waitForFunction(
+      () => {
+        const text =
+          document.querySelector('#file-display-area')?.textContent ?? '';
+        return text.includes('sample.pdf') && text.includes('Second.pdf');
+      },
+      { timeout: 20000 }
+    );
+    const names = await tabNames();
+    assert.ok(
+      !names.includes('sample.pdf') && !names.includes('Second.pdf'),
+      `files not opened as tabs (${names.join(', ')})`
+    );
+    // One run makes one ZIP of both
+    await content.waitForSelector('#process-btn');
+    await content.click('#process-btn');
+    await waitFor(
+      page,
+      () =>
+        /compressed-pdfs\.zip/.test(
+          document.querySelector('#toasts')?.textContent ?? ''
+        ),
+      undefined,
+      60000
+    );
   });
 });

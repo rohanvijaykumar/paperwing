@@ -316,6 +316,9 @@ interface Tab {
   recoveryId?: string;
   /** Where the document is: page and zoom are remembered from here on */
   tracksView?: boolean;
+  /** Workspace running a tool on several files at once: each result opens
+   *  in a tab of its own and the tool stays */
+  batch?: boolean;
 }
 
 const isDirty = (t: Tab) => t.version !== t.savedVersion;
@@ -857,7 +860,7 @@ window.addEventListener('message', async (e: MessageEvent) => {
     if (isPdf({ name, type: blob.type })) {
       const file = new File([blob], name, { type: 'application/pdf' });
       const owner = tabs.find((t) => t.id === ft.owner);
-      if (owner?.blank) {
+      if (owner?.blank && !owner.batch) {
         // A workspace tool (Combine, Create PDF…) made its first document:
         // show it right there, with the tools sidebar.
         disposeFrameTool(owner.panelTool);
@@ -930,10 +933,30 @@ const STARTS_EMPTY = new Set([
 const startsEmpty = (tool: AppTool) =>
   isCreateTool(tool) || STARTS_EMPTY.has(tool.id);
 
-/** Ask for PDFs, open the first into the workspace, then run the tool on it */
+declare const __PAPERWING_MULTI_FILE_PAGES__: string[];
+const MULTI_FILE_PAGES = new Set(__PAPERWING_MULTI_FILE_PAGES__);
+
+/** A tool that works on several PDFs in one go (not the full-page editors) */
+const acceptsMany = (tool: AppTool) =>
+  !!tool.href &&
+  !tool.full &&
+  MULTI_FILE_PAGES.has(tool.href.split('/').pop() || '');
+
+/** Ask for PDFs, open the first into the workspace, then run the tool on it.
+ *  Picking several for a tool that takes many runs it on all of them. */
 async function pickThenRun(tab: Tab, tool: AppTool): Promise<boolean> {
   const picked = await pickFiles();
   if (!picked.length) return false;
+  // Several PDFs for a tool that takes many: run it on all of them at once
+  if (picked.length > 1 && acceptsMany(tool) && tab.blank) {
+    tab.batch = true;
+    mountTool(
+      tab,
+      tool,
+      picked.map((p) => p.file)
+    );
+    return true;
+  }
   const [first, ...rest] = picked;
   await openDocument(
     first.file,

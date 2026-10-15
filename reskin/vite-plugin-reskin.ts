@@ -9,10 +9,22 @@
  * No upstream page files are edited.
  */
 import type { Plugin } from 'vite';
-import { readFileSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 
 const APP_ENTRY = 'app.html';
+
+/** Tool pages whose file input takes several files (for batch runs) */
+function multiFilePages(root: string): string[] {
+  const dir = resolve(root, 'src', 'pages');
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.html'))
+    .filter((f) => {
+      const html = readFileSync(resolve(dir, f), 'utf8');
+      const input = /<input[^>]*id="file-input"[^>]*>/s.exec(html)?.[0];
+      return !!input && /\bmultiple\b/.test(input);
+    });
+}
 
 /**
  * Fixes for the EmbedPDF viewer (bentopdf-viewer), applied to its bundle at
@@ -120,6 +132,7 @@ export function reskinPlugin(): Plugin {
           __APP_VERSION__: JSON.stringify(version),
           __PAPERWING_VERSION__: JSON.stringify(desktopPkg.version),
           __PAPERWING_REPO__: JSON.stringify(desktopPkg.paperwing.repository),
+          __PAPERWING_MULTI_FILE_PAGES__: JSON.stringify(multiFilePages(root)),
         },
       };
     },

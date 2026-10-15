@@ -633,10 +633,14 @@ export class Viewer {
     }
   }
 
+  /** Jump straight to a page (scrolling there would render every page on
+   *  the way) */
   goToPage(tabId: string, page: number) {
     const id = this.docIds.get(tabId);
     if (!id) return;
-    this.cap('scroll').forDocument(id).scrollToPage({ pageNumber: page });
+    this.cap('scroll')
+      .forDocument(id)
+      .scrollToPage({ pageNumber: page, behavior: 'instant' });
   }
 
   /** Current document bytes, including annotations made in the viewer */
