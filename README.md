@@ -77,7 +77,11 @@ monthly bill. Every feature is free, and your files never leave your computer.
 - ⌨️ **Acrobat shortcuts** — including the single-key tool accelerators (H, V, S, U, D, X…), on by default
 - 🔎 **Command palette** — <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> finds any tool or command instantly
 - 📌 **Pin your tools** — pinned and recently used tools sit at the top of the tools panel
-- 💾 **Never lose work** — unsaved-change markers, save prompts on close, and session restore
+- 💾 **Never lose work** — unsaved-change markers, save prompts on close, session restore, and
+  recovery of documents a tool made but you hadn't saved yet if the app closes unexpectedly
+- 📍 **Pick up where you left off** — documents reopen at the page and zoom you left them at
+- 📚 **Batch tools** — run Compress, Flatten, PDF to Word and other tools on many files at once
+- 🔄 **Updates itself** (Windows installer): new versions download in the background
 - ↩️ **Reopen closed tab** — <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>, just like your browser
 - 🧪 **Non-destructive tools** — results open in a new tab; your original stays untouched until you save
 - 🗂️ **Native file dialogs** and real "Save" back to the original file
@@ -159,7 +163,9 @@ The full list is in **[docs/SHORTCUTS.md](docs/SHORTCUTS.md)** and inside the ap
 All PDF processing happens on your computer. Paperwing has no accounts, analytics or telemetry.
 The only network requests it makes are:
 
-- an optional, once-a-day check of this repository's GitHub Releases for updates (can be turned off in **Preferences**);
+- an optional, once-a-day check of this repository's GitHub Releases for updates (can be turned off in
+  **Preferences**). The Windows installer then downloads a new version itself and installs it when
+  you restart; the portable build and macOS show a notice with a link instead;
 - the **Word, Excel and PowerPoint → PDF** converters download the LibreOffice engine (about 75 MB,
   once) from this repository's GitHub Releases the first time you use them. It's left out of the
   installer to keep the download small, and it's checked against a SHA-256 hash before it's used;

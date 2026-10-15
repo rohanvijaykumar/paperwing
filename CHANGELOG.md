@@ -14,6 +14,13 @@ All notable changes to Paperwing are documented here. Paperwing follows
 - The open side panel's rail button is highlighted, pressing it again closes the panel, and a
   **Hide panel** button appears while one is open
 - **Clear recent** on Home (starred files stay)
+- Documents reopen at the page and zoom they were left at (a Preferences switch turns it off)
+- Right-click a recent file: Open, Show in File Explorer / Finder, Copy path, Compress, Combine
+  with other files, Star, Remove
+- Batch: starting a tool that takes many files (Compress, Flatten, Repair, PDF to Word, PDF/A…)
+  without a document and picking several PDFs runs it on all of them at once
+- The Windows installer updates itself: new versions download in the background and install on
+  restart (Restart now / Later) or on the next quit
 
 ### Changed
 
@@ -24,7 +31,12 @@ All notable changes to Paperwing are documented here. Paperwing follows
 - Scrolling uses a quarter of the CPU it did and stays at 60 fps on long and scanned documents
 - The Latin fallback font ships with the app, so opening a PDF never downloads one
 - About uses the launch screen's look; Home no longer has a **Your computer** entry (it only
-  opened the file dialog, like **Select a file**)
+  opened the file dialog, like **Select a file**) or a sidebar: Recent | Starred is the heading
+- Documents made by tools open as unsaved: closing asks Save / Don't save, they stay out of
+  Recent until saved, and a recovery copy brings them back after a crash. (Before, they were kept
+  as copies in the app's database, or not at all over 40 MB, and closing didn't warn.)
+- Files dropped onto the window open by their real path, like files from the Open dialog
+- Going to a page number jumps there instead of scrolling past every page
 
 ### Fixed
 
