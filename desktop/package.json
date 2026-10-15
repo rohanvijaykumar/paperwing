@@ -20,7 +20,8 @@
     "dist:linux": "node scripts/build-web.mjs && electron-builder --linux --publish never",
     "pack": "electron-builder --dir --publish never",
     "test:e2e": "node --test --test-concurrency=1 tests/e2e.test.mjs",
-    "docs:shortcuts": "node scripts/gen-shortcuts-doc.mjs"
+    "docs:shortcuts": "node scripts/gen-shortcuts-doc.mjs",
+    "docs:screenshots": "node scripts/gen-screenshots.mjs"
   },
   "devDependencies": {
     "electron": "44.7.0",

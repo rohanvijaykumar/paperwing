@@ -128,7 +128,7 @@ Yes, apart from the one-time engine downloads listed under [Privacy](#privacy).
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/home.png" alt="Home view with recommended tools and recent files" /><br /><sub><b>Home</b> — recent and starred files, recommended tools</sub></td>
+    <td width="50%"><img src="docs/screenshots/home.png" alt="Home view with recommended tools and page previews of recent files" /><br /><sub><b>Home</b> — recent and starred files with page previews</sub></td>
     <td width="50%"><img src="docs/screenshots/dark.png" alt="Document view in dark mode with the Edit panel" /><br /><sub><b>Dark mode</b> — follows your system automatically</sub></td>
   </tr>
   <tr>
