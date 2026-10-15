@@ -81,19 +81,23 @@ const wasmUrl = new URL('bentopdf-pdfium/editcore.wasm', import.meta.url).href;
  * Fallback fonts for text in fonts a PDF doesn't embed (which is most PDFs).
  * The Latin font ships with the app, so opening a document never needs the
  * network; other scripts still come from the CDN the first time they're needed.
+ *
+ * Every URL is absolute: the engine fetches fonts from a worker started from
+ * a blob: URL, where a path like /assets/... can't be resolved (the font then
+ * fails to load and PDFium crashes on the text that needed it). With no
+ * baseUrl the engine uses the URLs exactly as given.
  */
 const fontFallback = (() => {
-  const latin = editorFontFallback.defaultFont;
-  const local = (font: string) => (font === latin ? notoSansUrl : font);
+  const { baseUrl, fonts, defaultFont } = editorFontFallback;
+  const latin = new URL(notoSansUrl, location.href).href;
+  const absolute = (font: string) =>
+    font === defaultFont ? latin : `${baseUrl}/${font}`;
   return {
-    ...editorFontFallback,
+    baseUrl: '',
     fonts: Object.fromEntries(
-      Object.entries(editorFontFallback.fonts).map(([charset, font]) => [
-        charset,
-        local(font),
-      ])
+      Object.entries(fonts).map(([charset, font]) => [charset, absolute(font)])
     ),
-    defaultFont: notoSansUrl,
+    defaultFont: latin,
   };
 })();
 
@@ -105,6 +109,12 @@ type Cap = Record<string, any>;
 export interface PageInfo {
   current: number;
   total: number;
+}
+
+/** Where a document opens: a page and a zoom (1 = 100%) */
+export interface DocView {
+  page: number;
+  zoom: number;
 }
 
 /** PDFium's error code for a document that needs a password */
@@ -153,8 +163,11 @@ export class Viewer {
   /** The right-hand panel (comments, thumbnails, find…) opened or closed */
   private sidebarListeners = new Set<(tabId: string) => void>();
   private zoomListeners = new Set<(tabId: string) => void>();
-  /** Opened documents still waiting for their first layout to be zoomed */
-  private pendingZoom = new Set<string>();
+  /** Opened documents waiting for their first layout to get their zoom (and
+   *  page): the view they were left at, or null for the preferred zoom */
+  private pendingView = new Map<string, DocView | null>();
+  /** The view each document being opened should start at */
+  private startViews = new Map<string, DocView>();
 
   constructor(private host: HTMLElement) {}
 
@@ -193,9 +206,10 @@ export class Viewer {
         } else {
           this.docIds.set(tabId, doc.id);
           this.stripChrome(doc.id);
-          // The preferred zoom is applied once the first layout is ready
-          // (the viewer ignores zoom requests before it can measure pages)
-          this.pendingZoom.add(tabId);
+          // The view is applied once the first layout is ready (the viewer
+          // ignores zoom requests before it can measure pages)
+          this.pendingView.set(tabId, this.startViews.get(tabId) ?? null);
+          this.startViews.delete(tabId);
         }
         this.settle(tabId);
       });
@@ -279,7 +293,12 @@ export class Viewer {
       this.cap('scroll').onLayoutReady?.((e: any) => {
         const tabId = this.tabFor(e.documentId);
         if (!tabId) return;
-        if (this.pendingZoom.delete(tabId)) this.applyDefaultZoom(tabId);
+        if (this.pendingView.has(tabId)) {
+          const view = this.pendingView.get(tabId);
+          this.pendingView.delete(tabId);
+          if (view) this.applyView(tabId, view);
+          else this.applyDefaultZoom(tabId);
+        }
         this.emitPage(tabId);
       });
     })();
@@ -356,6 +375,25 @@ export class Viewer {
     });
   }
 
+  /** Reopen a document where it was left: its zoom, then its page */
+  private applyView(tabId: string, view: DocView) {
+    const id = this.docIds.get(tabId);
+    if (!id) return;
+    performance.mark('pw:zoom');
+    this.cap('zoom').forDocument(id).requestZoom(view.zoom);
+    // After the zoom has laid the pages out again
+    setTimeout(() => {
+      try {
+        const scroll = this.cap('scroll').forDocument(id);
+        const page = Math.min(Math.max(1, view.page), scroll.getTotalPages());
+        if (page > 1)
+          scroll.scrollToPage({ pageNumber: page, behavior: 'instant' });
+      } catch {
+        /* document closed meanwhile */
+      }
+    });
+  }
+
   /** Fires after every undoable edit in a document */
   onChange(fn: (tabId: string) => void): Unsub {
     this.changeListeners.add(fn);
@@ -398,8 +436,13 @@ export class Viewer {
 
   /** Resolves once the document is shown (or its tab was closed meanwhile);
    *  rejects if the file can't be opened. */
-  async open(tabId: string, buffer: ArrayBuffer): Promise<void> {
+  async open(
+    tabId: string,
+    buffer: ArrayBuffer,
+    view?: DocView
+  ): Promise<void> {
     await this.init();
+    if (view) this.startViews.set(tabId, view);
     const docId = `pw-${++this.seq}`;
     await new Promise<void>((resolve, reject) => {
       this.opening.set(tabId, { docId, resolve, reject });
