@@ -309,7 +309,8 @@ for (let run = 0; run < RUNS; run++) {
       const ready = new Promise((r) =>
         window.addEventListener(
           'message',
-          (e) => e.data?.type === 'acro:ready' && r(),
+          (e) =>
+            e.origin === 'app://tools' && e.data?.type === 'acro:ready' && r(),
           { once: false }
         )
       );

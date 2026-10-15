@@ -196,30 +196,11 @@ const engineReady = new Promise((resolve) => {
       }
     : () => {};
   trace('wired');
-  const demo = params.get('demo');
-  if (demo) {
-    try {
-      trace('fetching ' + demo);
-      // Only same-origin demo files: a crafted link must not make the page
-      // fetch (and open) a document from an arbitrary server.
-      const demoUrl = new URL(demo, location.href);
-      if (demoUrl.origin !== location.origin) {
-        throw new Error('demo file must be same-origin');
-      }
-      const bytes = new Uint8Array(
-        await (await fetch(demoUrl.href)).arrayBuffer()
-      );
-      trace('fetched ' + bytes.length);
-      const file = new File([bytes], demo.split('/').pop() || 'demo.pdf', {
-        type: 'application/pdf',
-      });
-      await openFile(file, demo, bytes);
-      trace('opened');
-    } catch (e) {
-      trace('openfail ' + e.message);
-      toast('Demo load failed: ' + e.message);
-    }
-  }
+  // Paperwing: the ?demo=<file> loader is removed. Nothing uses it, and a page
+  // that fetches a URL taken from its own address invites request forgery
+  // (CodeQL js/client-side-request-forgery). The debug hooks below that need
+  // a demo document stay off.
+  const demo = null;
   const wantPage = parseInt(params.get('page') || '', 10);
   if (demo && wantPage >= 1) {
     try {
