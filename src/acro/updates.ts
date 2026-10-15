@@ -1,8 +1,12 @@
 /**
- * Update check against the project's GitHub Releases. Works for every
- * install type (installer, portable, zip, dmg): it only tells the user a new
- * version exists and opens the release page.
+ * Update check against the project's GitHub Releases.
+ *
+ * The Windows installer updates itself (desktop/main.cjs): the check starts
+ * a background download, and the app offers a restart once it's ready. Other
+ * builds (portable, macOS, the browser) are told a new version exists and
+ * can open the release page.
  */
+import { desktop } from './desktop';
 
 declare const __PAPERWING_VERSION__: string;
 declare const __PAPERWING_REPO__: string;
@@ -34,6 +38,20 @@ export async function checkForUpdates(
   toast: Toast,
   manual = false
 ): Promise<void> {
+  const auto = await desktop?.checkUpdate?.().catch((): null => null);
+  if (auto?.auto) {
+    markChecked();
+    if (!manual) return; // a downloaded update announces itself
+    if (auto.error) toast("Couldn't check for updates. Are you online?");
+    else if (auto.ready)
+      return; // its restart notice is showing
+    else if (auto.available)
+      toast(
+        `Downloading Paperwing ${auto.version}. You'll be asked to restart when it's ready.`
+      );
+    else toast(`You're up to date (version ${__PAPERWING_VERSION__})`);
+    return;
+  }
   try {
     const res = await fetch(
       `https://api.github.com/repos/${__PAPERWING_REPO__}/releases/latest`,
@@ -44,11 +62,7 @@ export async function checkForUpdates(
       tag_name: string;
       html_url: string;
     };
-    try {
-      localStorage.setItem(LAST_CHECK_KEY, String(Date.now()));
-    } catch {
-      /* storage unavailable */
-    }
+    markChecked();
     if (isNewer(release.tag_name, __PAPERWING_VERSION__)) {
       toast(`Paperwing ${release.tag_name.replace(/^v/, '')} is available`, {
         label: 'Download',
@@ -59,6 +73,14 @@ export async function checkForUpdates(
     }
   } catch {
     if (manual) toast("Couldn't check for updates. Are you online?");
+  }
+}
+
+function markChecked() {
+  try {
+    localStorage.setItem(LAST_CHECK_KEY, String(Date.now()));
+  } catch {
+    /* storage unavailable */
   }
 }
 

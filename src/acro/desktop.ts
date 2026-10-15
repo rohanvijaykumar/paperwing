@@ -23,6 +23,19 @@ interface DesktopBridge {
   allowPath?(path: string): Promise<boolean>;
   /** Show a file in File Explorer / Finder */
   showInFolder?(path: string): Promise<void>;
+  /** Self-updating install (Windows installer): auto is false otherwise */
+  checkUpdate?(): Promise<{
+    auto: boolean;
+    available?: boolean;
+    /** Downloaded already (the restart notice is shown again) */
+    ready?: boolean;
+    version?: string | null;
+    error?: string;
+  }>;
+  /** Quit and install the downloaded update, then restart */
+  installUpdate?(): Promise<boolean>;
+  /** A downloaded update is ready to install */
+  onUpdateReady?(callback: (info: { version: string }) => void): () => void;
   /** Recovery copies of unsaved documents (see main.cjs) */
   recovery?: {
     save(id: string, name: string, data: Uint8Array): Promise<boolean>;

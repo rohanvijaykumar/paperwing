@@ -256,6 +256,29 @@ function toast(
   setTimeout(() => el.remove(), 4600);
 }
 
+/** A downloaded update: stays until the user restarts or puts it off */
+function updateReadyToast(version: string) {
+  document.getElementById('update-toast')?.remove();
+  const el = h(
+    'div',
+    { class: 'toast', role: 'status', id: 'update-toast' },
+    h('span', {}, `Paperwing ${version} is ready to install`),
+    h(
+      'button',
+      {
+        type: 'button',
+        onClick: async () => {
+          el.remove();
+          if (await prepareToQuit()) void desktop?.installUpdate?.();
+        },
+      },
+      'Restart now'
+    ),
+    h('button', { type: 'button', onClick: () => el.remove() }, 'Later')
+  );
+  $('#toasts').append(el);
+}
+
 /** A toast that stays until closed, with text that can change in place */
 function statusToast(message: string) {
   const text = h('span', {}, message);
@@ -2594,19 +2617,26 @@ viewer.onChange((tabId) => {
 window.addEventListener('beforeunload', (e) => {
   if (!desktop && tabs.some(isDirty)) e.preventDefault();
 });
-// The tabs stay open on quit so the saved session can reopen them
+/** Before quitting (closing the window, or restarting for an update): deal
+ *  with unsaved documents, then save the session and where each document
+ *  is. False if the user cancelled. The tabs stay open so the saved session
+ *  can reopen them. */
+async function prepareToQuit(): Promise<boolean> {
+  if (!(await settleUnsaved())) return false;
+  persistSession();
+  await Promise.all(tabs.map(flushView));
+  // Saved documents dropped their recovery copies already; any left belong
+  // to documents the user chose not to save
+  await Promise.all(
+    tabs
+      .filter((t) => t.recoveryId)
+      .map((t) => desktop!.recovery?.delete(t.recoveryId!))
+  );
+  return true;
+}
+
 desktop?.onCloseRequested?.(async () => {
-  if (await settleUnsaved()) {
-    persistSession();
-    await Promise.all(tabs.map(flushView));
-    // Saved ones dropped theirs already; any left were discarded
-    await Promise.all(
-      tabs
-        .filter((t) => t.recoveryId)
-        .map((t) => desktop!.recovery?.delete(t.recoveryId!))
-    );
-    void desktop!.confirmClose();
-  }
+  if (await prepareToQuit()) void desktop!.confirmClose();
 });
 
 /* Session restore ------------------------------------------------------ */
@@ -3477,6 +3507,9 @@ if (desktop) {
     else engineStatus = statusToast(msg);
   });
   if (getPrefs().checkUpdates) scheduleUpdateCheck(toast);
+  // The Windows installer downloaded an update: offer to restart into it
+  // (it also installs on the next quit)
+  desktop.onUpdateReady?.(({ version }) => updateReadyToast(version));
 }
 
 declare const __APP_VERSION__: string;

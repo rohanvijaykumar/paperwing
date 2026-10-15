@@ -15,6 +15,13 @@ contextBridge.exposeInMainWorld('paperwing', {
   pathForFile: (file) => webUtils.getPathForFile(file),
   allowPath: (path) => ipcRenderer.invoke('paperwing:allow-path', path),
   showInFolder: (path) => ipcRenderer.invoke('paperwing:show-in-folder', path),
+  checkUpdate: () => ipcRenderer.invoke('paperwing:update-check'),
+  installUpdate: () => ipcRenderer.invoke('paperwing:update-install'),
+  onUpdateReady: (callback) => {
+    const listener = (_e, info) => callback(info);
+    ipcRenderer.on('paperwing:update-ready', listener);
+    return () => ipcRenderer.removeListener('paperwing:update-ready', listener);
+  },
   recovery: {
     save: (id, name, data) =>
       ipcRenderer.invoke('paperwing:recovery-save', id, name, data),

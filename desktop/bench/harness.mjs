@@ -31,6 +31,7 @@ let port = 9400;
 export async function launch({
   profile,
   args = [],
+  env = {},
   waitFor = 'main window shown',
 } = {}) {
   const userData = profile ?? mkdtempSync(join(TMP_ROOT, 'pw-bench-'));
@@ -48,6 +49,7 @@ export async function launch({
       cwd: DESKTOP,
       env: {
         ...process.env,
+        ...env,
         PAPERWING_TRACE: '1',
         PAPERWING_USER_DATA: userData,
         TEMP: TMP_ROOT,

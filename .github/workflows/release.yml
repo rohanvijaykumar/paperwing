@@ -76,6 +76,8 @@ jobs:
             desktop/release/*.exe
             desktop/release/*.zip
             desktop/release/*.dmg
+            desktop/release/latest*.yml
+            desktop/release/*.blockmap
 
   # LibreOffice (~77 MB) isn't in the installers; the app downloads it the
   # first time an Office -> PDF tool is used. Publish it once per engine

@@ -732,6 +732,89 @@ async function pruneRecovery() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Updates                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The Windows installer updates itself (electron-updater, from this
+ * project's GitHub Releases): a new version downloads in the background and
+ * installs when the user restarts from the notice, or quits. The portable
+ * build and macOS (which only allows this for signed apps) get the page's
+ * "new version available" notice instead (src/acro/updates.ts).
+ */
+// Development: PAPERWING_UPDATE_TEST_FEED points the updater at a local test
+// feed (bench/check-update.mjs); it never installs anything in that mode
+const updateTestFeed =
+  !app.isPackaged && process.env.PAPERWING_UPDATE_TEST_FEED;
+const canAutoUpdate =
+  (app.isPackaged && process.platform === 'win32' && !portableDir) ||
+  !!updateTestFeed;
+let updater = null;
+let updateReady = null;
+
+function getUpdater() {
+  if (updater) return updater;
+  ({ autoUpdater: updater } = require('electron-updater'));
+  updater.autoDownload = true;
+  updater.autoInstallOnAppQuit = true;
+  if (updateTestFeed) {
+    // Stands in for the app-update.yml a packaged app has
+    const config = path.join(app.getPath('userData'), 'dev-app-update.yml');
+    fs.writeFileSync(
+      config,
+      `provider: generic
+url: ${updateTestFeed}
+updaterCacheDirName: paperwing-updater-test
+`
+    );
+    updater.updateConfigPath = config;
+    updater.forceDevUpdateConfig = true;
+    updater.autoInstallOnAppQuit = false;
+  }
+  updater.logger = {
+    info: (m) => trace(`update: ${m}`),
+    warn: (m) => console.warn('[update]', m),
+    error: (m) => console.error('[update]', m),
+    debug: () => {},
+  };
+  updater.on('update-downloaded', (info) => {
+    updateReady = { version: info.version };
+    mainWindow?.webContents.send('paperwing:update-ready', updateReady);
+  });
+  updater.on('error', (err) => console.warn('[update]', err?.message ?? err));
+  return updater;
+}
+
+// The page runs the once-a-day check and Help ▸ Check for updates
+ipcMain.handle('paperwing:update-check', async (e) => {
+  if (!senderIsApp(e) || !canAutoUpdate) return { auto: false };
+  if (updateReady) {
+    // Already downloaded: offer the restart again
+    mainWindow?.webContents.send('paperwing:update-ready', updateReady);
+    return { auto: true, available: true, ready: true, ...updateReady };
+  }
+  try {
+    const result = await getUpdater().checkForUpdates();
+    // A failed download is reported through the 'error' event
+    result?.downloadPromise?.catch(() => {});
+    const version = result?.updateInfo?.version ?? null;
+    return { auto: true, available: !!result?.isUpdateAvailable, version };
+  } catch (err) {
+    return { auto: true, error: String(err?.message ?? err) };
+  }
+});
+
+// "Restart now" (the page has dealt with unsaved documents first)
+ipcMain.handle('paperwing:update-install', (e) => {
+  if (!senderIsApp(e) || !updater || !updateReady || updateTestFeed)
+    return false;
+  allowClose = true;
+  // Silent install, then start the new version
+  updater.quitAndInstall(true, true);
+  return true;
+});
+
+/* ------------------------------------------------------------------ */
 /* Menu                                                                */
 /* ------------------------------------------------------------------ */
 

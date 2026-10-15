@@ -41,6 +41,13 @@ fileAssociations:
 
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
+# Where the Windows installer looks for updates (electron-updater). The
+# release workflow attaches latest.yml and the blockmaps to each release.
+publish:
+  - provider: github
+    owner: rohanvijaykumar
+    repo: paperwing
+
 # Keep the download small: English UI strings only, best compression, and
 # drop Chromium components Paperwing never uses (see scripts/after-pack.cjs).
 electronLanguages: [en-US, en]
@@ -69,7 +76,6 @@ nsis:
   license: ../LICENSE
   # Registers the File Explorer PDF thumbnail provider (see build/installer.nsh)
   include: build/installer.nsh
-
 
 mac:
   icon: build/icon.png
