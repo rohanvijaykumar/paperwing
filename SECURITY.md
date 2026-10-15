@@ -35,3 +35,7 @@ qpdf), we'll coordinate with the upstream maintainers.
 - Network access is limited to the optional update check and on-demand engine downloads described
   in the [README](README.md#privacy). Downloaded engine files are checked against SHA-256 hashes
   built into the app before they're used.
+- The Windows installer downloads updates over HTTPS from this repository's releases and checks
+  each one against the SHA-512 listed in the release before installing it. The builds aren't
+  code-signed yet, so that check guards against corrupted downloads, not against a compromised
+  release.

@@ -118,6 +118,12 @@ In GitHub Actions, add these as repository secrets and expose them as environmen
 The in-app update check compares against the latest _published_ release of the repository set in
 `desktop/package.json` → `paperwing.repository`.
 
+The Windows installer updates itself from the repository in `desktop/electron-builder.yml` →
+`publish`, using the release's `latest.yml` and `.blockmap` assets, so keep those attached. Drafts
+and pre-releases are invisible to it: installed copies start downloading only once a release is
+published as the latest one. Don't replace an installer after publishing; `latest.yml` holds its
+SHA-512, and a mismatch makes every update fail.
+
 ## Pulling in new BentoPDF versions
 
 ```bash
@@ -136,8 +142,9 @@ Paperwing also removed BentoPDF's web-hosting files (Docker, nginx, Helm chart, 
 Unraid configs, the air-gap bundle) and its documentation website. If upstream changed any of them,
 the merge reports a modify/delete conflict; resolve it by keeping them deleted:
 
-````bash
+```bash
 git status --short | grep '^DU' | cut -c4- | xargs git rm
-``` After merging, look over a few tool pages in both
-themes: new upstream markup may need a small addition to `src/reskin/reskin.css` or `apps.css`.
-````
+```
+
+After merging, look over a few tool pages in both themes: new upstream markup may need a small
+addition to `src/reskin/reskin.css` or `apps.css`.
