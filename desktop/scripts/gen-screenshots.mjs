@@ -261,40 +261,102 @@ const FRAME = {
     linear-gradient(#18181a, #131315)`,
 };
 
-/** Frames the workspace as a window and saves docs/screenshots/<name>.png */
-async function shot(p, name, theme = 'light') {
-  await p.mouse.move(W - 2, H - 2);
-  await sleep(300);
-  const png = Buffer.from(await p.screenshot()).toString('base64');
-  const frame = await browser.newPage();
-  await frame.setViewport({ width: 2400, height: 1590 });
-  await frame.setContent(`<!doctype html>
-    <style>
-      html, body { margin: 0; }
-      body { width: 2400px; height: 1590px; overflow: hidden; background: ${FRAME[theme]}; }
-      .win {
-        position: absolute; left: 120px; top: 120px; width: 2160px; height: 1350px;
-        border-radius: 18px; overflow: hidden;
-        box-shadow: 0 0 0 1px rgb(0 0 0 / ${theme === 'dark' ? 0.5 : 0.07}),
-          0 6px 14px rgb(24 16 40 / 0.14), 0 34px 80px rgb(24 16 40 / 0.3);
-      }
-      .win img { display: block; width: 2160px; height: 1350px; }
-      .dot { position: absolute; top: 21px; width: 18px; height: 18px; border-radius: 50%; }
-    </style>
-    <div class="win">
-      <img src="data:image/png;base64,${png}">
-      <i class="dot" style="left: 21px; background: #ff5f57"></i>
-      <i class="dot" style="left: 51px; background: #febc2e"></i>
-      <i class="dot" style="left: 81px; background: #28c840"></i>
-    </div>`);
-  await frame.evaluate(() => document.querySelector('img').decode());
-  await frame.screenshot({ path: join(OUT, `${name}.png`) });
-  await frame.close();
+/** The workspace as a 2160×1350 window, drawn at `s`× from (x, y) */
+function windowHtml(png, { x, y, s = 1, theme = 'light' }) {
+  const px = (n) => `${+(n * s).toFixed(2)}px`;
+  const dots = ['#ff5f57', '#febc2e', '#28c840']
+    .map(
+      (c, i) =>
+        `<i style="position: absolute; top: ${px(21)}; left: ${px(21 + i * 30)};
+          width: ${px(18)}; height: ${px(18)}; border-radius: 50%; background: ${c}"></i>`
+    )
+    .join('');
+  return `<div style="position: absolute; left: ${x}px; top: ${y}px;
+      width: ${px(2160)}; height: ${px(1350)}; border-radius: ${px(18)}; overflow: hidden;
+      box-shadow: 0 0 0 1px rgb(0 0 0 / ${theme === 'dark' ? 0.5 : 0.07}),
+        0 ${px(6)} ${px(14)} rgb(24 16 40 / 0.14), 0 ${px(34)} ${px(80)} rgb(24 16 40 / 0.3)">
+    <img src="data:image/png;base64,${png}" style="display: block; width: 100%; height: 100%">
+    ${dots}
+  </div>`;
+}
+
+async function render(name, width, height, body) {
+  const page = await browser.newPage();
+  await page.setViewport({ width, height });
+  await page.setContent(`<!doctype html>
+    <style>html, body { margin: 0; } body { width: ${width}px; height: ${height}px;
+      overflow: hidden; position: relative; }</style>${body}`);
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await Promise.all([...document.images].map((i) => i.decode()));
+  });
+  await page.screenshot({ path: join(OUT, `${name}.png`) });
+  await page.close();
   console.log('saved', `docs/screenshots/${name}.png`);
 }
 
+/** The workspace as it is now (PNG, base64), with the pointer out of the way */
+async function capture(p) {
+  await p.mouse.move(W - 2, H - 2);
+  await sleep(300);
+  return Buffer.from(await p.screenshot()).toString('base64');
+}
+
+/** Frames the workspace as a window and saves docs/screenshots/<name>.png */
+async function shot(p, name, theme = 'light') {
+  const png = await capture(p);
+  await render(
+    name,
+    2400,
+    1590,
+    `<div style="position: absolute; inset: 0; background: ${FRAME[theme]}"></div>
+    ${windowHtml(png, { x: 120, y: 120, theme })}`
+  );
+  return png;
+}
+
+/** The repository's social image (1280×640): name and tagline beside the window */
+async function socialPreview(png) {
+  const data = (file) => readFileSync(file).toString('base64');
+  const font = (
+    weight
+  ) => `@font-face { font-family: 'Source Sans 3'; font-weight: ${weight};
+    src: url(data:font/woff2;base64,${data(
+      resolve(
+        here,
+        '..',
+        '..',
+        'src',
+        'reskin',
+        'fonts',
+        `source-sans-3-latin-${weight}-normal.woff2`
+      )
+    )}) format('woff2'); }`;
+  await render(
+    'social-preview',
+    1280,
+    640,
+    `<style>${font(400)}${font(700)}
+      .text { position: absolute; left: 64px; font-family: 'Source Sans 3'; }
+    </style>
+    <div style="position: absolute; inset: 0; background:
+      radial-gradient(560px 420px at 0 0, #ffe3df, rgb(255 227 223 / 0)),
+      radial-gradient(640px 420px at 100% 100%, #e7e9ff, rgb(231 233 255 / 0)), #f7f5f6"></div>
+    <img src="data:image/png;base64,${data(resolve(here, '..', 'build', 'icon.png'))}"
+      style="position: absolute; left: 64px; top: 165px; width: 84px; height: 84px">
+    <div class="text" style="top: 280px; font-size: 63px; font-weight: 700; line-height: 1.2;
+      color: #1d1d1f; letter-spacing: -1px">Paperwing</div>
+    <div class="text" style="top: 365px; font-size: 26.5px; line-height: 35px; color: #3a3a3c">
+      The free, open-source alternative<br>to Adobe Acrobat.</div>
+    <div class="text" style="top: 453px; font-size: 18.4px; line-height: 1.4; color: #6e6e73">
+      Windows · macOS · Offline · No account</div>
+    ${windowHtml(png, { x: 544, y: 85, s: 878 / 2160 })}`
+  );
+}
+
 const scenes = {
-  // The annual report: tabs, All tools, quick toolbar, annotations, thumbnails
+  // The annual report: tabs, All tools, quick toolbar, annotations,
+  // thumbnails. Also the repository's social image.
   async hero() {
     const p = await newApp('light');
     for (const k of ['invoice', 'contract', 'report']) await open(p, k);
@@ -309,7 +371,7 @@ const scenes = {
     });
     await p.keyboard.press('F4');
     await waitThumbs(p);
-    await shot(p, 'hero');
+    await socialPreview(await shot(p, 'hero'));
     await p.close();
   },
   // Home: Recent | Starred with first-page previews, as thumbnails
