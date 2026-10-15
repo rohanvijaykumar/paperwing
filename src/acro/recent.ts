@@ -19,6 +19,8 @@ export interface RecentFile {
   /** First-page preview for Home (see thumbnails.ts) and when it was made */
   thumb?: Blob;
   thumbAt?: number;
+  /** Where the document was left: page and zoom (1 = 100%) */
+  view?: { page: number; zoom: number };
 }
 
 const DB_NAME = 'bentopdf-desktop';
@@ -101,6 +103,7 @@ export async function rememberFile(
       data: !handle && !path && file.size <= MAX_COPY_BYTES ? file : undefined,
       thumb: existing?.thumb,
       thumbAt: existing?.thumbAt,
+      view: existing?.view,
     };
     await tx('readwrite', (s) => s.put(entry));
 

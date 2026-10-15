@@ -78,7 +78,10 @@ function patchViewer(code: string, id: string): string | null {
   if (process.env.PAPERWING_VIEWER_PATCHES === '0') return null;
   let out = code;
   let applied = 0;
+  // PAPERWING_VIEWER_SKIP="name,name" leaves out individual patches
+  const skip = (process.env.PAPERWING_VIEWER_SKIP ?? '').split(',');
   for (const patch of VIEWER_PATCHES) {
+    if (skip.includes(patch.name)) continue;
     const fits = patch.edits.every(
       ([from, , count]) => out.split(from).length - 1 === count
     );

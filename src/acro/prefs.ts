@@ -5,6 +5,8 @@ export interface Prefs {
   singleKey: boolean;
   /** Reopen the documents that were open when the app was closed */
   restoreSession: boolean;
+  /** Reopen documents at the page and zoom they were left at */
+  restoreView: boolean;
   /** Look for new releases once a day */
   checkUpdates: boolean;
   /** Tool ids pinned to the top of the tools panel */
@@ -22,6 +24,7 @@ const KEY = 'paperwing:prefs';
 const DEFAULTS: Prefs = {
   singleKey: true,
   restoreSession: true,
+  restoreView: true,
   checkUpdates: true,
   pinnedTools: [],
   recentTools: [],

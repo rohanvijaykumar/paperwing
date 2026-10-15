@@ -18,7 +18,7 @@ import {
   type AppTool,
   type ToolGroup,
 } from './catalog';
-import { OpenCancelled, Viewer, type PageInfo } from './viewer';
+import { OpenCancelled, Viewer, type DocView, type PageInfo } from './viewer';
 import { Thumbnails, thumbUrl } from './thumbnails';
 import { desktop, isMac, key, toFile } from './desktop';
 import { checkForUpdates, scheduleUpdateCheck } from './updates';
@@ -314,6 +314,8 @@ interface Tab {
   /** Not saved to disk yet (a tool's result): its recovery copy, kept until
    *  it's saved or discarded (see main.cjs) */
   recoveryId?: string;
+  /** Where the document is: page and zoom are remembered from here on */
+  tracksView?: boolean;
 }
 
 const isDirty = (t: Tab) => t.version !== t.savedVersion;
@@ -490,6 +492,7 @@ function closeTab(id: string) {
   document
     .querySelectorAll(`[data-owner="${CSS.escape(id)}"]`)
     .forEach((el) => el.remove());
+  void flushView(tab); // reads the viewer, so before it closes the document
   viewer.close(tab.id);
   if (tab.recoveryId) void desktop?.recovery?.delete(tab.recoveryId);
   if (activeId === id) {
@@ -648,7 +651,8 @@ async function openDocument(
 
   try {
     performance.mark('pw:open-start');
-    await viewer.open(id, await file.arrayBuffer());
+    const view = unsaved ? undefined : await lastView(source, recentId);
+    await viewer.open(id, await file.arrayBuffer(), view);
     performance.mark('pw:doc-opened');
   } catch (err) {
     if (tabs.includes(tab)) {
@@ -676,12 +680,57 @@ async function openDocument(
 
   tab.recentId = (await rememberFile(file, source)) ?? recentId;
   persistSession();
+  // Remember the page and zoom from here on (after the view has settled, so
+  // the first layout doesn't overwrite where it was left)
+  setTimeout(() => (tab.tracksView = true), 1500);
   const entry = (await listRecent()).find((r) => r.id === tab.recentId);
   if (entry?.starred) {
     tab.starred = true;
     renderTabs();
   }
   return tab;
+}
+
+/** Where a file was left last time, if that's wanted */
+async function lastView(
+  source: FileSource,
+  recentId?: string
+): Promise<DocView | undefined> {
+  if (!getPrefs().restoreView || (!source.path && !recentId)) return undefined;
+  const entry = (await listRecent()).find((r) =>
+    source.path ? r.path === source.path : r.id === recentId
+  );
+  return entry?.view;
+}
+
+/** Saves where a document is (page, zoom) after it changes: at most every
+ *  800 ms while scrolling, and straight away when its tab closes or the app
+ *  quits (see flushView) */
+const viewTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function noteView(tab: Tab) {
+  if (!tab.tracksView || !tab.recentId || viewTimers.has(tab.id)) return;
+  viewTimers.set(
+    tab.id,
+    setTimeout(() => {
+      viewTimers.delete(tab.id);
+      void saveView(tab);
+    }, 800)
+  );
+}
+
+function saveView(tab: Tab): Promise<void> | undefined {
+  const zoom = viewer.zoom(tab.id);
+  const page = viewer.pageInfo(tab.id)?.current;
+  if (!tab.tracksView || !tab.recentId || !zoom || !page) return undefined;
+  return updateRecent(tab.recentId, { view: { page, zoom } });
+}
+
+/** Save a pending view change now (before the document goes away) */
+function flushView(tab: Tab): Promise<void> | undefined {
+  if (!viewTimers.has(tab.id)) return undefined;
+  clearTimeout(viewTimers.get(tab.id));
+  viewTimers.delete(tab.id);
+  return saveView(tab);
 }
 
 /** Recovery copy of a document that isn't on disk yet; returns its id */
@@ -1568,6 +1617,11 @@ function updateRailPanels(tab: Tab) {
   if (collapse) collapse.hidden = !open;
 }
 
+viewer.onZoom((tabId) => {
+  const tab = tabs.find((t) => t.id === tabId);
+  if (tab) noteView(tab);
+});
+
 viewer.onPanel((tabId) => {
   const tab = activeTab();
   if (tab?.id === tabId) updateRailPanels(tab);
@@ -1583,6 +1637,7 @@ viewer.onPage((tabId, info) => {
   const tab = tabs.find((t) => t.id === tabId);
   if (!tab) return;
   tab.page = info;
+  noteView(tab);
   if (activeId === tabId) {
     const input = $<HTMLInputElement>('#right-rail .rr-page');
     if (input && document.activeElement !== input)
@@ -2520,6 +2575,7 @@ window.addEventListener('beforeunload', (e) => {
 desktop?.onCloseRequested?.(async () => {
   if (await settleUnsaved()) {
     persistSession();
+    await Promise.all(tabs.map(flushView));
     // Saved ones dropped theirs already; any left were discarded
     await Promise.all(
       tabs
@@ -2826,6 +2882,12 @@ function showPreferences() {
         'Restores your open tabs when Paperwing starts.',
         prefs.restoreSession,
         (v) => setPrefs({ restoreSession: v })
+      ),
+      toggle(
+        'Reopen documents where I left off',
+        'Each document opens at the page and zoom it was last viewed at.',
+        prefs.restoreView,
+        (v) => setPrefs({ restoreView: v })
       ),
       toggle(
         'Check for updates',
