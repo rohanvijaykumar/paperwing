@@ -434,9 +434,14 @@ function createWindow() {
     ...(IS_MAC
       ? { trafficLightPosition: { x: 14, y: 13 } }
       : { titleBarOverlay: { ...chromeColors(), height: TITLEBAR_HEIGHT } }),
+    // Packaged apps use the executable's icon
     icon: app.isPackaged
       ? undefined
-      : path.join(__dirname, 'build', 'icon.png'),
+      : path.join(
+          __dirname,
+          'build',
+          process.platform === 'win32' ? 'icon.ico' : 'icon.png'
+        ),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

@@ -55,7 +55,8 @@ compression: maximum
 afterPack: scripts/after-pack.cjs
 
 win:
-  icon: build/icon.png
+  # Platform icons come from build/icon.svg (scripts/gen-icons.mjs)
+  icon: build/icon.ico
   target:
     - target: nsis
       arch: [x64]
@@ -78,7 +79,7 @@ nsis:
   include: build/installer.nsh
 
 mac:
-  icon: build/icon.png
+  icon: build/icon-mac.png
   category: public.app-category.productivity
   target:
     - target: dmg
