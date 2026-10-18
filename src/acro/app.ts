@@ -1066,7 +1066,7 @@ function mountTool(tab: Tab, tool: AppTool, files: File[]) {
 /** Run a tool in a tab. With a document open it works on that document;
  *  in an empty workspace it either starts empty or asks for a PDF first. */
 async function openToolOnDoc(tab: Tab, tool: AppTool, files: File[] = []) {
-  noteToolUsed(tool.id);
+  noteToolUsed(tool.id, tool.name);
   if (!tool.href && !tool.action) return;
 
   if (tab.blank) {
@@ -1300,9 +1300,14 @@ function renderToolList(tab: Tab, list: HTMLElement) {
   const pick = (ids: string[]) =>
     ids.map((id) => getTool(id)).filter((t): t is AppTool => !!t);
   const pinned = pick(prefs.pinnedTools);
+  // Under the name they were opened with
   const recentUsed = pick(prefs.recentTools)
     .filter((t) => !prefs.pinnedTools.includes(t.id))
-    .slice(0, 3);
+    .slice(0, 3)
+    .map((t) => {
+      const name = prefs.recentToolNames[t.id];
+      return name ? { ...t, name } : t;
+    });
   const flat = (name: string, tools: AppTool[]) => {
     if (!tools.length) return;
     out.push(h('div', { class: 'lp-group' }, name));

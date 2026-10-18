@@ -225,8 +225,30 @@ describe('preferences', () => {
   });
 
   it('keeps the five most recently used tools, newest first', () => {
-    ['a', 'b', 'c', 'd', 'e', 'f', 'b'].forEach(noteToolUsed);
+    ['a', 'b', 'c', 'd', 'e', 'f', 'b'].forEach((id) =>
+      noteToolUsed(id, id.toUpperCase())
+    );
     expect(getPrefs().recentTools).toEqual(['b', 'f', 'e', 'd', 'c']);
+  });
+
+  it('remembers the name each recent tool was opened under', () => {
+    setPrefs({ recentTools: [], recentToolNames: {} });
+    noteToolUsed('pdf-multi-tool', 'Organize pages');
+    noteToolUsed('form-creator', 'Prepare a form');
+    noteToolUsed('pdf-multi-tool', 'PDF Multi Tool');
+    expect(getPrefs().recentToolNames).toEqual({
+      'pdf-multi-tool': 'PDF Multi Tool',
+      'form-creator': 'Prepare a form',
+    });
+    // Names of tools that fall off the list are dropped
+    ['a', 'b', 'c', 'd', 'e'].forEach((id) => noteToolUsed(id, id));
+    expect(Object.keys(getPrefs().recentToolNames)).toEqual([
+      'e',
+      'd',
+      'c',
+      'b',
+      'a',
+    ]);
   });
 
   it('persists to localStorage', () => {

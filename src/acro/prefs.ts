@@ -13,6 +13,9 @@ export interface Prefs {
   pinnedTools: string[];
   /** Most recently used tool ids, newest first */
   recentTools: string[];
+  /** The name each recent tool was opened under ("Organize pages" rather
+   *  than the tool page's own "PDF Multi Tool") */
+  recentToolNames: Record<string, string>;
   /** Zoom new documents open at */
   defaultZoom: 'automatic' | 'fit-width' | 'fit-page' | '100';
   /** Where the floating quick toolbar was left */
@@ -28,6 +31,7 @@ const DEFAULTS: Prefs = {
   checkUpdates: true,
   pinnedTools: [],
   recentTools: [],
+  recentToolNames: {},
   quickbarPos: null,
   defaultZoom: 'automatic',
 };
@@ -65,10 +69,16 @@ export function togglePinned(toolId: string): boolean {
   return on;
 }
 
-export function noteToolUsed(toolId: string) {
+export function noteToolUsed(toolId: string, name: string) {
   const recent = [
     toolId,
     ...getPrefs().recentTools.filter((id) => id !== toolId),
-  ];
-  setPrefs({ recentTools: recent.slice(0, 5) });
+  ].slice(0, 5);
+  const names = { ...getPrefs().recentToolNames, [toolId]: name };
+  setPrefs({
+    recentTools: recent,
+    recentToolNames: Object.fromEntries(
+      recent.filter((id) => names[id]).map((id) => [id, names[id]])
+    ),
+  });
 }
