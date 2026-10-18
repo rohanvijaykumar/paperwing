@@ -83,6 +83,57 @@ const VIEWER_PATCHES: ViewerPatch[] = [
       ],
     ],
   },
+  {
+    // Some PDFs map their space character to a tab (wkhtmltopdf does). This
+    // PDFium build keeps the tab, where browsers' viewers and PDF.js read a
+    // space: copied text came out full of tabs, and a search for a phrase
+    // with spaces found nothing. Tabs now read as spaces (same length, so
+    // character positions don't move), and a phrase search on such a page
+    // also matches the words joined by tabs. Lives in the worker engine,
+    // whose source is a single-quoted string: hence no quotes or
+    // backslashes in the replacements, and "\\n" for newlines.
+    name: 'tab spaces',
+    edits: [
+      [
+        'return text.replace(PdfUnwantedTextRegex, "");',
+        'return text.replace(PdfUnwantedTextRegex, "").split(String.fromCharCode(9)).join(" ");',
+        1,
+      ],
+      [
+        'searchAllInPage(doc, ctx, page, keywordPtr, flag) {\\n    return ctx.borrowPage(',
+        'searchAllInPage(doc, ctx, page, keywordPtr, flag) {\\n' +
+          '    const results = this.pwSearchPage(doc, ctx, page, keywordPtr, flag);\\n' +
+          '    const keyword = this.pdfiumModule.pdfium.UTF16ToString(keywordPtr);\\n' +
+          '    if (!this.pwTabbed || keyword.indexOf(" ") < 0) return results;\\n' +
+          '    const alt = keyword.split(" ").join(String.fromCharCode(9));\\n' +
+          '    const length = 2 * (alt.length + 1);\\n' +
+          '    const altPtr = this.memoryManager.malloc(length);\\n' +
+          '    this.pdfiumModule.pdfium.stringToUTF16(alt, altPtr, length);\\n' +
+          '    try {\\n' +
+          '      const seen = new Set(results.map((r) => r.charIndex));\\n' +
+          '      for (const r of this.pwSearchPage(doc, ctx, page, altPtr, flag)) if (!seen.has(r.charIndex)) results.push(r);\\n' +
+          '    } finally {\\n' +
+          '      this.memoryManager.free(altPtr);\\n' +
+          '    }\\n' +
+          '    return results.sort((a, b) => a.charIndex - b.charIndex);\\n' +
+          '  }\\n' +
+          '  pwSearchPage(doc, ctx, page, keywordPtr, flag) {\\n    return ctx.borrowPage(',
+        1,
+      ],
+      [
+        'const fullText = this.pdfiumModule.pdfium.UTF16ToString(bufPtr);\\n      this.memoryManager.free(bufPtr);\\n      const pageResults = [];',
+        'const fullText = this.pdfiumModule.pdfium.UTF16ToString(bufPtr);\\n      this.memoryManager.free(bufPtr);\\n' +
+          '      const pwText = fullText.split(String.fromCharCode(9)).join(" ");\\n' +
+          '      this.pwTabbed = pwText !== fullText;\\n      const pageResults = [];',
+        1,
+      ],
+      [
+        'const context = this.buildContext(fullText, charIndex, charCount);',
+        'const context = this.buildContext(pwText, charIndex, charCount);',
+        1,
+      ],
+    ],
+  },
 ];
 
 function patchViewer(code: string, id: string): string | null {
