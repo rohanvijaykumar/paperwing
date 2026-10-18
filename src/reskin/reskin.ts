@@ -14,6 +14,7 @@
  *   shell -> tool  { type: 'acro:theme', pref: ThemePref }
  *   shell -> tool  { type: 'acro:edit', command: 'undo' | 'redo' }
  *   tool  -> shell { type: 'acro:ready' }
+ *   tool  -> shell { type: 'acro:files-loaded' }   (after acro:load-files)
  *   tool  -> shell { type: 'acro:download', blob: Blob, name: string }
  *   tool  -> shell { type: 'acro:key', key: KeyInput, editing: boolean }
  */
@@ -80,6 +81,18 @@ if (shell) {
     const data = e.data;
     if (data?.type === 'acro:load-files' && Array.isArray(data.files)) {
       loadFiles(data.files.filter((f: unknown) => f instanceof File));
+      // The shell keeps the tool hidden until it has its document, so the
+      // empty upload screen never shows: tell it once that's been drawn.
+      // (Frames that aren't visible may not get animation frames: the
+      // timer makes sure the message goes anyway.)
+      let told = false;
+      const tell = () => {
+        if (told) return;
+        told = true;
+        toShell({ type: 'acro:files-loaded' });
+      };
+      requestAnimationFrame(() => requestAnimationFrame(tell));
+      setTimeout(tell, 150);
     } else if (data?.type === 'acro:theme' && isThemePref(data.pref)) {
       setThemePref(data.pref);
     } else if (
@@ -133,7 +146,19 @@ function isEditable(el: HTMLElement | null): boolean {
   );
 }
 
+/** Pages whose first PDF input isn't the one that loads a document */
+const FILE_INPUT_BY_PAGE: Record<string, string> = {
+  // An unused hidden input comes before the drop zone's
+  'form-creator': 'pdfFileInput',
+};
+
 function findFileInput(): HTMLInputElement | null {
+  const page = document.documentElement.dataset.page ?? '';
+  const mapped = FILE_INPUT_BY_PAGE[page]
+    ? document.getElementById(FILE_INPUT_BY_PAGE[page])
+    : null;
+  if (mapped instanceof HTMLInputElement && mapped.type === 'file')
+    return mapped;
   const byId = document.getElementById('file-input');
   if (byId instanceof HTMLInputElement && byId.type === 'file') return byId;
   const inputs = Array.from(

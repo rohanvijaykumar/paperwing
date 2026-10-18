@@ -112,11 +112,18 @@ function patchViewer(code: string, id: string): string | null {
 }
 
 export function reskinPlugin(): Plugin {
+  // Inlined into each tool page's <head> so it runs before the first paint
+  // (see src/reskin/boot.js)
+  let bootScript = '';
   return {
     name: 'acrobat-reskin',
 
     config(config) {
       const root = config.root || process.cwd();
+      bootScript = readFileSync(
+        resolve(root, 'src', 'reskin', 'boot.js'),
+        'utf8'
+      ).trim();
       const { version } = JSON.parse(
         readFileSync(resolve(root, 'package.json'), 'utf8')
       );
@@ -152,7 +159,10 @@ export function reskinPlugin(): Plugin {
         return html
           .replace(
             '</head>',
-            '  <link rel="stylesheet" href="/src/reskin/reskin.css" />\n  </head>'
+            // (a function, so "$" in the script isn't read as a pattern)
+            () =>
+              '  <link rel="stylesheet" href="/src/reskin/reskin.css" />\n' +
+              `  <script>\n${bootScript}\n  </script>\n  </head>`
           )
           .replace(/<body([^>]*)>/, (_m, attrs: string) =>
             /\bclass\s*=\s*"/.test(attrs)

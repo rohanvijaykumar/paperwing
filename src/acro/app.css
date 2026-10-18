@@ -1044,6 +1044,29 @@ body.is-dragging .drop-inner {
   display: flex;
   flex-direction: column;
 }
+.frame-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* A tool stays hidden until it's ready (createFrameTool) */
+.frame-body.is-loading .tool-frame {
+  opacity: 0;
+  pointer-events: none;
+}
+.frame-loading {
+  display: none;
+}
+.frame-body.is-loading .frame-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  color: var(--text-3);
+}
 .tool-frame {
   flex: 1;
   width: 100%;

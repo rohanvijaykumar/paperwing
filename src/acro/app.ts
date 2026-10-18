@@ -306,6 +306,8 @@ interface FrameTool {
   files: File[];
   /** id of the tab the tool belongs to */
   owner: string;
+  /** Shows the tool once it's ready, or after a while regardless */
+  reveal: () => void;
 }
 
 interface Tab {
@@ -839,9 +841,11 @@ function createFrameTool(
     tool.href!,
     TOOLS_ORIGIN === location.origin ? location.href : `${TOOLS_ORIGIN}/`
   );
-  // Whether it's in the side panel or the document area, and the theme
+  // Whether it's in the side panel or the document area, the theme, and
+  // whether a document is on its way (so the page lays out for it at once)
   src.searchParams.set('embed', tool.full ? 'full' : 'panel');
   src.searchParams.set('theme', getThemePref());
+  if (files.length) src.searchParams.set('doc', '1');
   const frame = h('iframe', {
     class: 'tool-frame',
     src: src.href,
@@ -851,17 +855,40 @@ function createFrameTool(
     // full screen
     allow: 'cross-origin-isolated; clipboard-read; clipboard-write; fullscreen',
   });
+  // Until the tool is ready (and has the document it was opened with), it
+  // stays hidden behind a loading message: otherwise its page would show,
+  // for a frame or two, before it's styled or while its upload box is
+  // still empty
+  const body = h(
+    'div',
+    { class: 'frame-body is-loading' },
+    frame,
+    h(
+      'div',
+      { class: 'frame-loading', role: 'status' },
+      `Opening ${tool.name}…`
+    )
+  );
+  const reveal = () => {
+    clearTimeout(timer);
+    body.classList.remove('is-loading');
+  };
+  const timer = setTimeout(reveal, REVEAL_TIMEOUT_MS);
   const ft: FrameTool = {
     tool,
     frame,
     files,
     owner,
-    el: h('div', { class: 'frame-wrap' }, frame),
+    reveal,
+    el: h('div', { class: 'frame-wrap' }, body),
   };
   ft.el.dataset.owner = owner;
   frameTools.add(ft);
   return ft;
 }
+
+/** Longest a tool stays hidden waiting to say it's ready */
+const REVEAL_TIMEOUT_MS = 8000;
 
 function disposeFrameTool(ft?: FrameTool) {
   if (!ft) return;
@@ -877,6 +904,9 @@ window.addEventListener('message', async (e: MessageEvent) => {
     postToFrame(ft, { type: 'acro:theme', pref: getThemePref() });
     if (ft.files.length)
       postToFrame(ft, { type: 'acro:load-files', files: ft.files });
+    else ft.reveal();
+  } else if (e.data?.type === 'acro:files-loaded') {
+    ft.reveal();
   } else if (e.data?.type === 'acro:download' && e.data.blob instanceof Blob) {
     const blob = e.data.blob;
     const name = uniqueTabName(String(e.data.name || 'download'));
