@@ -64,6 +64,8 @@ page.on('dialog', (d) => {
 await page.evaluate(() => {
   window.__results = [];
   window.addEventListener('message', (e) => {
+    // Only the tool frames (as the workspace itself checks)
+    if (e.origin !== 'app://tools') return;
     if (e.data?.type === 'acro:download')
       window.__results.push({
         name: e.data.name,

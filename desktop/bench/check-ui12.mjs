@@ -584,7 +584,7 @@ check(
 await page.evaluate(() => {
   const real = window.fetch;
   window.fetch = (url, ...rest) =>
-    String(url).includes('api.github.com')
+    new URL(String(url), location.href).hostname === 'api.github.com'
       ? Promise.resolve(
           new Response(
             JSON.stringify({
