@@ -19,7 +19,10 @@ function resolveWasmUrl() {
   }
   const resolve = import.meta.resolve;
   if (typeof resolve !== 'function') return null;
-  return new URL(resolve('bentopdf-pdfium/editcore.wasm')).pathname;
+  // Paperwing: a file path on Windows too ("/D:/…" from the URL is not one)
+  return decodeURIComponent(
+    new URL(resolve('bentopdf-pdfium/editcore.wasm')).pathname
+  ).replace(/^\/([A-Za-z]:)/, '$1');
 }
 
 const wasmUrl = resolveWasmUrl();
