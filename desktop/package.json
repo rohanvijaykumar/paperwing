@@ -24,9 +24,9 @@
     "docs:screenshots": "node scripts/gen-screenshots.mjs"
   },
   "devDependencies": {
-    "electron": "44.7.0",
+    "electron": "44.8.0",
     "electron-builder": "26.17.0",
-    "puppeteer-core": "25.13.0"
+    "puppeteer-core": "25.14.0"
   },
   "dependencies": {
     "electron-updater": "6.8.9"
