@@ -6,7 +6,7 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
-## [1.2.0] — 2026-10-18
+## [1.2.0] — 2026-10-19
 
 ### Added
 
