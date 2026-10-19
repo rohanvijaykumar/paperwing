@@ -26,7 +26,7 @@ export function extractSignatures(
   const signatures: ExtractedSignatureWithError[] = [];
   const pdfString = new TextDecoder('latin1').decode(pdfBytes);
 
-  // Find all signature objects for /Type /Sig
+  // Find all signature dictionaries (see isSignatureDictionary)
   const objectHeader = /\d+\s+\d+\s+obj\b/g;
   let endobj = -1;
 
@@ -48,8 +48,7 @@ export function extractSignatures(
     if (end < 0) continue;
 
     for (const entries of dictionaries) {
-      const type = entries.get('Type');
-      if (type && pdfString.slice(type.start, type.end) === '/Sig') {
+      if (isSignatureDictionary(pdfString, entries)) {
         signatures.push(
           readSignatureDictionary(
             pdfString,
@@ -63,6 +62,30 @@ export function extractSignatures(
   }
 
   return signatures;
+}
+
+/**
+ * /Type is optional in a signature dictionary (PDF 32000-1, 12.8.1, Table
+ * 252), and some signers leave it out, so a dictionary without /Type that
+ * carries both /ByteRange and /Contents is a signature too. Document
+ * timestamps (/Type /DocTimeStamp, /SubFilter /ETSI.RFC3161) hold an RFC 3161
+ * token rather than a CMS signature over the document and stay out.
+ */
+function isSignatureDictionary(
+  pdfString: string,
+  entries: Map<string, PdfValueSpan>
+): boolean {
+  const name = (key: string) => {
+    const span = entries.get(key);
+    return span ? pdfString.slice(span.start, span.end) : undefined;
+  };
+  const type = name('Type');
+  if (type !== undefined) return type === '/Sig';
+  return (
+    entries.has('ByteRange') &&
+    entries.has('Contents') &&
+    name('SubFilter') !== '/ETSI.RFC3161'
+  );
 }
 
 function readSignatureDictionary(

@@ -59,11 +59,13 @@ function buildSignedPdf(layout: {
   head: string;
   gap: (hex: string) => string;
   tail: string;
+  hexLength?: number;
 }): Uint8Array {
   const prefix = layout.prefix ?? '';
+  const hexLength = layout.hexLength ?? HEX_LENGTH;
   const headLength =
     layout.head.length - RANGE_PLACEHOLDER.length + RANGE_WIDTH;
-  const gapLength = layout.gap('0'.repeat(HEX_LENGTH)).length;
+  const gapLength = layout.gap('0'.repeat(hexLength)).length;
   const byteRange = [
     prefix.length,
     headLength,
@@ -74,7 +76,7 @@ function buildSignedPdf(layout: {
     RANGE_PLACEHOLDER,
     `/ByteRange [${byteRange.join(' ')}]`.padEnd(RANGE_WIDTH)
   );
-  const hex = signedCmsHex(head + layout.tail).padEnd(HEX_LENGTH, '0');
+  const hex = signedCmsHex(head + layout.tail).padEnd(hexLength, '0');
   return new TextEncoder().encode(
     prefix + head + layout.gap(hex) + layout.tail
   );
@@ -128,6 +130,50 @@ describe('validatePdfSignatures extraction and coverage', () => {
     expect(result.coverageStatus).toBe('full');
     expect(result.signatureDate).toBeInstanceOf(Date);
     expect(extractSignatures(pdfBytes)[0].name).toBe('Real Signer');
+  });
+
+  it('validates a signature whose /Contents placeholder is tens of kilobytes', async () => {
+    // Signers routinely reserve 4-40 KB for the CMS blob (issue #831).
+    const pdfBytes = buildSignedPdf({
+      head: `${SIG_HEAD}${RANGE_PLACEHOLDER} /Contents `,
+      gap: (hex) => `<${hex}>`,
+      tail: SIG_TAIL,
+      hexLength: 74506,
+    });
+
+    const results = await validatePdfSignatures(pdfBytes);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].isValid).toBe(true);
+    expect(results[0].coverageStatus).toBe('full');
+  });
+
+  it('validates a signature dictionary without the optional /Type key', async () => {
+    const pdfBytes = buildSignedPdf({
+      head: `${SIG_HEAD.replace('/Type /Sig ', '')}${RANGE_PLACEHOLDER} /Contents `,
+      gap: (hex) => `<${hex}>`,
+      tail: SIG_TAIL,
+    });
+
+    const results = await validatePdfSignatures(pdfBytes);
+
+    expect(countSignatures(pdfBytes)).toBe(1);
+    expect(results).toHaveLength(1);
+    expect(results[0].isValid).toBe(true);
+    expect(results[0].coverageStatus).toBe('full');
+  });
+
+  it('does not take other untyped dictionaries for signatures', () => {
+    const pdfBytes = new TextEncoder().encode(
+      '%PDF-1.7\n' +
+        '1 0 obj\n<< /Subtype /Text /Contents (A note) >>\nendobj\n' +
+        '2 0 obj\n<< /Filter /Adobe.PPKLite /SubFilter /ETSI.RFC3161 ' +
+        '/ByteRange [0 10 20 10] /Contents <00> >>\nendobj\n' +
+        '3 0 obj\n<< /Type /DocTimeStamp /ByteRange [0 10 20 10] ' +
+        '/Contents <00> >>\nendobj\n%%EOF\n'
+    );
+
+    expect(countSignatures(pdfBytes)).toBe(0);
   });
 
   it('reports an intact signature as partial when an incremental update follows', async () => {
