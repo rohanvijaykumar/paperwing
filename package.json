@@ -42,6 +42,8 @@
     "prepare": "husky"
   },
   "devDependencies": {
+    "@bentopdf/gs-wasm": "0.1.1",
+    "@bentopdf/pymupdf-wasm": "0.11.16",
     "@eslint/js": "^10.0.1",
     "@testing-library/dom": "^10.4.1",
     "@types/blob-stream": "^0.1.33",
@@ -52,6 +54,7 @@
     "@vitejs/plugin-basic-ssl": "^2.1.4",
     "@vitest/coverage-v8": "^4.0.18",
     "@vitest/ui": "^4.0.18",
+    "coherentpdf": "2.5.5",
     "eslint": "^10.0.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-no-unsanitized": "^4.1.5",

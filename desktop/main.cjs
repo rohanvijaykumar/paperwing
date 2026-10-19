@@ -101,6 +101,20 @@ const pathKey = (p) => (IS_MAC ? p : path.resolve(p).toLowerCase());
 const isPdfPath = (p) =>
   typeof p === 'string' && /\.pdf$/i.test(p) && fs.existsSync(p);
 
+/** A file the user opened (or saved) through Paperwing: it may be written
+ *  back to, and it goes on the OS's recent documents (the taskbar jump list
+ *  on Windows, the Dock menu and File ▸ Open Recent on macOS) */
+function openedPath(filePath) {
+  knownPaths.add(pathKey(filePath));
+  if (process.platform === 'win32' || IS_MAC) {
+    try {
+      app.addRecentDocument(filePath);
+    } catch {
+      /* not registered for the file type (e.g. unpackaged): no jump list */
+    }
+  }
+}
+
 function pdfArgs(argv) {
   return argv.slice(app.isPackaged ? 1 : 2).filter(isPdfPath);
 }
@@ -114,7 +128,7 @@ async function sendFile(filePath) {
   }
   try {
     const data = await fsp.readFile(filePath);
-    knownPaths.add(pathKey(filePath));
+    openedPath(filePath);
     mainWindow.webContents.send('paperwing:open-file', {
       path: filePath,
       name: path.basename(filePath),
@@ -191,6 +205,8 @@ const MIME = {
   '.bin': 'application/octet-stream',
   '.gz': 'application/gzip',
   '.zip': 'application/zip',
+  // Python packages of the bundled PyMuPDF engine
+  '.whl': 'application/zip',
 };
 
 const SECURITY_HEADERS = {
@@ -232,6 +248,76 @@ function resolveRequestPath(url) {
   if (/\.html?$/i.test(file) && (file === APP_PAGE) !== (host === HOST))
     return null;
   return file;
+}
+
+/* ------------------------------------------------------------------ */
+/* Relay for timestamp and certificate servers                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Timestamping and digital signatures contact timestamp authorities and the
+ * servers that publish certificates. Those don't allow requests from web
+ * pages (no CORS), so in a browser BentoPDF goes through a proxy configured
+ * at build time (VITE_CORS_PROXY_URL). Here the app is that proxy: tool
+ * pages ask app://tools/__relay?url=… and the request goes out from the
+ * main process. Only tool pages can reach it (it's on their origin, inside
+ * the app), only for http(s), GET or POST, and size- and time-limited.
+ */
+const RELAY_PATH = '/__relay';
+const RELAY_MAX_BYTES = 4 * 1024 * 1024;
+const RELAY_TIMEOUT_MS = 30000;
+
+function isRelayRequest(url) {
+  try {
+    const u = new URL(url);
+    return u.host === TOOLS_HOST && u.pathname === RELAY_PATH;
+  } catch {
+    return false;
+  }
+}
+
+async function relay(request) {
+  const deny = (status, text) =>
+    new Response(text, {
+      status,
+      headers: { 'Content-Type': 'text/plain', ...SECURITY_HEADERS },
+    });
+  let target;
+  try {
+    target = new URL(new URL(request.url).searchParams.get('url') || '');
+  } catch {
+    return deny(400, 'Bad URL');
+  }
+  if (!/^https?:$/.test(target.protocol)) return deny(400, 'Bad URL');
+  if (request.method !== 'GET' && request.method !== 'POST')
+    return deny(405, 'Method not allowed');
+  const body =
+    request.method === 'POST' ? Buffer.from(await request.arrayBuffer()) : null;
+  if (body && body.length > RELAY_MAX_BYTES) return deny(413, 'Too large');
+  trace(`relay ${request.method} ${target.href}`);
+  try {
+    const res = await net.fetch(target.href, {
+      method: request.method,
+      headers: request.headers.get('Content-Type')
+        ? { 'Content-Type': request.headers.get('Content-Type') }
+        : {},
+      body,
+      redirect: 'follow',
+      signal: AbortSignal.timeout(RELAY_TIMEOUT_MS),
+    });
+    const data = Buffer.from(await res.arrayBuffer());
+    if (data.length > RELAY_MAX_BYTES) return deny(502, 'Response too large');
+    return new Response(data, {
+      status: res.status,
+      headers: {
+        'Content-Type':
+          res.headers.get('Content-Type') || 'application/octet-stream',
+        ...SECURITY_HEADERS,
+      },
+    });
+  } catch (err) {
+    return deny(502, `Relay failed: ${err?.message ?? err}`);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -360,6 +446,7 @@ async function pruneOldEngines() {
 
 function registerProtocol() {
   protocol.handle(SCHEME, async (request) => {
+    if (isRelayRequest(request.url)) return relay(request);
     const file = resolveRequestPath(request.url);
     if (!file) return new Response('Not found', { status: 404 });
     const headers = new Headers({
@@ -598,7 +685,7 @@ ipcMain.handle('paperwing:confirm-close', (e) => {
 ipcMain.handle('paperwing:read-file', async (e, filePath) => {
   if (!senderIsApp(e) || !isPdfPath(filePath)) return null;
   const data = await fsp.readFile(filePath);
-  knownPaths.add(pathKey(filePath));
+  openedPath(filePath);
   return data;
 });
 
@@ -628,7 +715,7 @@ ipcMain.handle('paperwing:save-as', async (e, suggestedName, data) => {
   });
   if (canceled || !filePath) return null;
   await writeAtomic(filePath, data);
-  knownPaths.add(pathKey(filePath));
+  openedPath(filePath);
   return { path: filePath, name: path.basename(filePath) };
 });
 
@@ -641,10 +728,15 @@ ipcMain.handle('paperwing:open-dialog', async (e) => {
   if (canceled) return [];
   return Promise.all(
     filePaths.map(async (p) => {
-      knownPaths.add(pathKey(p));
+      openedPath(p);
       return { path: p, name: path.basename(p), data: await fsp.readFile(p) };
     })
   );
+});
+
+// Home ▸ Clear recent also clears the OS's list
+ipcMain.handle('paperwing:clear-recent-documents', (e) => {
+  if (senderIsApp(e)) app.clearRecentDocuments();
 });
 
 // Recent files' "Show in File Explorer / Finder"
@@ -658,7 +750,7 @@ ipcMain.handle('paperwing:show-in-folder', (e, filePath) => {
 // for files opened with the dialog
 ipcMain.handle('paperwing:allow-path', (e, filePath) => {
   if (!senderIsApp(e) || !isPdfPath(filePath)) return false;
-  knownPaths.add(pathKey(filePath));
+  openedPath(filePath);
   return true;
 });
 
@@ -867,6 +959,10 @@ function buildMenu() {
         label: 'File',
         submenu: [
           item('Open…', 'Cmd+O', 'open'),
+          {
+            role: 'recentDocuments',
+            submenu: [{ role: 'clearRecentDocuments' }],
+          },
           item('Create PDF…', 'Cmd+N', 'create'),
           item('Reopen Closed Document', 'Shift+Cmd+T', 'reopen'),
           { type: 'separator' },
@@ -972,13 +1068,22 @@ app.whenReady().then(() => {
   }
 
   // Nothing in Paperwing needs the camera, location, notifications etc.
+  // Installed fonts (Edit a PDF's "System fonts") only for Paperwing's own
+  // pages.
   const allowed = new Set([
     'fullscreen',
     'clipboard-read',
     'clipboard-sanitized-write',
   ]);
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) =>
-    cb(allowed.has(permission))
+  const ownPage = (url) => /^app:\/\/(paperwing|tools)(\/|$)/.test(url || '');
+  session.defaultSession.setPermissionRequestHandler(
+    (_wc, permission, cb, details) => {
+      trace(`permission request ${permission} from ${details?.requestingUrl}`);
+      cb(
+        allowed.has(permission) ||
+          (permission === 'local-fonts' && ownPage(details?.requestingUrl))
+      );
+    }
   );
 
   createWindow();

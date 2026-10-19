@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('paperwing', {
   pathForFile: (file) => webUtils.getPathForFile(file),
   allowPath: (path) => ipcRenderer.invoke('paperwing:allow-path', path),
   showInFolder: (path) => ipcRenderer.invoke('paperwing:show-in-folder', path),
+  clearRecentDocuments: () =>
+    ipcRenderer.invoke('paperwing:clear-recent-documents'),
   checkUpdate: () => ipcRenderer.invoke('paperwing:update-check'),
   installUpdate: () => ipcRenderer.invoke('paperwing:update-install'),
   onUpdateReady: (callback) => {

@@ -15,7 +15,12 @@ const CDN_DEFAULTS: Record<WasmPackage, string> = {
 };
 
 function envOrDefault(envVar: string | undefined, fallback: string): string {
-  return envVar || fallback;
+  if (!envVar) return fallback;
+  // Paperwing: engines bundled with the app are given as paths
+  // ("/engines/pymupdf/"); tools need full URLs (some hand them to workers)
+  if (envVar.startsWith('/') && typeof location !== 'undefined')
+    return new URL(envVar, location.origin).href;
+  return envVar;
 }
 
 const ENV_DEFAULTS: Record<WasmPackage, string> = {

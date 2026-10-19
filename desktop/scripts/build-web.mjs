@@ -7,6 +7,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import {
+  cpSync,
   existsSync,
   readdirSync,
   rmSync,
@@ -27,8 +28,39 @@ if (!existsSync(resolve(root, 'node_modules'))) {
 
 rmSync(dist, { recursive: true, force: true });
 
+// The PDF engines some tools load at run time (PyMuPDF, Ghostscript,
+// coherentpdf) ship with the app instead of coming from a CDN, so every
+// tool works offline. They're copied into dist/engines/ after the build;
+// the tools find them through these (src/js/utils/wasm-provider.ts).
+const ENGINES = {
+  pymupdf: {
+    url: '/engines/pymupdf/',
+    copy: [
+      ['@bentopdf/pymupdf-wasm/dist', 'dist'],
+      ['@bentopdf/pymupdf-wasm/assets', 'assets'],
+    ],
+  },
+  gs: { url: '/engines/gs/', copy: [['@bentopdf/gs-wasm/assets', '.']] },
+  cpdf: {
+    url: '/engines/cpdf/',
+    copy: [
+      [
+        'coherentpdf/dist/coherentpdf.browser.min.js',
+        'coherentpdf.browser.min.js',
+      ],
+    ],
+  },
+};
+
 const env = {
   ...process.env,
+  VITE_WASM_PYMUPDF_URL: ENGINES.pymupdf.url,
+  VITE_WASM_GS_URL: ENGINES.gs.url,
+  VITE_WASM_CPDF_URL: ENGINES.cpdf.url,
+  // Timestamp and certificate servers are reached through the desktop
+  // app's relay (main.cjs). Absolute, so requests already relayed are
+  // recognised as such.
+  VITE_CORS_PROXY_URL: 'app://tools/__relay',
   SIMPLE_MODE: 'true',
   VITE_BRAND_NAME: 'Paperwing',
   DISABLE_GITHUB_STARS: 'true',
@@ -72,6 +104,21 @@ walk(dist);
 console.log(
   `Removed ${removed} pre-compressed copies (${(saved / 1048576).toFixed(1)} MB)`
 );
+
+// The bundled engines
+for (const { url, copy } of Object.values(ENGINES)) {
+  for (const [from, to] of copy) {
+    const src = resolve(root, 'node_modules', from);
+    if (!existsSync(src)) {
+      console.error(
+        `Engine missing: ${from}. Run npm ci in the repository root.`
+      );
+      process.exit(1);
+    }
+    cpSync(src, resolve(dist, '.' + url, to), { recursive: true });
+  }
+}
+console.log('Bundled the PyMuPDF, Ghostscript and coherentpdf engines');
 
 // Manifest of engine files downloaded on first use (see main.cjs)
 const here = dirname(fileURLToPath(import.meta.url));

@@ -23,6 +23,8 @@ interface DesktopBridge {
   allowPath?(path: string): Promise<boolean>;
   /** Show a file in File Explorer / Finder */
   showInFolder?(path: string): Promise<void>;
+  /** Clears the OS's recent documents (jump list, Dock, Open Recent) */
+  clearRecentDocuments?(): Promise<void>;
   /** Self-updating install (Windows installer): auto is false otherwise */
   checkUpdate?(): Promise<{
     auto: boolean;
