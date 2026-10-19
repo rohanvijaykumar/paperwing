@@ -10,12 +10,15 @@ tool offline.
   and more. The tool you pick stays on the button.
 - **Tooltips** on every button, with its keyboard shortcut.
 - **Page actions in the thumbnails.** Right-click a page to rotate, insert, extract, move or
-  delete it, or drag it to a new place. Ctrl+Z undoes it.
+  delete it, or drag it to a new place. Ctrl+click or Shift+click to work on several pages at
+  once, and drop a PDF onto the thumbnails to insert its pages there. Ctrl+Z undoes it.
 - **Your edits survive a crash.** Unsaved changes are kept safe every few seconds and come back
   when Paperwing reopens.
 - **No more lost work in tools.** Closing Edit a PDF, Prepare a form or Organize pages with
   unsaved changes asks first.
 - **Recent files in the taskbar and Dock.** Right-click Paperwing's icon to reopen them.
+- **Updates you won't miss (macOS and portable).** The notice stays until you act on it, Help
+  shows a dot until you've updated, and Download fetches the right file for your Mac or PC.
 - **Truer fonts.** PDFs that rely on standard fonts they don't include (Times, Arial,
   Courier, Calibri, Cambria…) now keep their look and spacing.
 

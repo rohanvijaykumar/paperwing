@@ -16,13 +16,19 @@ All notable changes to Paperwing are documented here. Paperwing follows
   Squiggly | Highlighter, Pen | Line | Arrow | Rectangle | Oval | Polygon, Text | Callout
 - Tooltips everywhere, in the workspace and every tool, with the keyboard shortcut
 - Page thumbnails: right-click a page to rotate, insert a blank page or pages from another file,
-  extract, move or delete it, or drag it to a new place. Ctrl+Z undoes page changes
+  extract, move or delete it, or drag it to a new place. Ctrl/Cmd+click and Shift+click select
+  several pages, which then rotate, extract, delete and move together. Drop PDFs onto the
+  thumbnails to insert their pages there. Ctrl+Z undoes page changes
 - Unsaved edits to any document are kept safe every few seconds and come back after a crash
   (named "… (Recovered).pdf" when the original file exists)
 - Closing a full-page tool with unsaved work (Edit a PDF, Prepare a form, Organize pages…) asks
   first
 - Recent files in the Windows taskbar jump list and the macOS Dock menu; Clear recent clears
   them too
+- macOS and the Windows portable build: a new version's notice stays until you choose Download
+  or Later, Help shows a dot (and **Download Paperwing …**) until you've updated, and Download
+  fetches the file for your computer (the DMG for your Mac's chip, or the portable zip) instead
+  of opening the release page
 - PDFs that use the standard fonts without embedding them (Times, Helvetica, Courier, Calibri,
   Cambria…) are drawn in metric-compatible fonts, so text keeps its look and spacing
 
