@@ -81,8 +81,11 @@ Paperwing checks this project's GitHub Releases once a day (you can turn this of
 - **Windows installer (1.1 and later):** a new version downloads in the background. When it's ready,
   Paperwing offers **Restart now** or **Later**; if you choose Later, it installs the next time you
   quit. Your settings, recent files and pinned tools are kept.
-- **Windows portable and macOS:** Paperwing shows a notice with a link to the new version. Install it
-  over the old one (macOS), or unzip it and copy your **Paperwing Data** folder into it (portable).
+- **Windows portable and macOS:** Paperwing shows a notice that stays until you choose **Download**
+  or **Later**, and a dot on the **Help** button until you've updated (**Help ▸ Download
+  Paperwing …**). Download fetches the file for your computer: the DMG for your Mac's chip, or the
+  portable zip. Install it over the old one (macOS), or unzip it and copy your **Paperwing Data**
+  folder into it (portable).
 - **Coming from 1.0.x:** install 1.1 once by hand; updates are automatic from then on.
 
 ## Uninstalling

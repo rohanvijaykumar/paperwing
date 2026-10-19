@@ -884,7 +884,16 @@ updaterCacheDirName: paperwing-updater-test
 
 // The page runs the once-a-day check and Help ▸ Check for updates
 ipcMain.handle('paperwing:update-check', async (e) => {
-  if (!senderIsApp(e) || !canAutoUpdate) return { auto: false };
+  if (!senderIsApp(e)) return { auto: false };
+  // Builds that don't update themselves download the file for their
+  // platform and chip (an x64 build under Rosetta gets the Apple silicon one)
+  if (!canAutoUpdate)
+    return {
+      auto: false,
+      platform: process.platform,
+      arch: app.runningUnderARM64Translation ? 'arm64' : process.arch,
+      portable: !!portableDir,
+    };
   if (updateReady) {
     // Already downloaded: offer the restart again
     mainWindow?.webContents.send('paperwing:update-ready', updateReady);

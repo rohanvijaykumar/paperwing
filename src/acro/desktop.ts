@@ -33,6 +33,10 @@ interface DesktopBridge {
     ready?: boolean;
     version?: string | null;
     error?: string;
+    /** When auto is false: what to download (see updates.ts) */
+    platform?: string;
+    arch?: string;
+    portable?: boolean;
   }>;
   /** Quit and install the downloaded update, then restart */
   installUpdate?(): Promise<boolean>;
