@@ -387,6 +387,18 @@ document.addEventListener('DOMContentLoaded', async function () {
         processBtn.disabled = selected.length === 0;
       }
     });
+
+    // English is chosen to start with (as in Acrobat), so OCR can run
+    // straight away; other languages are added from the list
+    const english = langList.querySelector<HTMLInputElement>(
+      '.lang-checkbox[value="eng"]'
+    );
+    if (english && !langList.querySelector('.lang-checkbox:checked')) {
+      english.checked = true;
+      // (the label's translation would otherwise reset it to "None")
+      selectedLangsDisplay?.removeAttribute('data-i18n');
+      langList.dispatchEvent(new Event('change', { bubbles: true }));
+    }
   }
 
   // Whitelist preset

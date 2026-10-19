@@ -177,7 +177,23 @@ async function handleFiles(files: FileList) {
       pdfWrapper.classList.remove('hidden');
 
       const { default: EmbedPDF } = await import('bentopdf-viewer');
-      const disabledCategories = getEditorDisabledCategories();
+      // Inside Paperwing the workspace opens, closes, prints and protects
+      // documents, and the Save button below is the one way out (the
+      // viewer's own Export skips the font embedding it does)
+      const inPaperwing =
+        document.documentElement.classList.contains('rs-embedded');
+      const disabledCategories = [
+        ...getEditorDisabledCategories(),
+        ...(inPaperwing
+          ? [
+              'document-open',
+              'document-close',
+              'document-export',
+              'document-print',
+              'document-protect',
+            ]
+          : []),
+      ];
       viewerInstance = EmbedPDF.init({
         disabledCategories,
         type: 'container',
@@ -191,7 +207,7 @@ async function handleFiles(files: FileList) {
         documentManager: {
           maxDocuments: 10,
         },
-        tabBar: 'always',
+        tabBar: inPaperwing ? 'never' : 'always',
       });
 
       const registry = await viewerInstance.registry;

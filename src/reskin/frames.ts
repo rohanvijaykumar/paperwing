@@ -90,6 +90,97 @@ function syncSignatureInk(doc: Document) {
   picker.value = `#${hex(r)}${hex(g)}${hex(b)}`;
 }
 
+/** Where an embedded PDF.js viewer's downloads go (set by reskin.ts) */
+let viewerDownload: ((blob: Blob, name: string) => void) | null = null;
+
+export function onViewerDownload(fn: (blob: Blob, name: string) => void) {
+  viewerDownload = fn;
+}
+
+interface PdfjsDownloads {
+  download?: (data: Uint8Array, url: string, name: string) => unknown;
+  downloadData?: (data: Uint8Array, name: string, type: string) => unknown;
+  openOrDownloadData?: (data: Uint8Array, name: string) => unknown;
+  __paperwing?: boolean;
+}
+
+/**
+ * Files a PDF.js viewer saves (its Download button, Fill & Sign, Fill a
+ * form) would download inside the viewer's own frame, where the workspace
+ * never sees them: once the viewer is ready, hand them over instead.
+ */
+function routeViewerDownloads(win: Window | null) {
+  if (!win || !viewerDownload) return;
+  const started = performance.now();
+  const tick = (): void => {
+    if (win.closed || performance.now() - started > 20000) return;
+    const app = (
+      win as unknown as {
+        PDFViewerApplication?: { downloadManager?: PdfjsDownloads };
+      }
+    ).PDFViewerApplication;
+    const dm = app?.downloadManager;
+    if (!dm) return void setTimeout(tick, 200);
+    if (dm.__paperwing) return;
+    dm.__paperwing = true;
+    const send = (data: Uint8Array | Blob, name: string) => {
+      const blob =
+        data instanceof Blob
+          ? data
+          : new Blob([new Uint8Array(data)], { type: 'application/pdf' });
+      viewerDownload?.(blob, name || 'document.pdf');
+    };
+    dm.download = (data, _url, name) => send(data, name);
+    dm.downloadData = (data, name) => send(data, name);
+    dm.openOrDownloadData = (data, name) => send(data, name);
+  };
+  tick();
+}
+
+/**
+ * Files a viewer saves through a download link of its own (the stamp
+ * viewer's extension uses FileSaver.js: a detached <a download> it clicks
+ * with a synthetic event) go to the workspace too.
+ */
+function routeLinkDownloads(win: Window | null) {
+  if (!win || !viewerDownload) return;
+  const w = win as Window & typeof globalThis & { __paperwingLinks?: boolean };
+  if (w.__paperwingLinks) return;
+  w.__paperwingLinks = true;
+  const blobs = new Map<string, Blob>();
+  const createObjectURL = w.URL.createObjectURL.bind(w.URL);
+  w.URL.createObjectURL = (obj: Blob | MediaSource) => {
+    const url = createObjectURL(obj);
+    if (obj instanceof w.Blob || obj instanceof Blob)
+      blobs.set(url, obj as Blob);
+    return url;
+  };
+  // A click on a download link to one of those blobs: sent, not saved
+  const intercept = (a: HTMLAnchorElement) => {
+    const blob = a.hasAttribute('download') ? blobs.get(a.href) : undefined;
+    if (!blob) return false;
+    viewerDownload?.(blob, a.download || 'document.pdf');
+    return true;
+  };
+  const click = w.HTMLAnchorElement.prototype.click;
+  w.HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+    if (!intercept(this)) click.call(this);
+  };
+  const dispatch = w.EventTarget.prototype.dispatchEvent;
+  w.EventTarget.prototype.dispatchEvent = function (
+    this: EventTarget,
+    event: Event
+  ) {
+    if (
+      event.type === 'click' &&
+      this instanceof w.HTMLAnchorElement &&
+      intercept(this)
+    )
+      return false;
+    return dispatch.call(this, event);
+  };
+}
+
 /** Injects fonts + theme stylesheet into an iframe document (idempotent) */
 function themeDocument(doc: Document, kind: ViewerKind) {
   const head = doc.head;
@@ -117,7 +208,17 @@ function themeDocument(doc: Document, kind: ViewerKind) {
   }
 
   doc.documentElement.dataset.paperwingFrame = kind;
+  // Which tool hosts it, and whether that tool is inside Paperwing (which
+  // has its own print and save), for tool-specific viewer styling
+  doc.documentElement.dataset.paperwingTool =
+    document.documentElement.dataset.page ?? '';
+  doc.documentElement.toggleAttribute(
+    'data-paperwing-embedded',
+    document.documentElement.classList.contains('rs-embedded')
+  );
   applyThemeTo(doc);
+  if (kind === 'pdfjs') routeViewerDownloads(doc.defaultView);
+  routeLinkDownloads(doc.defaultView);
 
   if (!themedDocs.has(doc)) {
     themedDocs.add(doc);

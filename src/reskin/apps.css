@@ -1882,3 +1882,87 @@ html[data-page='pdf-multi-tool'] #loading-overlay .bg-gray-700.rounded-full {
 html[data-page='pdf-multi-tool'] .toolbar-container #bulk-download-btn {
   margin-left: auto;
 }
+
+/* ------------------------------------------------------------------ */
+/* Inside Paperwing: per-tool controls that duplicate the workspace    */
+/* ------------------------------------------------------------------ */
+
+/* "Back to upload" / "Change file" / "Reset and go back to the upload
+   screen" / "Open another PDF": the workspace owns the document, and the
+   upload screen is hidden when it supplied one. The file name is in the
+   workspace's header */
+html.rs-embedded[data-page='edit-pdf-text'] :is(#exitEditor, label.btn[for='file']),
+html.rs-embedded[data-page='add-watermark']
+  :is(#editor-back-btn, #editor-file-info),
+html.rs-embedded[data-page='bookmark'] :is(#reset-btn, #filename-display),
+html.rs-embedded[data-page='form-creator'] #resetBtn,
+html.rs-embedded.rs-has-doc[data-page='add-stamps'] #fileList,
+/* A heading that repeats the tool's name in the panel header */
+html.rs-embedded[data-page='edit-metadata'] #tool-options > h2,
+html.rs-embedded[data-page='view-metadata'] #tool-options > h2,
+/* The XFA note (a BentoPDF/Firefox pointer) */
+html.rs-embedded[data-page='form-filler'] #tool-uploader > div.bg-blue-900\/20 {
+  display: none !important;
+}
+
+/* Bookmarks: Delete all is a quiet danger button; Save stands out */
+html.rs-embedded[data-page='bookmark'] #delete-all-btn {
+  background: transparent;
+  border: 1px solid var(--rs-border-strong);
+  color: var(--rs-brand);
+}
+html.rs-embedded[data-page='bookmark'] #delete-all-btn:hover {
+  background: var(--rs-surface-hover);
+}
+
+/* Prepare a form: Add page is secondary to saving the form */
+html.rs-embedded[data-page='form-creator'] #addPageBtn {
+  background: transparent;
+  border: 1px solid var(--rs-border-strong);
+  color: var(--rs-text);
+}
+html.rs-embedded[data-page='form-creator'] #addPageBtn:hover {
+  background: var(--rs-surface-hover);
+}
+
+/* Organize pages: "Download selected" and "Export PDF" both carry a
+   download icon, so both show their label, and only Export is primary */
+html.rs-embedded[data-page='pdf-multi-tool']
+  :is(#bulk-download-btn, #export-pdf-btn)
+  > span.hidden {
+  display: inline;
+}
+html.rs-embedded[data-page='pdf-multi-tool'] #bulk-download-btn {
+  background: transparent;
+  border: 1px solid var(--rs-border-strong);
+  color: var(--rs-text);
+}
+html.rs-embedded[data-page='pdf-multi-tool'] #bulk-download-btn:hover {
+  background: var(--rs-surface-hover);
+}
+
+/* Annotate & draw: the viewer fills the document area above Save */
+html.rs-full[data-page='edit-pdf'] #embed-pdf-wrapper {
+  margin-top: 0;
+}
+html.rs-full[data-page='edit-pdf'] #embed-pdf-container {
+  height: max(360px, calc(100vh - 116px));
+  border: none;
+  border-radius: 8px;
+  overflow: hidden;
+}
+html.rs-full[data-page='edit-pdf'] #download-edited-pdf {
+  margin-top: 16px;
+}
+
+/* Page Dimensions: the side panel fits Page, Size, Standard and
+   Orientation; aspect ratio, area and rotation need the wider view */
+html.rs-panel[data-page='page-dimensions']
+  :is(thead, #dimensions-table-body)
+  tr
+  > :nth-child(n + 5) {
+  display: none;
+}
+html.rs-panel[data-page='page-dimensions'] :is(th, td) {
+  padding-inline: 8px;
+}

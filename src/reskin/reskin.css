@@ -959,3 +959,98 @@ html.rs-full.rs-has-doc #uploader {
 html.rs-full #tool-uploader {
   max-width: none;
 }
+
+/* ------------------------------------------------------------------ */
+/* Tools inside Paperwing: only the controls that make sense there     */
+/* ------------------------------------------------------------------ */
+
+/* Website sections below the tool (How it works, Related tools, FAQ) */
+html.rs-embedded body > section,
+html.rs-embedded [data-i18n='upload.filesNeverLeave'],
+/* "First load takes a moment as we download our conversion engine":
+   the workspace shows its own progress the one time it downloads */
+html.rs-embedded :is(div, p):has(> [data-i18n='tools.firstLoadNotice']),
+html.rs-embedded [data-i18n='tools.firstLoadNotice'] {
+  display: none !important;
+}
+
+/* A primary button the page hides stays hidden (.btn-gradient sets its
+   own display, which otherwise beats .hidden) */
+html .btn-gradient.hidden {
+  display: none !important;
+}
+
+/* Pages that centre their content vertically start at the top instead */
+html.rs-embedded
+  :is(#uploader, div.min-h-screen:has(> #tool-uploader)):not(.flex-col) {
+  align-items: flex-start;
+}
+html.rs-embedded div.min-h-screen:has(> #tool-uploader):not(#uploader) {
+  padding: 16px 20px 24px;
+  background: transparent;
+}
+
+/* The sticky primary button covers what scrolls under it: a rectangle of
+   panel colour around it (border-image, which isn't rounded), the spread
+   shadow filling the pill's corners, and a fade above */
+html.rs-embedded #process-btn,
+html.rs-embedded #tool-uploader > .btn-gradient {
+  border: 0 solid transparent;
+  border-image: linear-gradient(var(--rs-surface), var(--rs-surface)) 1 / 12px
+    24px 40px / 12px 24px 40px;
+  box-shadow:
+    0 0 0 12px var(--rs-surface),
+    0 -14px 14px 6px var(--rs-surface);
+}
+html.rs-embedded #process-btn:focus-visible,
+html.rs-embedded #tool-uploader > .btn-gradient:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--rs-surface),
+    0 0 0 4px var(--rs-accent),
+    0 0 0 12px var(--rs-surface);
+}
+
+/* In the side panel the open document is already loaded: no second way
+   to pick (and silently swap) the file. Tools that take several files
+   keep one "Add files" button */
+html.rs-panel.rs-has-doc #drop-zone:has(input[type='file']:not([multiple])),
+html.rs-panel.rs-has-doc:has(#file-controls:not(.hidden)) #drop-zone {
+  display: none !important;
+}
+html.rs-has-doc:has(#drop-zone input[type='file']:not([multiple]))
+  #file-display-area
+  button:has(
+    .lucide-trash-2,
+    [data-lucide='trash-2'],
+    .lucide-x,
+    [data-lucide='x']
+  ) {
+  display: none !important;
+}
+/* "Clear all" with just the one document does the same as its trash */
+html.rs-has-doc:has(:is(#file-display-area, #file-list) > :only-child)
+  #clear-files-btn {
+  display: none !important;
+}
+html #add-more-btn,
+html #clear-files-btn {
+  font-size: 13px;
+  padding: 6px 14px;
+}
+html :is(#add-more-btn, #clear-files-btn) svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Radio cards (e.g. Fix Page Size): the chosen one is tinted, not filled
+   with the same blue as its radio */
+html label[class*='has-[:checked]:bg-indigo']:has(input[type='radio']:checked) {
+  background: var(--rs-accent-tint) !important;
+  border-color: var(--rs-accent) !important;
+  color: var(--rs-text);
+}
+html
+  label[class*='has-[:checked]:bg-indigo']:has(input[type='radio']:checked)
+  :is(p, span, div) {
+  color: var(--rs-text-2);
+}

@@ -1562,3 +1562,21 @@ dialog :link {
     padding-inline: 16px;
   }
 }
+
+/* Inside Paperwing the tool's own Save button and the workspace's Print
+   are the ways out; the viewer's copies (and Open) would duplicate them */
+html[data-paperwing-embedded]
+  :is(
+    #downloadButton,
+    #printButton,
+    #secondaryDownload,
+    #secondaryPrint,
+    #secondaryOpenFile
+  ) {
+  display: none !important;
+}
+/* Filling a form: the viewer's annotation tools belong to other tools */
+html[data-paperwing-embedded][data-paperwing-tool='form-filler']
+  #editorModeButtons {
+  display: none !important;
+}

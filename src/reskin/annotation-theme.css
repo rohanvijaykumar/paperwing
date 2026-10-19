@@ -1236,3 +1236,25 @@ html .anticon {
 #secondaryToolbarButtonContainer {
   scrollbar-color: var(--pw-scrollbar) transparent;
 }
+
+/* Inside Paperwing, Add Stamps' own "Save Stamped PDF" is the way out and
+   the workspace prints: the viewer's Print, Download and Open, and the
+   annotation toolbar's Save and Export (the list after its separator),
+   would duplicate them */
+html[data-paperwing-embedded]
+  :is(
+    #print,
+    #download,
+    #secondaryPrint,
+    #secondaryDownload,
+    #secondaryOpenFile
+  ),
+html[data-paperwing-embedded]
+  .CustomToolbar
+  .splitToolbarButtonSeparator:has(+ ul.buttons),
+html[data-paperwing-embedded]
+  .CustomToolbar
+  .splitToolbarButtonSeparator
+  + ul.buttons {
+  display: none !important;
+}

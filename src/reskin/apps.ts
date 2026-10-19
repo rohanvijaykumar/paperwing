@@ -20,7 +20,30 @@ export function initApps(): void {
     case 'markdown-to-pdf':
       themeMarkdownEditor();
       break;
+    case 'edit-pdf-text':
+      showHistoryButtons();
+      break;
   }
+}
+
+/** Edit a PDF shows Undo and Redo only on narrow screens; inside Paperwing
+ *  they sit next to Export at every size (the editor's own [hidden] rule
+ *  is !important, so the attribute itself goes) */
+function showHistoryButtons() {
+  if (window.self === window.top) return;
+  const show = () => {
+    for (const id of ['undo', 'redo']) {
+      const b = document.getElementById(id);
+      if (!b) continue;
+      b.hidden = false;
+      new MutationObserver(() => {
+        if (b.hidden) b.hidden = false;
+      }).observe(b, { attributes: true, attributeFilter: ['hidden'] });
+    }
+  };
+  if (document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', show, { once: true });
+  else show();
 }
 
 /** Pages like edit-pdf-text pin <meta name="color-scheme" content="dark">,

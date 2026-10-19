@@ -324,8 +324,11 @@ if (saveStampedBtn) {
         if (result && typeof result.then === 'function') {
           result
             .then(() => {
-              // Reset state after successful export
-              setTimeout(() => resetState(), 500);
+              // Reset state after successful export (inside Paperwing the
+              // result opens as a new document and the tool stays on this
+              // one, whose upload screen it hides)
+              if (!document.documentElement.classList.contains('rs-embedded'))
+                setTimeout(() => resetState(), 500);
             })
             .catch((err: unknown) => {
               console.error(

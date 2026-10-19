@@ -230,17 +230,6 @@ async function setupSignTool() {
           if (editorStampButton) {
             editorStampButton.disabled = false;
           }
-          try {
-            const highlightBtn = doc.getElementById(
-              'editorHighlightButton'
-            ) as HTMLButtonElement | null;
-            highlightBtn?.click();
-          } catch (e) {
-            console.warn(
-              'Failed to auto-click highlight button in PDF viewer',
-              e
-            );
-          }
         });
       }
     } catch (e) {
