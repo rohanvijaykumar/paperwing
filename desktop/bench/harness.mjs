@@ -21,7 +21,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Profiles and Chromium temp files go here (BENCH_TMP overrides the OS temp dir) */
 const TMP_ROOT = process.env.BENCH_TMP || tmpdir();
 
-let port = 9400;
+let port = Number(process.env.BENCH_PORT) || 9400;
 
 /**
  * Starts the app. Resolves once the main window is visible, with the

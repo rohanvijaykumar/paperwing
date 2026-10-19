@@ -148,7 +148,10 @@ check(
 const toastText = await page.evaluate(
   () => document.querySelector('#toasts')?.textContent ?? ''
 );
-check(/never saved/.test(toastText), `toast: ${toastText.trim().slice(0, 80)}`);
+check(
+  /unsaved changes/.test(toastText),
+  `toast: ${toastText.trim().slice(0, 80)}`
+);
 
 // Close it and choose Don't save: the recovery copy goes
 await page.evaluate(() => {
