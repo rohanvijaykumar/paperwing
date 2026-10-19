@@ -20,6 +20,8 @@ export interface Prefs {
   defaultZoom: 'automatic' | 'fit-width' | 'fit-page' | '100';
   /** Where the floating quick toolbar was left */
   quickbarPos: { x: number; y: number } | null;
+  /** The tool each quick toolbar button was last set to (button -> tool) */
+  quickbarTools: Record<string, string>;
 }
 
 const KEY = 'paperwing:prefs';
@@ -33,6 +35,7 @@ const DEFAULTS: Prefs = {
   recentTools: [],
   recentToolNames: {},
   quickbarPos: null,
+  quickbarTools: {},
   defaultZoom: 'automatic',
 };
 

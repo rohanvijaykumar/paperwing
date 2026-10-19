@@ -6,6 +6,50 @@
 import type { EmbedPdfContainer, PluginRegistry } from 'bentopdf-viewer';
 import { editorFontFallback } from '../js/config/editor-fonts.js';
 import notoSansUrl from './fonts/NotoSans-Regular.ttf?url';
+
+// Same letter widths as the fonts PDFs most often name without embedding
+
+// (see fontFallback)
+
+import serifR from './fonts/fallback/LiberationSerif-Regular.ttf?url';
+
+import serifB from './fonts/fallback/LiberationSerif-Bold.ttf?url';
+
+import serifI from './fonts/fallback/LiberationSerif-Italic.ttf?url';
+
+import serifBI from './fonts/fallback/LiberationSerif-BoldItalic.ttf?url';
+
+import sansR from './fonts/fallback/LiberationSans-Regular.ttf?url';
+
+import sansB from './fonts/fallback/LiberationSans-Bold.ttf?url';
+
+import sansI from './fonts/fallback/LiberationSans-Italic.ttf?url';
+
+import sansBI from './fonts/fallback/LiberationSans-BoldItalic.ttf?url';
+
+import monoR from './fonts/fallback/LiberationMono-Regular.ttf?url';
+
+import monoB from './fonts/fallback/LiberationMono-Bold.ttf?url';
+
+import monoI from './fonts/fallback/LiberationMono-Italic.ttf?url';
+
+import monoBI from './fonts/fallback/LiberationMono-BoldItalic.ttf?url';
+
+import calibriR from './fonts/fallback/Carlito-Regular.ttf?url';
+
+import calibriB from './fonts/fallback/Carlito-Bold.ttf?url';
+
+import calibriI from './fonts/fallback/Carlito-Italic.ttf?url';
+
+import calibriBI from './fonts/fallback/Carlito-BoldItalic.ttf?url';
+
+import cambriaR from './fonts/fallback/Caladea-Regular.ttf?url';
+
+import cambriaB from './fonts/fallback/Caladea-Bold.ttf?url';
+
+import cambriaI from './fonts/fallback/Caladea-Italic.ttf?url';
+
+import cambriaBI from './fonts/fallback/Caladea-BoldItalic.ttf?url';
 import { getThemePref, onThemeChange } from '../reskin/theme';
 import { getPrefs } from './prefs';
 
@@ -92,12 +136,34 @@ const fontFallback = (() => {
   const latin = new URL(notoSansUrl, location.href).href;
   const absolute = (font: string) =>
     font === defaultFont ? latin : `${baseUrl}/${font}`;
+  const variants = (r: string, b: string, i: string, bi: string) =>
+    [
+      [r, 400, false],
+      [b, 700, false],
+      [i, 400, true],
+      [bi, 700, true],
+    ].map(([url, weight, italic]) => ({
+      url: new URL(url as string, location.href).href,
+      weight,
+      italic,
+    }));
   return {
     baseUrl: '',
     fonts: Object.fromEntries(
       Object.entries(fonts).map(([charset, font]) => [charset, absolute(font)])
     ),
     defaultFont: latin,
+    // Latin text in a font the PDF doesn't embed: chosen by the font's name
+    // (Times, Arial, Courier, Calibri, Cambria and their kin) so the letters
+    // fit the widths the PDF was laid out with (a viewer patch, see
+    // reskin/vite-plugin-reskin.ts, "font faces")
+    faces: {
+      serif: variants(serifR, serifB, serifI, serifBI),
+      sans: variants(sansR, sansB, sansI, sansBI),
+      mono: variants(monoR, monoB, monoI, monoBI),
+      calibri: variants(calibriR, calibriB, calibriI, calibriBI),
+      cambria: variants(cambriaR, cambriaB, cambriaI, cambriaBI),
+    },
   };
 })();
 
@@ -105,6 +171,9 @@ type Unsub = () => void;
 // The plugin capabilities are loosely typed in the published d.ts; keep the
 // surface we use small and explicit.
 type Cap = Record<string, any>;
+
+/** What the mouse does on the page (see Viewer.mode) */
+export type ViewMode = 'select' | 'hand' | 'marquee';
 
 export interface PageInfo {
   current: number;
@@ -160,6 +229,7 @@ export class Viewer {
     (tabId: string, toolId: string | null) => void
   >();
   private changeListeners = new Set<(tabId: string) => void>();
+  private modeListeners = new Set<(tabId: string, mode: ViewMode) => void>();
   /** The right-hand panel (comments, thumbnails, find…) opened or closed */
   private sidebarListeners = new Set<(tabId: string) => void>();
   private zoomListeners = new Set<(tabId: string) => void>();
@@ -286,6 +356,13 @@ export class Viewer {
           this.toolListeners.forEach((fn) => fn(tabId, e.tool?.id ?? null));
       });
 
+      this.cap('interaction-manager').onModeChange?.((e: any) => {
+        const tabId = this.tabFor(e?.documentId);
+        if (!tabId) return;
+        const mode = this.mode(tabId);
+        this.modeListeners.forEach((fn) => fn(tabId, mode));
+      });
+
       this.cap('scroll').onPageChange((e: any) => {
         const tabId = this.tabFor(e.documentId);
         if (tabId) this.emitPage(tabId);
@@ -409,11 +486,14 @@ export class Viewer {
     else s.previousResult();
   }
 
-  history(tabId: string, action: 'undo' | 'redo') {
+  /** Undo or redo an edit made in the viewer; false if there was none */
+  history(tabId: string, action: 'undo' | 'redo'): boolean {
     const id = this.docIds.get(tabId);
-    if (!id) return;
+    if (!id) return false;
     const h = this.cap('history').forDocument(id);
-    if (action === 'undo' ? h.canUndo() : h.canRedo()) h[action]();
+    if (!(action === 'undo' ? h.canUndo() : h.canRedo())) return false;
+    h[action]();
+    return true;
   }
 
   /** Page count and size of the first page (PDF points) */
@@ -529,6 +609,16 @@ export class Viewer {
     if (id) this.cap('document-manager').setActiveDocument(id);
   }
 
+  /** Swaps a tab's document for a new version of it (after its pages
+   *  changed), at `view`. The new one opens before the old one closes, so
+   *  no other document shows in between. */
+  async replace(tabId: string, buffer: ArrayBuffer, view?: DocView) {
+    const old = this.docIds.get(tabId);
+    await this.open(tabId, buffer, view);
+    if (old && old !== this.docIds.get(tabId))
+      this.cap('document-manager').closeDocument(old);
+  }
+
   close(tabId: string) {
     if (this.opening.has(tabId)) {
       // Still loading: close it once it has opened (see onDocumentOpened)
@@ -620,6 +710,33 @@ export class Viewer {
     if (!id) return;
     this.cap('annotation').forDocument?.(id)?.setActiveTool?.(toolId) ??
       this.cap('annotation').setActiveTool(toolId);
+  }
+
+  /** How the mouse acts on the page: selecting (or an annotation tool),
+   *  dragging it around, or zooming into a dragged rectangle */
+  mode(tabId: string): ViewMode {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return 'select';
+    const m = this.cap('interaction-manager').forDocument(id).getActiveMode();
+    return m === 'panMode'
+      ? 'hand'
+      : m === 'marqueeZoom'
+        ? 'marquee'
+        : 'select';
+  }
+
+  setMode(tabId: string, mode: ViewMode) {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return;
+    const im = this.cap('interaction-manager').forDocument(id);
+    if (mode === 'select') im.activateDefaultMode();
+    else im.activate(mode === 'hand' ? 'panMode' : 'marqueeZoom');
+  }
+
+  /** Fires when the mode changes (an annotation tool counts as select) */
+  onMode(fn: (tabId: string, mode: ViewMode) => void): Unsub {
+    this.modeListeners.add(fn);
+    return () => this.modeListeners.delete(fn);
   }
 
   pageInfo(tabId: string): PageInfo | null {

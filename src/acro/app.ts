@@ -6,6 +6,14 @@
 import '@phosphor-icons/web/duotone';
 import { icon, toolIcon, type IconName } from './icons';
 import {
+  deletePages,
+  extractPages,
+  insertBlankPage,
+  insertPagesFrom,
+  movePage,
+  rotatePages,
+} from './pages';
+import {
   allToolGroups,
   convertTools,
   editTools,
@@ -18,7 +26,13 @@ import {
   type AppTool,
   type ToolGroup,
 } from './catalog';
-import { OpenCancelled, Viewer, type DocView, type PageInfo } from './viewer';
+import {
+  OpenCancelled,
+  Viewer,
+  type DocView,
+  type PageInfo,
+  type ViewMode,
+} from './viewer';
 import { Thumbnails, thumbUrl } from './thumbnails';
 import { desktop, isMac, key, toFile } from './desktop';
 import { checkForUpdates, scheduleUpdateCheck } from './updates';
@@ -44,6 +58,7 @@ import {
   type ThemePref,
 } from '../reskin/theme';
 import { toolsOrigin } from '../reskin/origins';
+import { initTooltips } from '../reskin/tooltip';
 import {
   clearRecent,
   forgetRecent,
@@ -141,6 +156,8 @@ interface MenuItem {
   icon?: Node;
   disabled?: boolean;
   divider?: boolean;
+  /** The current choice among the items (shown ticked) */
+  checked?: boolean;
   onClick?: () => void;
 }
 
@@ -203,6 +220,7 @@ function showMenu(
   header?: HTMLElement
 ) {
   const list = h('div', { class: 'menu', role: 'menu' }, header);
+  const choice = items.some((it) => it.checked !== undefined);
   for (const it of items) {
     if (it.divider) {
       list.append(h('div', { class: 'menu-div' }));
@@ -213,8 +231,9 @@ function showMenu(
         'button',
         {
           type: 'button',
-          class: 'menu-item',
-          role: 'menuitem',
+          class: `menu-item${it.checked ? ' is-checked' : ''}`,
+          role: choice ? 'menuitemradio' : 'menuitem',
+          'aria-checked': choice ? String(!!it.checked) : undefined,
           disabled: it.disabled,
           onClick: () => {
             closePopover?.();
@@ -223,11 +242,54 @@ function showMenu(
         },
         h('span', { class: 'mi-icon' }, it.icon),
         h('span', { class: 'mi-label' }, it.label),
-        it.shortcut && h('span', { class: 'mi-key' }, it.shortcut)
+        it.shortcut && h('span', { class: 'mi-key' }, it.shortcut),
+        choice &&
+          h('span', { class: 'mi-check' }, it.checked && icon('check', 14))
       )
     );
   }
-  return showPopover(anchor, list, placement);
+  // Up/Down (and Home/End) move between items, as in any menu
+  const entries = () =>
+    [...list.querySelectorAll<HTMLButtonElement>('.menu-item')].filter(
+      (b) => !b.disabled
+    );
+  list.addEventListener('keydown', (e) => {
+    const all = entries();
+    if (!all.length) return;
+    const i = all.indexOf(document.activeElement as HTMLButtonElement);
+    const next =
+      e.key === 'ArrowDown'
+        ? all[(i + 1) % all.length]
+        : e.key === 'ArrowUp'
+          ? all[(i - 1 + all.length) % all.length]
+          : e.key === 'Home'
+            ? all[0]
+            : e.key === 'End'
+              ? all[all.length - 1]
+              : null;
+    if (next) {
+      e.preventDefault();
+      next.focus();
+    }
+  });
+  const pop = showPopover(anchor, list, placement);
+  const focusCurrent = () => {
+    const all = entries();
+    (all.find((b) => b.classList.contains('is-checked')) ?? all[0])?.focus();
+  };
+  // Opened from the keyboard: focus the current (or first) item
+  if (anchor.matches(':focus-visible')) focusCurrent();
+  // Opened with the mouse, the arrow keys still reach the items
+  const fromAnchor = (e: KeyboardEvent) => {
+    if (!pop.isConnected)
+      return anchor.removeEventListener('keydown', fromAnchor);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      focusCurrent();
+    }
+  };
+  anchor.addEventListener('keydown', fromAnchor);
+  return pop;
 }
 
 function toast(
@@ -308,6 +370,8 @@ interface FrameTool {
   owner: string;
   /** Shows the tool once it's ready, or after a while regardless */
   reveal: () => void;
+  /** A full-page tool has work that hasn't come back as a result yet */
+  dirty?: boolean;
 }
 
 interface Tab {
@@ -344,6 +408,11 @@ interface Tab {
   /** Workspace running a tool on several files at once: each result opens
    *  in a tab of its own and the tool stays */
   batch?: boolean;
+  /** Earlier and undone versions of the pages (thumbnails panel changes) */
+  pageUndo?: ArrayBuffer[];
+  pageRedo?: ArrayBuffer[];
+  /** A page change is being applied */
+  pageBusy?: boolean;
 }
 
 const isDirty = (t: Tab) => t.version !== t.savedVersion;
@@ -498,6 +567,7 @@ const closedDocs: string[] = [];
 async function requestCloseTab(id: string): Promise<boolean> {
   const tab = tabs.find((t) => t.id === id);
   if (!tab) return true;
+  if (!(await mayDiscardTool(tab))) return false;
   if (isDirty(tab)) {
     activate(id);
     const choice = await confirmUnsaved([tab]);
@@ -521,6 +591,7 @@ function closeTab(id: string) {
     .querySelectorAll(`[data-owner="${CSS.escape(id)}"]`)
     .forEach((el) => el.remove());
   void flushView(tab); // reads the viewer, so before it closes the document
+  cancelRecoveryCopy(tab);
   viewer.close(tab.id);
   if (tab.recoveryId) void desktop?.recovery?.delete(tab.recoveryId);
   if (activeId === id) {
@@ -774,6 +845,50 @@ async function keepRecoveryCopy(file: File): Promise<string | undefined> {
   }
 }
 
+/**
+ * Unsaved edits (annotations, form fields, page changes…) are copied to the
+ * recovery folder a few seconds after the latest change, so a crash can't
+ * lose them: recoverUnsaved reopens them at the next launch. Saving or
+ * discarding the document deletes its copy (saveDoc, closeTab).
+ */
+const RECOVERY_DELAY_MS = 4000;
+const recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function scheduleRecoveryCopy(tab: Tab) {
+  if (!desktop?.recovery || tab.blank || !isDirty(tab)) return;
+  clearTimeout(recoveryTimers.get(tab.id));
+  recoveryTimers.set(
+    tab.id,
+    setTimeout(() => void writeRecoveryCopy(tab), RECOVERY_DELAY_MS)
+  );
+}
+
+function cancelRecoveryCopy(tab: Tab) {
+  clearTimeout(recoveryTimers.get(tab.id));
+  recoveryTimers.delete(tab.id);
+}
+
+/** "Report.pdf" -> "Report (Recovered).pdf" */
+const recoveredName = (name: string) =>
+  name.replace(/(\.pdf)?$/i, ' (Recovered)$1');
+
+async function writeRecoveryCopy(tab: Tab) {
+  recoveryTimers.delete(tab.id);
+  const recovery = desktop?.recovery;
+  if (!recovery || !tabs.includes(tab) || !isDirty(tab)) return;
+  // Busy: try again shortly
+  if (tab.loading || tab.pageBusy) return scheduleRecoveryCopy(tab);
+  const bytes = await viewer.exportBytes(tab.id).catch((): null => null);
+  if (!bytes || !tabs.includes(tab) || !isDirty(tab)) return;
+  const id = (tab.recoveryId ??= crypto.randomUUID());
+  // A file from disk comes back beside the original, not over it
+  const name = tab.path || tab.handle ? recoveredName(tab.name) : tab.name;
+  await recovery.save(id, name, new Uint8Array(bytes)).catch(() => false);
+  // Saved or closed while it was being copied: the copy isn't wanted
+  if (!tabs.includes(tab) || tab.recoveryId !== id || !isDirty(tab))
+    void recovery.delete(id);
+}
+
 /** Unsaved documents left by a crash: reopen them, still unsaved */
 async function recoverUnsaved() {
   const recovery = desktop?.recovery;
@@ -799,8 +914,8 @@ async function recoverUnsaved() {
   if (reopened)
     toast(
       reopened === 1
-        ? 'Reopened 1 document that was never saved'
-        : `Reopened ${reopened} documents that were never saved`
+        ? 'Recovered 1 document with unsaved changes'
+        : `Recovered ${reopened} documents with unsaved changes`
     );
 }
 
@@ -851,9 +966,10 @@ function createFrameTool(
     src: src.href,
     title: tool.name,
     // A cross-origin frame needs these delegated: cross-origin isolation
-    // (SharedArrayBuffer for the multi-threaded engines), clipboard, and
-    // full screen
-    allow: 'cross-origin-isolated; clipboard-read; clipboard-write; fullscreen',
+    // (SharedArrayBuffer for the multi-threaded engines), clipboard, full
+    // screen, and the installed fonts (Edit a PDF's "System fonts")
+    allow:
+      'cross-origin-isolated; clipboard-read; clipboard-write; fullscreen; local-fonts',
   });
   // Until the tool is ready (and has the document it was opened with), it
   // stays hidden behind a loading message: otherwise its page would show,
@@ -907,6 +1023,8 @@ window.addEventListener('message', async (e: MessageEvent) => {
     else ft.reveal();
   } else if (e.data?.type === 'acro:files-loaded') {
     ft.reveal();
+  } else if (e.data?.type === 'acro:dirty') {
+    ft.dirty = !!e.data.dirty;
   } else if (e.data?.type === 'acro:download' && e.data.blob instanceof Blob) {
     const blob = e.data.blob;
     const name = uniqueTabName(String(e.data.name || 'download'));
@@ -1044,7 +1162,7 @@ function mountTool(tab: Tab, tool: AppTool, files: File[]) {
         {
           type: 'button',
           class: 'pill-btn',
-          onClick: () => closeFullTool(tab),
+          onClick: (): void => void closeFullTool(tab),
         },
         'Close'
       )
@@ -1081,6 +1199,8 @@ async function openToolOnDoc(tab: Tab, tool: AppTool, files: File[] = []) {
   if (tool.action) return runViewerAction(tab, tool);
   if (tab.loading) return toast('The document is still loading…');
 
+  // Another full-page tool replaces the open one
+  if (tool.full && !(await mayDiscardTool(tab))) return;
   const bytes = await viewer.exportBytes(tab.id);
   const docFiles = bytes
     ? [new File([bytes], tab.name, { type: 'application/pdf' })]
@@ -1115,16 +1235,37 @@ function showToolsSidebar(query = '') {
   input?.select();
 }
 
-function closeFullTool(tab: Tab) {
+/** A full-page tool with unsaved work: may it go? */
+async function mayDiscardTool(tab: Tab): Promise<boolean> {
+  const ft = tab.fullTool;
+  if (!ft?.dirty) return true;
+  if (activeId !== tab.id) activate(tab.id);
+  return askDialog(
+    `Discard changes in ${ft.tool.name}?`,
+    `${ft.tool.name} has changes that haven't been saved yet. They'll be lost if you close it.`,
+    [
+      { label: 'Keep working', value: false, kind: 'secondary' },
+      { label: 'Discard changes', value: true, kind: 'primary' },
+    ],
+    false
+  );
+}
+
+async function closeFullTool(tab: Tab): Promise<boolean> {
+  if (!(await mayDiscardTool(tab))) return false;
   disposeFrameTool(tab.fullTool);
   tab.fullTool = undefined;
   renderDocChrome(tab);
+  return true;
 }
 
-function runViewerAction(tab: Tab, tool: AppTool) {
+async function runViewerAction(tab: Tab, tool: AppTool) {
+  // Commenting and redacting happen in the viewer: leave a full-page tool
+  // first (as picking another tool would), or they'd act out of sight
+  if (tab.fullTool && !(await closeFullTool(tab))) return;
   if (tool.action === 'comment') {
     viewer.toggleSidebar(tab.id, 'comment-panel');
-    if (tab.activeAnnot !== 'comment') setAnnot(tab, 'comment');
+    if (tab.activeAnnot !== 'comment') useQuickTool(tab, 'comment', 'note');
   } else if (tool.action === 'redact') {
     viewer.command(tab.id, 'redaction:redact');
     viewer.toggleSidebar(tab.id, 'redaction-panel');
@@ -1358,6 +1499,8 @@ function renderDocChrome(tab: Tab) {
     );
   renderLeftPanel(tab);
   $('#doc-stage').classList.toggle('has-full-tool', !!tab.fullTool);
+  // (the rail drives the viewer, which a full-page tool covers)
+  $('#view-doc').classList.toggle('has-full-tool', !!tab.fullTool);
   $('#doc-stage').classList.toggle('is-loading', tab.loading);
   $('#doc-stage').classList.toggle('is-blank', tab.blank);
   $('#view-doc').classList.toggle('is-workspace', tab.blank);
@@ -1388,39 +1531,181 @@ $('#gb-tabs').addEventListener('click', (e) => {
 
 /* Quick action toolbar ------------------------------------------------ */
 
-const ANNOT_TOOLS: {
+/** A tool on the quick toolbar */
+interface QuickTool {
   id: string;
+  label: string;
   icon: IconName;
-  title: string;
+  /** Viewer command that starts it */
   command?: string;
-}[] = [
-  { id: 'select', icon: 'select', title: 'Select' },
+  /** Mouse mode it switches to (the Select button's tools) */
+  mode?: ViewMode;
+  /** Its keyboard shortcut (keymap id), shown in tooltips and menus */
+  shortcut?: string;
+}
+
+/**
+ * The quick toolbar's buttons. As in Acrobat, a button with several tools
+ * has a small arrow: it (or a right-click, or pressing and holding the
+ * button) opens the button's tools, and the one picked becomes the
+ * button's tool until another is picked (remembered in prefs).
+ */
+const QUICK_GROUPS: { id: string; tools: QuickTool[] }[] = [
+  {
+    id: 'select',
+    tools: [
+      {
+        id: 'select',
+        label: 'Select',
+        icon: 'select',
+        mode: 'select',
+        shortcut: 'toolSelect',
+      },
+      {
+        id: 'hand',
+        label: 'Hand',
+        icon: 'hand',
+        mode: 'hand',
+        shortcut: 'toolHand',
+      },
+      {
+        id: 'marquee',
+        label: 'Marquee zoom',
+        icon: 'marqueeZoom',
+        mode: 'marquee',
+        shortcut: 'toolZoom',
+      },
+    ],
+  },
   {
     id: 'comment',
-    icon: 'comment',
-    title: 'Add a comment',
-    command: 'annotation:add-comment',
+    tools: [
+      {
+        id: 'note',
+        label: 'Add a comment',
+        icon: 'comment',
+        command: 'annotation:add-comment',
+        shortcut: 'toolNote',
+      },
+      {
+        id: 'stamp',
+        label: 'Stamp',
+        icon: 'stamp',
+        command: 'annotation:add-stamp',
+        shortcut: 'toolStamp',
+      },
+    ],
   },
   {
     id: 'highlight',
-    icon: 'highlight',
-    title: 'Highlight text',
-    command: 'annotation:add-highlight',
+    tools: [
+      {
+        id: 'highlight',
+        label: 'Highlight text',
+        icon: 'highlight',
+        command: 'annotation:add-highlight',
+        shortcut: 'toolHighlight',
+      },
+      {
+        id: 'underline',
+        label: 'Underline text',
+        icon: 'underline',
+        command: 'annotation:add-underline',
+      },
+      {
+        id: 'strikeout',
+        label: 'Strikethrough text',
+        icon: 'strikethrough',
+        command: 'annotation:add-strikeout',
+      },
+      {
+        id: 'squiggly',
+        label: 'Squiggly underline',
+        icon: 'squiggly',
+        command: 'annotation:add-squiggly',
+      },
+      {
+        id: 'marker',
+        label: 'Highlighter pen',
+        icon: 'marker',
+        command: 'annotation:add-ink-highlighter',
+      },
+    ],
   },
   {
     id: 'ink',
-    icon: 'draw',
-    title: 'Draw freehand',
-    command: 'annotation:add-ink',
+    tools: [
+      {
+        id: 'ink',
+        label: 'Draw freehand',
+        icon: 'draw',
+        command: 'annotation:add-ink',
+        shortcut: 'toolDraw',
+      },
+      {
+        id: 'line',
+        label: 'Line',
+        icon: 'line',
+        command: 'annotation:add-line',
+      },
+      {
+        id: 'arrow',
+        label: 'Arrow',
+        icon: 'arrow',
+        command: 'annotation:add-arrow',
+      },
+      {
+        id: 'rectangle',
+        label: 'Rectangle',
+        icon: 'rectangle',
+        command: 'annotation:add-rectangle',
+      },
+      {
+        id: 'oval',
+        label: 'Oval',
+        icon: 'oval',
+        command: 'annotation:add-circle',
+      },
+      {
+        id: 'polygon',
+        label: 'Polygon',
+        icon: 'polygon',
+        command: 'annotation:add-polygon',
+      },
+    ],
   },
   {
     id: 'text',
-    icon: 'text',
-    title: 'Add text',
-    command: 'annotation:add-text',
+    tools: [
+      {
+        id: 'text',
+        label: 'Add text',
+        icon: 'text',
+        command: 'annotation:add-text',
+        shortcut: 'toolText',
+      },
+      {
+        id: 'callout',
+        label: 'Text callout',
+        icon: 'callout',
+        command: 'annotation:add-callout',
+      },
+    ],
   },
-  { id: 'sign', icon: 'sign', title: 'Fill & Sign' },
+  {
+    id: 'sign',
+    tools: [{ id: 'sign', label: 'Fill & Sign', icon: 'sign' }],
+  },
 ];
+
+const quickGroup = (id: string) => QUICK_GROUPS.find((g) => g.id === id)!;
+
+/** The tool a button stands for now (the last one picked from its menu) */
+function quickTool(groupId: string): QuickTool {
+  const g = quickGroup(groupId);
+  const picked = getPrefs().quickbarTools[groupId];
+  return g.tools.find((t) => t.id === picked) ?? g.tools[0];
+}
 
 /** viewer annotation tool id -> quick toolbar button that activated it */
 const buttonForTool = new Map<string, string>();
@@ -1431,18 +1716,43 @@ function runAnnotCommand(tab: Tab, button: string, command: string) {
   viewer.command(tab.id, command);
 }
 
-function setAnnot(tab: Tab, id: string) {
-  const def = ANNOT_TOOLS.find((t) => t.id === id);
-  if (id === 'sign') {
+/** Press a toolbar button (its current tool), or pick `toolId` from its
+ *  menu (which also makes it the button's tool) */
+function useQuickTool(tab: Tab, groupId: string, toolId?: string) {
+  const g = quickGroup(groupId);
+  if (toolId && g.tools.length > 1) {
+    setPrefs({
+      quickbarTools: { ...getPrefs().quickbarTools, [groupId]: toolId },
+    });
+  }
+  const t = toolId
+    ? (g.tools.find((x) => x.id === toolId) ?? quickTool(groupId))
+    : quickTool(groupId);
+  if (groupId === 'sign') {
     const tool = getTool('sign-pdf');
     if (tool) void openToolOnDoc(tab, { ...tool, name: 'Fill & Sign' });
     return;
   }
-  if (id === 'select' || tab.activeAnnot === id) {
+  if (t.mode) {
+    // Selecting, the hand or marquee zoom: leave any annotation tool
+    if (tab.activeAnnot) viewer.setTool(tab.id, null);
+    viewer.setMode(tab.id, t.mode);
+  } else if (tab.activeAnnot === groupId && !toolId) {
+    // Pressing the active button again goes back to selecting
     viewer.setTool(tab.id, null);
-  } else if (def?.command) {
-    runAnnotCommand(tab, id, def.command);
+  } else if (t.command) {
+    if (viewer.mode(tab.id) !== 'select') viewer.setMode(tab.id, 'select');
+    runAnnotCommand(tab, groupId, t.command);
   }
+  renderQuickbar(tab);
+}
+
+/** Back to selecting (Escape), or press a button */
+function setAnnot(tab: Tab, groupId: string) {
+  if (groupId !== 'select') return useQuickTool(tab, groupId);
+  if (tab.activeAnnot) viewer.setTool(tab.id, null);
+  viewer.setMode(tab.id, 'select');
+  renderQuickbar(tab);
 }
 
 viewer.onActiveTool((tabId, toolId) => {
@@ -1454,36 +1764,103 @@ viewer.onActiveTool((tabId, toolId) => {
   if (activeId === tabId) renderQuickbar(tab);
 });
 
-const MORE_ANNOTS: { label: string; command: string }[] = [
-  { label: 'Underline', command: 'annotation:add-underline' },
-  { label: 'Strikethrough', command: 'annotation:add-strikeout' },
-  { label: 'Squiggly underline', command: 'annotation:add-squiggly' },
-  { label: 'Highlighter pen', command: 'annotation:add-ink-highlighter' },
-  { label: 'Text callout', command: 'annotation:add-callout' },
-  { label: 'Rectangle', command: 'annotation:add-rectangle' },
-  { label: 'Oval', command: 'annotation:add-circle' },
-  { label: 'Line', command: 'annotation:add-line' },
-  { label: 'Arrow', command: 'annotation:add-arrow' },
-  { label: 'Polygon', command: 'annotation:add-polygon' },
-  { label: 'Stamp', command: 'annotation:add-stamp' },
-];
+viewer.onMode((tabId) => {
+  if (activeId === tabId) {
+    const tab = tabs.find((t) => t.id === tabId);
+    if (tab) renderQuickbar(tab);
+  }
+});
+
+/** "Highlight text (U)" */
+const withShortcut = (t: QuickTool) =>
+  t.shortcut ? `${t.label} (${shortcutLabel(t.shortcut)})` : t.label;
+
+function quickMenu(tab: Tab, groupId: string, anchor: HTMLElement) {
+  const current = quickTool(groupId).id;
+  showMenu(
+    anchor,
+    quickGroup(groupId).tools.map((t) => ({
+      label: t.label,
+      icon: icon(t.icon, 16),
+      shortcut: t.shortcut ? shortcutLabel(t.shortcut) : undefined,
+      checked: t.id === current,
+      onClick: () => useQuickTool(tab, groupId, t.id),
+    })),
+    'right'
+  );
+}
 
 function renderQuickbar(tab: Tab) {
   const bar = $('#quickbar');
   const grip = h('div', { class: 'qb-grip', title: 'Drag to move' });
-  const buttons = ANNOT_TOOLS.map((t) =>
-    h(
+  const mode = tab.loading || tab.blank ? 'select' : viewer.mode(tab.id);
+  const buttons = QUICK_GROUPS.map((g) => {
+    const t = quickTool(g.id);
+    const active =
+      g.id === 'select' ? !tab.activeAnnot : tab.activeAnnot === g.id;
+    const shown =
+      g.id === 'select' && active
+        ? (g.tools.find((x) => x.mode === mode) ?? t)
+        : t;
+    const btn = h(
       'button',
       {
         type: 'button',
-        class: `qb-btn${(tab.activeAnnot ?? 'select') === t.id ? ' is-active' : ''}`,
-        title: t.title,
-        'aria-label': t.title,
-        onClick: () => setAnnot(tab, t.id),
+        class: `qb-btn${active ? ' is-active' : ''}`,
+        title: withShortcut(shown),
+        'aria-label': shown.label,
+        'aria-pressed': String(active),
+        onClick: () => useQuickTool(tab, g.id),
       },
-      icon(t.icon, 18)
-    )
-  );
+      icon(shown.icon, 18)
+    );
+    if (g.tools.length < 2) return h('div', { class: 'qb-item' }, btn);
+    const more = h(
+      'button',
+      {
+        type: 'button',
+        class: 'qb-arrow',
+        title: `More ${g.id === 'select' ? 'selection' : 'related'} tools`,
+        'aria-label': `More tools like ${shown.label}`,
+        'aria-haspopup': 'menu',
+        onClick: (e: MouseEvent) => {
+          e.stopPropagation();
+          quickMenu(tab, g.id, btn);
+        },
+      },
+      icon('chevronDown', 10, 2.4)
+    );
+    // Right-click, or press and hold, opens the menu too (as in Acrobat)
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      quickMenu(tab, g.id, btn);
+    });
+    let hold = 0;
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      hold = window.setTimeout(() => {
+        hold = -1;
+        quickMenu(tab, g.id, btn);
+      }, 450);
+    });
+    const endHold = () => {
+      if (hold > 0) clearTimeout(hold);
+    };
+    btn.addEventListener('pointerup', endHold);
+    btn.addEventListener('pointerleave', endHold);
+    btn.addEventListener(
+      'click',
+      (e) => {
+        // The press that opened the menu isn't also a click on the button
+        if (hold === -1) {
+          hold = 0;
+          e.stopImmediatePropagation();
+        }
+      },
+      true
+    );
+    return h('div', { class: 'qb-item has-menu' }, btn, more);
+  });
   const more = h(
     'button',
     {
@@ -1491,6 +1868,7 @@ function renderQuickbar(tab: Tab) {
       class: `qb-btn${tab.activeAnnot === 'more' ? ' is-active' : ''}`,
       title: 'More tools',
       'aria-label': 'More tools',
+      'aria-haspopup': 'menu',
     },
     icon('more', 18)
   );
@@ -1498,22 +1876,24 @@ function renderQuickbar(tab: Tab) {
     showMenu(
       more,
       [
-        ...MORE_ANNOTS.map((m) => ({
-          label: m.label,
-          onClick: () => runAnnotCommand(tab, 'more', m.command),
-        })),
+        {
+          label: 'Add a link',
+          shortcut: shortcutLabel('toolLink'),
+          icon: icon('link', 16),
+          onClick: () => runAnnotCommand(tab, 'more', 'annotation:add-link'),
+        },
         { divider: true },
         {
           label: 'Undo',
           shortcut: key('Ctrl+Z'),
           icon: icon('undo', 16),
-          onClick: () => viewer.command(tab.id, 'history:undo'),
+          onClick: () => stepEdit(tab, 'undo'),
         },
         {
           label: 'Redo',
           shortcut: key('Shift+Ctrl+Z'),
           icon: icon('redo', 16),
-          onClick: () => viewer.command(tab.id, 'history:redo'),
+          onClick: () => stepEdit(tab, 'redo'),
         },
         {
           label: 'Delete selected',
@@ -1525,7 +1905,7 @@ function renderQuickbar(tab: Tab) {
       'right'
     )
   );
-  bar.replaceChildren(grip, ...buttons, more);
+  bar.replaceChildren(grip, ...buttons, h('div', { class: 'qb-item' }, more));
   makeDraggable(bar, grip);
   const pos = getPrefs().quickbarPos;
   if (pos) {
@@ -1567,6 +1947,326 @@ function makeDraggable(el: HTMLElement, handle: HTMLElement) {
     setPrefs({ quickbarPos: null });
   };
 }
+
+/* Page thumbnails: right-click for page actions, drag to reorder ------ */
+
+/** Undo steps kept for page changes, per document */
+const PAGE_UNDO_LIMIT = 20;
+
+/**
+ * Changes a document's pages (see pages.ts): its current bytes, with any
+ * annotations, go through `change` and the tab reopens on the result at
+ * `page` (1-based). The previous version is kept for Ctrl+Z.
+ */
+async function changePages(
+  tab: Tab,
+  change: (bytes: ArrayBuffer) => Promise<ArrayBuffer>,
+  page: number,
+  done?: string
+): Promise<boolean> {
+  if (tab.loading || tab.blank || tab.fullTool || tab.pageBusy) return false;
+  tab.pageBusy = true;
+  try {
+    const before = await viewer.exportBytes(tab.id);
+    if (!before) throw new Error('the document is still loading');
+    const after = await change(before);
+    await showPageVersion(tab, after, page);
+    tab.pageUndo = [...(tab.pageUndo ?? []), before].slice(-PAGE_UNDO_LIMIT);
+    tab.pageRedo = [];
+    if (done)
+      toast(done, {
+        label: 'Undo',
+        onClick: () => void stepPages(tab, 'undo'),
+      });
+    return true;
+  } catch (err) {
+    console.error(err);
+    toast(
+      /encrypt/i.test(String(err))
+        ? "Pages of a password-protected PDF can't be changed here. Remove its password first (Protect ▸ Remove password)."
+        : `Couldn't change the pages: ${(err as Error).message ?? err}`
+    );
+    return false;
+  } finally {
+    tab.pageBusy = false;
+  }
+}
+
+/** Shows another version of the document's pages, keeping the zoom and
+ *  the open panel, and marks it changed */
+async function showPageVersion(tab: Tab, bytes: ArrayBuffer, page: number) {
+  const panel = viewer.activePanel(tab.id);
+  const zoom = viewer.zoom(tab.id) ?? undefined;
+  await viewer.replace(tab.id, bytes, { page, zoom: zoom ?? 1 });
+  if (!tabs.includes(tab)) return;
+  if (panel) viewer.toggleSidebar(tab.id, panel.id, panel.tab);
+  tab.page = viewer.pageInfo(tab.id) ?? tab.page;
+  tab.version++;
+  renderTabs();
+  if (activeId === tab.id) renderDocChrome(tab);
+  scheduleRecoveryCopy(tab);
+}
+
+/** Ctrl+Z / Ctrl+Shift+Z for page changes (after the viewer's own edits) */
+async function stepPages(tab: Tab, action: 'undo' | 'redo') {
+  const from = action === 'undo' ? tab.pageUndo : tab.pageRedo;
+  if (!from?.length || tab.pageBusy) return false;
+  tab.pageBusy = true;
+  try {
+    const current = await viewer.exportBytes(tab.id);
+    const target = from.pop()!;
+    await showPageVersion(tab, target, tab.page.current || 1);
+    if (current) {
+      const to = action === 'undo' ? 'pageRedo' : 'pageUndo';
+      tab[to] = [...(tab[to] ?? []), current].slice(-PAGE_UNDO_LIMIT);
+    }
+    return true;
+  } finally {
+    tab.pageBusy = false;
+  }
+}
+
+/** Undo (or redo) the latest edit: the viewer's first, then page changes */
+function stepEdit(tab: Tab, action: 'undo' | 'redo') {
+  if (!viewer.history(tab.id, action)) void stepPages(tab, action);
+}
+
+/** The thumbnail an event is on, in the viewer's page thumbnails panel:
+ *  each is a box labelled with its page number */
+function thumbFor(e: Event): { item: HTMLElement; page: number } | null {
+  for (const n of e.composedPath()) {
+    if (!(n instanceof HTMLElement) || n.id === 'viewer-host') break;
+    const label = n.textContent?.trim() ?? '';
+    if (
+      /^\d+$/.test(label) &&
+      n.style.position === 'absolute' &&
+      n.querySelector('img, canvas')
+    )
+      return { item: n, page: parseInt(label, 10) - 1 };
+  }
+  return null;
+}
+
+/** The right-click menu for a page thumbnail */
+function pageMenu(tab: Tab, page: number, x: number, y: number) {
+  const total = tab.page.total || viewer.pageInfo(tab.id)?.total || 1;
+  const n = page + 1;
+  const go = (
+    change: (b: ArrayBuffer) => Promise<ArrayBuffer>,
+    at: number,
+    done?: string
+  ): void => void changePages(tab, change, at, done);
+  showMenu(menuPoint(x, y), [
+    {
+      label: 'Rotate clockwise',
+      icon: icon('rotate', 16),
+      onClick: () => go((b) => rotatePages(b, [page], 90), n),
+    },
+    {
+      label: 'Rotate counterclockwise',
+      icon: icon('rotateCcw', 16),
+      onClick: () => go((b) => rotatePages(b, [page], -90), n),
+    },
+    { divider: true },
+    {
+      label: 'Insert blank page after',
+      icon: icon('filePlus', 16),
+      onClick: () => go((b) => insertBlankPage(b, page), n + 1),
+    },
+    {
+      label: 'Insert pages from a file…',
+      icon: icon('folder', 16),
+      onClick: async () => {
+        const picked = (await pickFiles()).find((p) => isPdf(p.file));
+        if (!picked) return;
+        const other = await picked.file.arrayBuffer();
+        go(
+          (b) => insertPagesFrom(b, page, other),
+          n + 1,
+          `Inserted ${picked.file.name} after page ${n}`
+        );
+      },
+    },
+    {
+      label: 'Extract page',
+      icon: icon('fileOut', 16),
+      onClick: async () => {
+        const bytes = await viewer.exportBytes(tab.id);
+        if (!bytes) return;
+        const out = await extractPages(bytes, [page]);
+        const base = tab.name.replace(/\.pdf$/i, '');
+        const name = uniqueTabName(`${base} (page ${n}).pdf`);
+        const file = new File([out], name, { type: 'application/pdf' });
+        const t = await openDocument(file, {}, undefined, undefined, {});
+        if (t)
+          savePrompt(t, `Extracted page ${n} to a new tab. It isn't saved yet`);
+      },
+    },
+    { divider: true },
+    {
+      label: 'Move up',
+      icon: icon('chevronUp', 16),
+      disabled: page === 0,
+      onClick: () => go((b) => movePage(b, page, page - 1), n - 1),
+    },
+    {
+      label: 'Move down',
+      icon: icon('chevronDown', 16),
+      disabled: page >= total - 1,
+      onClick: () => go((b) => movePage(b, page, page + 1), n + 1),
+    },
+    { divider: true },
+    {
+      label: 'Delete page',
+      icon: icon('trash', 16),
+      disabled: total <= 1,
+      onClick: () =>
+        go(
+          (b) => deletePages(b, [page]),
+          Math.min(n, total - 1),
+          `Deleted page ${n}`
+        ),
+    },
+  ]);
+}
+
+/** Dragging a thumbnail moves its page (a line shows where it will go) */
+function dragPage(
+  tab: Tab,
+  start: PointerEvent,
+  from: { item: HTMLElement; page: number }
+) {
+  const list = from.item.parentElement;
+  const scroller = list?.parentElement;
+  if (!list || !scroller) return;
+  let dragging = false;
+  let target = -1; // the page index it would be placed before
+  let raf = 0;
+  let lastY = start.clientY;
+  const line = h('div', { class: 'page-drop-line', 'aria-hidden': 'true' });
+  const ghost = h('div', { class: 'page-drag-ghost', 'aria-hidden': 'true' });
+  const items = () =>
+    [...list.children]
+      .filter((c): c is HTMLElement => c instanceof HTMLElement)
+      .map((el) => ({
+        el,
+        page: parseInt(el.textContent?.trim() ?? '', 10) - 1,
+      }))
+      .filter((x) => x.page >= 0);
+  const update = (y: number) => {
+    const all = items();
+    let best: { el: HTMLElement; page: number } | null = null;
+    let dist = Infinity;
+    for (const x of all) {
+      const r = x.el.getBoundingClientRect();
+      const d = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+      if (d < dist) [dist, best] = [d, x];
+    }
+    if (!best) return;
+    const r = best.el.getBoundingClientRect();
+    const after = y > r.top + r.height / 2;
+    target = best.page + (after ? 1 : 0);
+    const sr = scroller.getBoundingClientRect();
+    line.style.left = `${sr.left + 8}px`;
+    line.style.width = `${sr.width - 16}px`;
+    line.style.top = `${Math.round(after ? r.bottom + 4 : r.top - 6)}px`;
+  };
+  // Near the panel's top or bottom edge, the list scrolls
+  const scroll = () => {
+    const sr = scroller.getBoundingClientRect();
+    const edge = 48;
+    const v =
+      lastY < sr.top + edge
+        ? -Math.ceil((sr.top + edge - lastY) / 4)
+        : lastY > sr.bottom - edge
+          ? Math.ceil((lastY - (sr.bottom - edge)) / 4)
+          : 0;
+    if (v) {
+      scroller.scrollTop += v;
+      update(lastY);
+    }
+    raf = requestAnimationFrame(scroll);
+  };
+  const move = (e: PointerEvent) => {
+    lastY = e.clientY;
+    if (!dragging) {
+      if (
+        Math.abs(e.clientY - start.clientY) +
+          Math.abs(e.clientX - start.clientX) <
+        6
+      )
+        return;
+      dragging = true;
+      ghost.textContent = `Page ${from.page + 1}`;
+      $('#popover-layer').append(line, ghost);
+      document.body.classList.add('is-dragging-page');
+      raf = requestAnimationFrame(scroll);
+    }
+    ghost.style.left = `${e.clientX + 12}px`;
+    ghost.style.top = `${e.clientY + 12}px`;
+    update(e.clientY);
+  };
+  const finish = (drop: boolean) => {
+    window.removeEventListener('pointermove', move, true);
+    window.removeEventListener('pointerup', up, true);
+    window.removeEventListener('pointercancel', cancel, true);
+    window.removeEventListener('blur', cancel);
+    window.removeEventListener('keydown', key, true);
+    cancelAnimationFrame(raf);
+    line.remove();
+    ghost.remove();
+    document.body.classList.remove('is-dragging-page');
+    if (!dragging || !drop || target < 0) return;
+    // Placed before `target`; with the page itself taken out first
+    const to = target > from.page ? target - 1 : target;
+    if (to === from.page) return;
+    void changePages(tab, (b) => movePage(b, from.page, to), to + 1);
+  };
+  const up = () => finish(true);
+  // Interrupted (e.g. the window lost focus): nothing moves
+  const cancel = () => finish(false);
+  const key = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    finish(false);
+  };
+  window.addEventListener('pointermove', move, true);
+  window.addEventListener('pointerup', up, true);
+  window.addEventListener('pointercancel', cancel, true);
+  window.addEventListener('blur', cancel);
+  window.addEventListener('keydown', key, true);
+}
+
+$('#viewer-host').addEventListener('contextmenu', (e) => {
+  const tab = activeDoc();
+  const hit = tab && thumbFor(e);
+  if (!tab || !hit) return;
+  e.preventDefault();
+  pageMenu(tab, hit.page, e.clientX, e.clientY);
+});
+
+// A thumbnail's image would start the browser's own drag, which cancels
+// the pointer events the page drag follows
+$('#viewer-host').addEventListener(
+  'dragstart',
+  (e) => {
+    if (thumbFor(e)) e.preventDefault();
+  },
+  true
+);
+
+// (capture: the thumbnails handle the press themselves)
+$('#viewer-host').addEventListener(
+  'pointerdown',
+  (e) => {
+    if (e.button !== 0) return;
+    const tab = activeDoc();
+    const hit = tab && thumbFor(e);
+    if (tab && hit) dragPage(tab, e, hit);
+  },
+  true
+);
 
 /* Right rail ----------------------------------------------------------- */
 
@@ -1749,6 +2449,7 @@ async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
     // The first page may have changed: Home makes a new preview
     if (tab.recentId) void thumbs.invalidate(tab.recentId);
     // It's on disk now
+    cancelRecoveryCopy(tab);
     if (tab.recoveryId) {
       void desktop?.recovery?.delete(tab.recoveryId);
       tab.recoveryId = undefined;
@@ -2113,6 +2814,7 @@ $('#clear-recent').addEventListener('click', async () => {
   );
   if (!choice) return;
   const n = await clearRecent();
+  void desktop?.clearRecentDocuments?.();
   void refreshRecent();
   toast(n === 1 ? 'Cleared 1 recent file' : `Cleared ${n} recent files`);
 });
@@ -2621,6 +3323,8 @@ function confirmUnsaved(docs: Tab[]): Promise<UnsavedChoice> {
 
 /** Ask about unsaved documents (saving them if wanted); false = cancelled */
 async function settleUnsaved(): Promise<boolean> {
+  for (const t of tabs.filter((t) => t.fullTool?.dirty))
+    if (!(await mayDiscardTool(t))) return false;
   const dirty = tabs.filter(isDirty);
   if (!dirty.length) return true;
   const choice = await confirmUnsaved(dirty);
@@ -2646,6 +3350,7 @@ viewer.onChange((tabId) => {
   const wasDirty = isDirty(tab);
   tab.version++;
   if (!wasDirty) renderTabs();
+  scheduleRecoveryCopy(tab);
 });
 
 // Closing the app window with unsaved work
@@ -2658,6 +3363,8 @@ window.addEventListener('beforeunload', (e) => {
  *  can reopen them. */
 async function prepareToQuit(): Promise<boolean> {
   if (!(await settleUnsaved())) return false;
+  // No background copy may land after the cleanup below
+  tabs.forEach(cancelRecoveryCopy);
   persistSession();
   await Promise.all(tabs.map(flushView));
   // Saved documents dropped their recovery copies already; any left belong
@@ -3179,18 +3886,9 @@ function openPalette(anchor?: HTMLElement) {
 /* Keyboard shortcuts (Acrobat-compatible, see keymap.ts)              */
 /* ------------------------------------------------------------------ */
 
-const SHAPES = [
-  'annotation:add-rectangle',
-  'annotation:add-circle',
-  'annotation:add-line',
-  'annotation:add-arrow',
-  'annotation:add-polygon',
-];
-const MARKUPS = [
-  'annotation:add-underline',
-  'annotation:add-strikeout',
-  'annotation:add-squiggly',
-];
+// Shift+D and Shift+U step through these (quick toolbar tool ids)
+const SHAPES = ['rectangle', 'oval', 'line', 'arrow', 'polygon'];
+const MARKUPS = ['underline', 'strikeout', 'squiggly'];
 let shapeIdx = -1;
 let markupIdx = -1;
 
@@ -3213,10 +3911,18 @@ function runShortcut(id: string): boolean {
     fn(doc);
     return true;
   };
+  // Actions on the document viewer. A full-page tool (Organize pages, Edit
+  // a PDF…) covers the viewer and has its own controls: acting on the
+  // hidden viewer then would only change things out of sight.
+  const onViewer = (fn: (d: Tab) => void) =>
+    !!doc && !doc.fullTool && needDoc(fn);
   const cmd = (command: string) =>
-    needDoc((d) => viewer.command(d.id, command));
+    onViewer((d) => viewer.command(d.id, command));
   const annot = (button: string, command: string) =>
-    needDoc((d) => runAnnotCommand(d, button, command));
+    onViewer((d) => runAnnotCommand(d, button, command));
+  // A tool from the quick toolbar (which then shows it on its button)
+  const quick = (group: string, toolId: string) =>
+    onViewer((d) => useQuickTool(d, group, toolId));
   const tool = (toolId: string, name?: string) =>
     needDoc((d) => {
       const t = getTool(toolId);
@@ -3256,16 +3962,16 @@ function runShortcut(id: string): boolean {
       else window.close();
       return true;
     case 'undo':
-      return needDoc((d) => viewer.history(d.id, 'undo'));
+      return onViewer((d) => stepEdit(d, 'undo'));
     case 'redo':
-      return needDoc((d) => viewer.history(d.id, 'redo'));
+      return onViewer((d) => stepEdit(d, 'redo'));
     case 'find':
     case 'findAdvanced':
       return cmd('panel:toggle-search');
     case 'findNext':
-      return needDoc((d) => viewer.searchStep(d.id, 1));
+      return onViewer((d) => viewer.searchStep(d.id, 1));
     case 'findPrev':
-      return needDoc((d) => viewer.searchStep(d.id, -1));
+      return onViewer((d) => viewer.searchStep(d.id, -1));
     case 'palette':
       openPalette();
       return true;
@@ -3274,11 +3980,11 @@ function runShortcut(id: string): boolean {
     case 'prevPage':
       return cmd('scroll:previous-page');
     case 'firstPage':
-      return needDoc((d) => goPage(d, 'first'));
+      return onViewer((d) => goPage(d, 'first'));
     case 'lastPage':
-      return needDoc((d) => goPage(d, 'last'));
+      return onViewer((d) => goPage(d, 'last'));
     case 'goToPage':
-      return needDoc(() => {
+      return onViewer(() => {
         const input = $<HTMLInputElement>('#right-rail .rr-page');
         input?.focus();
         input?.select();
@@ -3294,7 +4000,7 @@ function runShortcut(id: string): boolean {
     case 'zoomOut':
       return cmd('zoom:out');
     case 'zoomTo':
-      return needDoc((d) => showZoomMenu(d));
+      return onViewer((d) => showZoomMenu(d));
     case 'actualSize':
       return cmd('zoom:100');
     case 'fitPage':
@@ -3313,7 +4019,7 @@ function runShortcut(id: string): boolean {
         setReadMode(!document.body.classList.contains('is-reading'))
       );
     case 'navPane':
-      return needDoc((d) =>
+      return onViewer((d) =>
         viewer.toggleSidebar(d.id, 'sidebar-panel', 'thumbnails')
       );
     case 'toolsPane':
@@ -3322,31 +4028,31 @@ function runShortcut(id: string): boolean {
         renderDocChrome(d);
       });
     case 'toolHand':
-      return cmd('pan:toggle');
+      return quick('select', 'hand');
     case 'toolSelect':
-      return needDoc((d) => setAnnot(d, 'select'));
+      return quick('select', 'select');
     case 'toolZoom':
-      return cmd('zoom:marquee');
+      return quick('select', 'marquee');
     case 'toolNote':
-      return annot('comment', 'annotation:add-comment');
+      return quick('comment', 'note');
     case 'toolHighlight':
-      return annot('highlight', 'annotation:add-highlight');
+      return quick('highlight', 'highlight');
     case 'toolMarkup':
       markupIdx = (markupIdx + 1) % MARKUPS.length;
-      return annot('more', MARKUPS[markupIdx]);
+      return quick('highlight', MARKUPS[markupIdx]);
     case 'toolText':
-      return annot('text', 'annotation:add-text');
+      return quick('text', 'text');
     case 'toolDraw':
-      return annot('ink', 'annotation:add-ink');
+      return quick('ink', 'ink');
     case 'toolShapes':
       shapeIdx = (shapeIdx + 1) % SHAPES.length;
-      return annot('more', SHAPES[shapeIdx]);
+      return quick('ink', SHAPES[shapeIdx]);
     case 'toolStamp':
-      return annot('more', 'annotation:add-stamp');
+      return quick('comment', 'stamp');
     case 'toolLink':
       return annot('more', 'annotation:add-link');
     case 'toolRedact':
-      return needDoc((d) => runViewerAction(d, getTool('redact')!));
+      return onViewer((d) => runViewerAction(d, getTool('redact')!));
     case 'toolEditText':
       return tool('edit-pdf-text', 'Edit text & images');
     case 'toolCrop':
@@ -3555,6 +4261,7 @@ declare const __PAPERWING_REPO__: string;
 (window as any).__acro = { viewer };
 
 hydrateIcons();
+initTooltips();
 renderRecommended();
 activate('home');
 document.documentElement.dataset.ready = '';

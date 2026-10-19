@@ -1124,15 +1124,33 @@ body.is-dragging .drop-inner {
   background: var(--accent);
   color: var(--on-accent);
 }
-.qb-btn:not(:last-child)::after {
-  content: '';
+/* A button with related tools: its small arrow opens them (as in Acrobat) */
+.qb-item {
+  position: relative;
+}
+.qb-arrow {
   position: absolute;
-  right: 3px;
-  bottom: 3px;
-  border: 3px solid transparent;
-  border-right-color: currentColor;
-  border-bottom-color: currentColor;
-  opacity: 0.55;
+  right: -3px;
+  bottom: -1px;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  color: var(--text-3);
+}
+.qb-arrow .ic {
+  transform: rotate(-45deg);
+}
+.qb-arrow:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.qb-item .qb-btn.is-active + .qb-arrow {
+  color: var(--on-accent);
+}
+.qb-item .qb-btn.is-active + .qb-arrow:hover {
+  background: rgb(255 255 255 / 0.2);
 }
 
 /* Right rail */
@@ -1283,6 +1301,21 @@ body.is-dragging .drop-inner {
 .mi-key {
   color: var(--text-3);
   font-size: 12px;
+}
+.menu-item:focus-visible {
+  outline: none;
+  background: var(--hover-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+/* The current choice (e.g. a quick toolbar button's tool) */
+.mi-check {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  color: var(--accent);
+}
+.menu-item.is-checked .mi-icon {
+  color: var(--accent);
 }
 .menu-div {
   height: 1px;
@@ -1802,4 +1835,35 @@ body.is-reading #views {
 }
 #view-doc.is-workspace #right-rail {
   visibility: hidden;
+}
+/* A full-page tool has its own zoom and page controls, and the rail's
+   panels belong to the viewer it covers: the tool gets the room instead */
+#view-doc.has-full-tool #right-rail {
+  display: none;
+}
+
+/* Dragging a page thumbnail to move the page (see dragPage) */
+.page-drop-line {
+  position: fixed;
+  z-index: 50;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.page-drag-ghost {
+  position: fixed;
+  z-index: 51;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+  box-shadow: var(--shadow-pop);
+}
+body.is-dragging-page,
+body.is-dragging-page * {
+  cursor: grabbing !important;
 }
