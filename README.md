@@ -122,7 +122,8 @@ and you can [build it yourself](#build-from-source).
 
 **Does it work offline?**
 
-Yes, apart from the one-time engine downloads listed under [Privacy](#privacy).
+Yes. The only exception is the one-time download of the Office conversion engine, listed under
+[Privacy](#privacy). The other engines (PyMuPDF, Ghostscript, coherentpdf…) come with the app.
 
 ## Screenshots
 
@@ -169,8 +170,8 @@ The only network requests it makes are:
 - the **Word, Excel and PowerPoint → PDF** converters download the LibreOffice engine (about 75 MB,
   once) from this repository's GitHub Releases the first time you use them. It's left out of the
   installer to keep the download small, and it's checked against a SHA-256 hash before it's used;
-- a few advanced tools (PDF/A conversion, font outlining and some extraction tools) download their
-  open-source engines from a CDN the first time you use them, as in BentoPDF;
+- **Timestamp** (and a digital signature with a timestamp) contacts the timestamp server you pick,
+  sending only a hash of the document;
 - for text in fonts a document doesn't embed, a fallback font is used. The Latin one ships with
   Paperwing; for other scripts (Chinese, Japanese, Korean, Arabic, Hebrew) it's downloaded from a
   CDN the first time it's needed, as is the Latin font in the **Edit text** tool.

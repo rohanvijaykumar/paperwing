@@ -1,43 +1,43 @@
-## Paperwing 1.1.0
+## Paperwing 1.2.0
 
-Faster, smoother and a little more polished, everywhere.
-
-### Faster
-
-- **Opens in about a second.** The launch screen is gone: the window appears as soon as it's
-  ready, less than half the time it took before.
-- **Smooth scrolling**, even through long and scanned documents: a steady 60 fps using a quarter
-  of the CPU it used to.
-- **Quicker restores.** Your last session's tabs come back instantly; each document loads when
-  you open its tab.
+Works like you'd expect, everywhere: smarter toolbars, page actions on thumbnails, and every
+tool offline.
 
 ### New
 
-- **Previews on Home.** Recent files show their first page, in the list and the grid.
-- **PDF thumbnails in File Explorer** (Windows) while Paperwing is your default PDF app.
-- **Any zoom level.** Click the zoom percentage on the right rail (or press Ctrl+Y) to pick a
-  preset or type your own.
-- **Collapsible side panel.** The open panel's button is highlighted; click it again, or
-  **Hide panel**, to close it.
-- **Clear recent** on Home. Starred files stay.
-- **Pick up where you left off.** Documents reopen at the page and zoom you left them at.
-- **Right-click a recent file** to show it in File Explorer or Finder, copy its path, compress
-  it, or combine it with other files.
-- **Batch tools.** Start Compress, Flatten, PDF to Word and many more from Home, pick several
-  PDFs, and they're all done in one go.
-- **Automatic updates** (Windows installer, from this version on). New versions download in the
-  background; restart when you're ready.
-- **Nothing a tool makes gets lost.** Compressed, merged and converted documents open as unsaved:
-  Paperwing asks before closing them and brings them back if it closes unexpectedly.
+- **Toolbar buttons that remember.** Click the small arrow on Highlight, Draw, Comment, Text or
+  Select (or right-click it) to pick a related tool: Underline, Rectangle, Arrow, Callout, Hand
+  and more. The tool you pick stays on the button.
+- **Tooltips** on every button, with its keyboard shortcut.
+- **Page actions in the thumbnails.** Right-click a page to rotate, insert, extract, move or
+  delete it, or drag it to a new place. Ctrl+Z undoes it.
+- **Your edits survive a crash.** Unsaved changes are kept safe every few seconds and come back
+  when Paperwing reopens.
+- **No more lost work in tools.** Closing Edit a PDF, Prepare a form or Organize pages with
+  unsaved changes asks first.
+- **Recent files in the taskbar and Dock.** Right-click Paperwing's icon to reopen them.
+- **Truer fonts.** PDFs that rely on standard fonts they don't include (Times, Arial,
+  Courier, Calibri, Cambria…) now keep their look and spacing.
+
+### Better
+
+- **Advanced tools work offline.** The engines for PDF to Word, PDF/A, Font to Outline and the
+  other advanced tools now come with the app instead of downloading on first use.
+- **Cleaner tools.** No more duplicate Download buttons, second upload boxes or leftover website
+  text: each tool shows just what it needs.
+- **Crisper icon** in the Windows taskbar, the same size as other apps'.
 
 ### Fixed
 
-- **Ctrl+scroll zoom** jumped to the smallest size on the first notch out. It now zooms in
-  even, smooth steps both ways.
-- The **Automatic** zoom preference is applied reliably again.
+- Tools no longer flash their upload screen before your document appears.
+- Copying text from some PDFs gave tabs instead of spaces, and search missed phrases in them.
+- The side rail and tool list didn't respond while a full-page tool was open.
+- Edit a PDF: changing a font now works, System fonts no longer shows an error, and exported text
+  keeps its lines.
+- Fill & Sign, Fill a form and Timestamp work again.
 
 Paperwing will tell you about this update (it checks once a day). Download it below and install
-it over the old version; from 1.1 on, the Windows installer updates itself. Full list of changes: [CHANGELOG.md](https://github.com/rohanvijaykumar/paperwing/blob/main/CHANGELOG.md).
+it over the old version; if you have 1.1 on Windows, it updates itself. Full list of changes: [CHANGELOG.md](https://github.com/rohanvijaykumar/paperwing/blob/main/CHANGELOG.md).
 
 ### Downloads
 

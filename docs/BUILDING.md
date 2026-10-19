@@ -59,6 +59,18 @@ The end-to-end suite (`desktop/tests/e2e.test.mjs`) drives the real interface in
 opening documents, Acrobat shortcuts, unsaved-change prompts, reopening closed tabs, running a tool on
 the open document, theming of tool pages, and more. Set `CHROME_PATH` if Chrome isn't found.
 
+Checks against the built desktop app (in `desktop/`, after `npm run build:web`; temporary files go
+to `BENCH_TMP`):
+
+```bash
+node bench/check-ui12.mjs              # toolbar menus, tooltips, page thumbnails, recovery, prompts
+node bench/check-tools.mjs <out-dir>   # every tool: opens, errors, offline, main action, screenshot
+node bench/check-results.mjs <a.pdf>   # tool results open unsaved, recovery after a crash
+```
+
+`check-tools.mjs` takes optional name filters (`node bench/check-tools.mjs out Timestamp`) and
+writes `report.json` plus a screenshot of each tool, for reviewing toolbars and layout.
+
 ## Screenshots
 
 The README screenshots (`docs/screenshots/*.png`) are taken from the real interface, using the
@@ -81,8 +93,10 @@ uses it only once it's uploaded in the repository's **Settings ▸ General ▸ S
 | `npm run dist:mac`      | `Paperwing-<v>-mac-arm64.dmg` and `…-mac-x64.dmg` (must run on macOS)  |
 | `npm run pack`          | Unpacked app folder only, for quick checks                             |
 
-Packaging is configured in `desktop/electron-builder.yml`. The app icon is generated from
-`desktop/build/icon.svg` (`icon.png`, 1024 px, is what electron-builder uses).
+Packaging is configured in `desktop/electron-builder.yml`. The app icons are generated from
+`desktop/build/icon.svg` by `node scripts/gen-icons.mjs`: `icon.png` (1024 px), `icon.ico` for
+Windows (16–256 px, nearly edge to edge, like other Windows apps) and `icon-mac.png` (on Apple's
+icon grid, with its margin and shadow). Run it again after changing the SVG.
 
 ### Keeping the download small
 
@@ -93,6 +107,9 @@ Packaging is configured in `desktop/electron-builder.yml`. The app icon is gener
   and caches them in the user data folder. The release workflow uploads them automatically.
   To test against a local copy, serve `public/libreoffice-wasm/` and start the app with
   `PAPERWING_ENGINE_BASE=http://localhost:<port>`.
+- **The other engines are bundled.** PyMuPDF, Ghostscript and coherentpdf (from the
+  `@bentopdf/pymupdf-wasm`, `@bentopdf/gs-wasm` and `coherentpdf` packages) are copied into
+  `dist/engines/` by `build-web.mjs`, so the tools that use them work offline.
 - **Pre-compressed `.br`/`.gz` copies** that Vite emits for web servers are deleted after the build.
 - **Chromium trimming:** English locales only (`electronLanguages`), maximum compression, and
   `scripts/after-pack.cjs` removes the DirectX shader compiler DLLs used only by WebGPU.

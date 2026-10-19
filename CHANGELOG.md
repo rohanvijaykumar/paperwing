@@ -6,6 +6,50 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-10-18
+
+### Added
+
+- Toolbar buttons with related tools work like Acrobat's: the arrow (or a right-click or long
+  press) opens the related tools, the one you pick becomes the button's tool, and the choice is
+  remembered. Select | Hand | Marquee zoom, Note | Stamp, Highlight | Underline | Strikethrough |
+  Squiggly | Highlighter, Pen | Line | Arrow | Rectangle | Oval | Polygon, Text | Callout
+- Tooltips everywhere, in the workspace and every tool, with the keyboard shortcut
+- Page thumbnails: right-click a page to rotate, insert a blank page or pages from another file,
+  extract, move or delete it, or drag it to a new place. Ctrl+Z undoes page changes
+- Unsaved edits to any document are kept safe every few seconds and come back after a crash
+  (named "… (Recovered).pdf" when the original file exists)
+- Closing a full-page tool with unsaved work (Edit a PDF, Prepare a form, Organize pages…) asks
+  first
+- Recent files in the Windows taskbar jump list and the macOS Dock menu; Clear recent clears
+  them too
+- PDFs that use the standard fonts without embedding them (Times, Helvetica, Courier, Calibri,
+  Cambria…) are drawn in metric-compatible fonts, so text keeps its look and spacing
+
+### Changed
+
+- The PyMuPDF, Ghostscript and coherentpdf engines ship with the app: PDF to Word, PDF/A, Font
+  to Outline, Rasterize and the other tools that use them no longer download anything from a
+  CDN, and work offline (the installer grows accordingly)
+- Tools show only what makes sense inside Paperwing: no website sections, no second upload box
+  or "remove file" for the open document, no duplicate Download, Print or Open buttons in the
+  embedded viewers, and no main button before there's anything to do
+- Recently used tools appear under the name you opened them with
+- Taskbar and Dock icons are sized like other apps' (the Windows icon was too small)
+
+### Fixed
+
+- Tools briefly showed their upload screen or website header before the document appeared
+- Copying text from some PDFs (e.g. made by wkhtmltopdf) gave tabs instead of spaces, and search
+  couldn't find phrases in them
+- Clicking a rail button or a tool while a full-page tool was open did nothing
+- Edit a PDF: changing a text's font had no effect, System fonts showed an error, and text whose
+  spaces are tabs exported with broken lines
+- Fill & Sign and Fill a form failed to save, and Timestamp couldn't reach the timestamp server
+- Results downloaded from the embedded PDF viewers went to Downloads instead of opening in
+  Paperwing
+- Fill & Sign opened with the Highlight tool selected
+
 ## [1.1.0] — 2026-10-14
 
 ### Added
