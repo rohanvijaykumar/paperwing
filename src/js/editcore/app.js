@@ -3575,12 +3575,16 @@ async function applyDocFonts(para, ed) {
     const idx = parseInt(s.dataset.src);
     if (!(idx >= 0) || idx >= para.runs.length) continue;
     const run = para.runs[idx];
+    // Paperwing: the document's embedded font only draws text still set in
+    // that run's own family. Linking it to whatever family the span has now
+    // drew text the user had changed to another font in the old font.
+    if (s.dataset.family !== run.family) continue;
     const key = docFontKey(run);
     const fam = docFontsReady.get(key);
     if (fam) {
       if (s.dataset.docfont !== fam) {
         s.dataset.docfont = fam;
-        s.dataset.docfontFor = s.dataset.family;
+        s.dataset.docfontFor = run.family;
         s.dataset.docfontB = run.bold === 2 ? '2' : run.bold ? '1' : '0';
         s.dataset.docfontI = run.italic === 2 ? '2' : run.italic ? '1' : '0';
         applySpanStyle(s);
@@ -3594,9 +3598,13 @@ async function applyDocFonts(para, ed) {
     await Promise.all(
       pending.map(async ([s, idx, run]) => {
         const fam = await ensureRunFont(para, idx, run);
-        if (fam && state.editing?.editable === ed) {
+        if (
+          fam &&
+          state.editing?.editable === ed &&
+          s.dataset.family === run.family
+        ) {
           s.dataset.docfont = fam;
-          s.dataset.docfontFor = s.dataset.family;
+          s.dataset.docfontFor = run.family;
           s.dataset.docfontB = run.bold === 2 ? '2' : run.bold ? '1' : '0';
           s.dataset.docfontI = run.italic === 2 ? '2' : run.italic ? '1' : '0';
           applySpanStyle(s);
@@ -5740,7 +5748,14 @@ function spanStyle(span, original) {
       strokeWidth: parseFloat(d.strokeWidth) || 1,
       hScale: parseFloat(d.hScale) || 1,
       rise: parseFloat(d.rise) || 0,
-      sourceIndex: parseInt(d.src),
+      // Paperwing: text set in another font no longer points back to its
+      // source run, whose font the engine would otherwise reuse (it only
+      // looks up a new font for runs without a source)
+      sourceIndex:
+        original[parseInt(d.src)] &&
+        original[parseInt(d.src)].family !== d.family
+          ? -1
+          : parseInt(d.src),
     };
   }
   const base = original.find((r) => !r.atomic && !r.text?.includes('￼')) || {
@@ -6425,7 +6440,9 @@ function styleTargetRuns(mutate) {
         strokeWidth: parseFloat(d.strokeWidth) || 1,
         hScale: parseFloat(d.hScale) || 1,
         rise: parseFloat(d.rise) || 0,
-        sourceIndex: i,
+        // Paperwing: a run set in another font is laid out afresh (see
+        // spanStyle)
+        sourceIndex: d.family !== r.family ? -1 : i,
       };
     });
     snapshotEdit('edit text', para);

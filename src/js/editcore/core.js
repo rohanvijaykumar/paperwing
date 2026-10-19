@@ -10,6 +10,20 @@ import { probePdfBytes } from './shadingsurgery.js';
 const RUN_SIZE = 60;
 const FMT_SIZE = 36;
 
+// Paperwing: some PDFs map their space character to a tab (wkhtmltopdf
+// does), and the engine passes the tab through. Read as text it's a space,
+// as in browsers' viewers and PDF.js; left as a tab, editing such a page
+// broke its lines apart. Same length, so character positions hold.
+function spaceTabs(value) {
+  if (typeof value === 'string')
+    return value.includes('\t') ? value.replaceAll('\t', ' ') : value;
+  if (Array.isArray(value)) return value.map(spaceTabs);
+  if (value && typeof value === 'object') {
+    for (const k of Object.keys(value)) value[k] = spaceTabs(value[k]);
+  }
+  return value;
+}
+
 export const OBJ = {
   UNKNOWN: 0,
   TEXT: 1,
@@ -785,7 +799,7 @@ export class PdfEngine {
     const json = M.UTF8ToString(ptr);
     M._ec_string_free(ptr);
     this._readPageTransform();
-    return JSON.parse(json).paragraphs;
+    return spaceTabs(JSON.parse(json).paragraphs);
   }
 
   _readPageTransform() {
@@ -1191,7 +1205,7 @@ export class PdfEngine {
     const json = M.UTF8ToString(ptr);
     M._ec_string_free(ptr);
     try {
-      return JSON.parse(json);
+      return spaceTabs(JSON.parse(json));
     } catch {
       return null;
     }
@@ -1211,7 +1225,7 @@ export class PdfEngine {
     const json = M.UTF8ToString(ptr);
     M._ec_string_free(ptr);
     try {
-      return JSON.parse(json).paragraphs || [];
+      return spaceTabs(JSON.parse(json).paragraphs || []);
     } catch {
       return [];
     }
