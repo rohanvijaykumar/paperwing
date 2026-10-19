@@ -7,6 +7,7 @@ import {
   insertBlankPage,
   insertPagesFrom,
   movePage,
+  movePages,
   rotatePages,
 } from '../acro/pages';
 
@@ -32,6 +33,22 @@ async function rotations(bytes: ArrayBuffer) {
 }
 
 describe('page changes', () => {
+  it('moves several pages together, keeping their order', async () => {
+    const src = await pdf(6);
+    // Pages 2 and 4 (0-based 1, 3) to the start, to the end, before page 6
+    expect(await widths(await movePages(src, [3, 1], 0))).toEqual([
+      101, 103, 100, 102, 104, 105,
+    ]);
+    expect(await widths(await movePages(src, [1, 3], 6))).toEqual([
+      100, 102, 104, 105, 101, 103,
+    ]);
+    expect(await widths(await movePages(src, [0, 1], 5))).toEqual([
+      102, 103, 104, 100, 101, 105,
+    ]);
+    // Already there: unchanged
+    expect(await movePages(src, [1, 2], 1)).toBe(src);
+  });
+
   it('rotates pages both ways and wraps around', async () => {
     let b = await rotatePages(await pdf(3), [1], 90);
     expect(await rotations(b)).toEqual([0, 90, 0]);

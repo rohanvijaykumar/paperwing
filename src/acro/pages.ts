@@ -19,6 +19,11 @@ async function save(doc: PDFDocument): Promise<ArrayBuffer> {
   ) as ArrayBuffer;
 }
 
+/** How many pages a PDF has */
+export async function pageCount(bytes: ArrayBuffer): Promise<number> {
+  return (await load(bytes)).getPageCount();
+}
+
 /** Turns pages by a multiple of 90° (clockwise for positive) */
 export async function rotatePages(
   bytes: ArrayBuffer,
@@ -60,6 +65,38 @@ export async function movePage(
   const page = doc.getPage(from);
   doc.removePage(from);
   doc.insertPage(to, page);
+  return save(doc);
+}
+
+/** Moves several pages, keeping their order, to just before the page now
+ *  at `before` (the page count: to the end). Pages not moved keep theirs */
+export async function movePages(
+  bytes: ArrayBuffer,
+  pages: number[],
+  before: number
+): Promise<ArrayBuffer> {
+  const doc = await load(bytes);
+  const count = doc.getPageCount();
+  const moving = [...new Set(pages)]
+    .filter((i) => i >= 0 && i < count)
+    .sort((a, b) => a - b);
+  if (!moving.length) return bytes;
+  const rest: number[] = [];
+  for (let i = 0; i < count; i++) if (!moving.includes(i)) rest.push(i);
+  const at = rest.filter((i) => i < before).length;
+  const order = [...rest.slice(0, at), ...moving, ...rest.slice(at)];
+  if (order.every((p, i) => p === i)) return bytes;
+  // One page at a time into place, so the document always has pages
+  const current = [...Array(count).keys()];
+  order.forEach((p, k) => {
+    const j = current.indexOf(p);
+    if (j === k) return;
+    const page = doc.getPage(j);
+    doc.removePage(j);
+    doc.insertPage(k, page);
+    current.splice(j, 1);
+    current.splice(k, 0, p);
+  });
   return save(doc);
 }
 

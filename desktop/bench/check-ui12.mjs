@@ -6,7 +6,9 @@
  *   follow along
  * - tooltips: shown on hover, with the shortcut; native titles moved aside
  * - a full-page tool hides the right rail; closing it brings it back
- * - page thumbnails: right-click menu, delete, move, rotate, undo, redo
+ * - page thumbnails: right-click menu, delete, move, rotate, undo, redo;
+ *   Ctrl+click selects several pages; a PDF dropped on them is inserted
+ * - a newer version: a notice that stays, and a marker on Help
  * - unsaved edits get a recovery copy; after a crash they come back
  * - a full-page tool with unsaved work asks before closing
  * Uses the sample documents in docs/screenshots/samples/.
@@ -342,6 +344,138 @@ check(
   `drag moved page 1: first page now starts "${after.slice(0, 30)}" (was "${before.slice(0, 30)}")`
 );
 
+/* Several pages selected, and PDFs dropped onto the thumbnails --------- */
+const selected = () =>
+  page.evaluate(() => {
+    let n = 0;
+    const walk = (root) => {
+      n += root.querySelectorAll('[data-pw-selected]').length;
+      for (const el of root.querySelectorAll('*'))
+        if (el.shadowRoot) walk(el.shadowRoot);
+    };
+    walk(document);
+    return n;
+  });
+await sleep(800);
+const s1 = await thumb(1);
+const s2 = await thumb(2);
+// Page 1 (the selection starts from the current page), then Ctrl+click 2
+await page.mouse.click(s1.x, s1.y);
+await sleep(600);
+await page.keyboard.down('Control');
+await page.mouse.click(s2.x, s2.y);
+await page.keyboard.up('Control');
+await sleep(400);
+check(
+  (await selected()) === 2,
+  `Ctrl+click selects two pages: ${await selected()}`
+);
+await page.mouse.click(s2.x, s2.y, { button: 'right' });
+await sleep(400);
+const smenu = await page.evaluate(() =>
+  [...document.querySelectorAll('.popover .menu-item')].map((b) =>
+    b.textContent.trim()
+  )
+);
+check(
+  smenu.includes('Rotate 2 pages clockwise') &&
+    smenu.includes('Extract 2 pages') &&
+    smenu.includes('Delete 2 pages'),
+  `menu for the selection: ${smenu.join(' | ')}`
+);
+await page.evaluate(() =>
+  [...document.querySelectorAll('.popover .menu-item')]
+    .find((b) => b.textContent.trim() === 'Delete 2 pages')
+    .click()
+);
+check(
+  await until(
+    page,
+    () =>
+      window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 1
+  ),
+  `deleting the selection: ${await pages(page)} page left`
+);
+await sleep(800);
+await page.keyboard.down('Control');
+await page.keyboard.press('KeyZ');
+await page.keyboard.up('Control');
+check(
+  await until(
+    page,
+    () =>
+      window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 3
+  ),
+  `undo brings them back: ${await pages(page)} pages`
+);
+await sleep(1500);
+check((await selected()) === 0, 'the selection is cleared after a change');
+
+// Drop a 2-page PDF before the first page
+const tabsBefore = await page.evaluate(
+  () => document.querySelectorAll('#tabs [role="tab"]:not(.tab-home)').length
+);
+const t1 = await thumb(1);
+const dropB64 = readFileSync(new URL(CONTRACT, SAMPLES)).toString('base64');
+await page.evaluate(
+  (b64, y) => {
+    let target = null;
+    const walk = (root) => {
+      for (const el of root.querySelectorAll('div'))
+        if (
+          !target &&
+          el.style.position === 'absolute' &&
+          el.textContent.trim() === '1' &&
+          el.querySelector('img')
+        )
+          target = el.querySelector('img');
+      for (const el of root.querySelectorAll('*'))
+        if (el.shadowRoot) walk(el.shadowRoot);
+    };
+    walk(document);
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(
+      new File([bytes], 'Contract.pdf', { type: 'application/pdf' })
+    );
+    const r = target.getBoundingClientRect();
+    const at = { clientX: r.x + r.width / 2, clientY: r.y + 4 };
+    const fire = (type) =>
+      target.dispatchEvent(
+        new DragEvent(type, {
+          dataTransfer: dt,
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          ...at,
+        })
+      );
+    fire('dragenter');
+    fire('dragover');
+    fire('drop');
+  },
+  dropB64,
+  t1.y
+);
+check(
+  await until(
+    page,
+    () =>
+      window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 5
+  ),
+  `dropping a 2-page PDF on the thumbnails inserts it: ${await pages(page)} pages`
+);
+check(
+  (await page.evaluate(
+    () => document.querySelectorAll('#tabs [role="tab"]:not(.tab-home)').length
+  )) === tabsBefore,
+  'it is inserted, not opened in a new tab'
+);
+check(
+  (await firstText()).startsWith('Northbeam'),
+  `inserted at the start: "${(await firstText()).slice(0, 30)}"`
+);
+
 /* Recovery of unsaved edits -------------------------------------------- */
 const unsaved = join(profile, 'Unsaved');
 await sleep(6000); // past the recovery delay
@@ -372,11 +506,11 @@ check(
   await until(
     page,
     () =>
-      window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 3,
+      window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 5,
     undefined,
     15000
   ),
-  `the recovered copy has the edit (3 pages): ${await pages(page)}`
+  `the recovered copy has the edits (5 pages): ${await pages(page)}`
 );
 
 /* A full-page tool with unsaved work asks before closing --------------- */
@@ -445,6 +579,69 @@ check(
   await page.evaluate(() => !!document.querySelector('#tool-full .frame-wrap')),
   '"Keep working" keeps the tool open'
 );
+
+/* A newer version (builds that don't update themselves) ---------------- */
+await page.evaluate(() => {
+  const real = window.fetch;
+  window.fetch = (url, ...rest) =>
+    String(url).includes('api.github.com')
+      ? Promise.resolve(
+          new Response(
+            JSON.stringify({
+              tag_name: 'v9.9.9',
+              html_url:
+                'https://github.com/owner/paperwing/releases/tag/v9.9.9',
+              assets: [
+                {
+                  name: 'Paperwing-Portable-9.9.9-win-x64.zip',
+                  browser_download_url: 'https://example.invalid/portable.zip',
+                },
+              ],
+            })
+          )
+        )
+      : real(url, ...rest);
+  document.querySelector('#help-btn').click();
+});
+await sleep(300);
+await page.evaluate(() =>
+  [...document.querySelectorAll('.popover .menu-item')]
+    .find((b) => /Check for updates/.test(b.textContent))
+    .click()
+);
+await sleep(800);
+const notice = await page.evaluate(() => ({
+  text: document.querySelector('#update-toast')?.textContent ?? '',
+  dot: document.querySelector('#help-btn').classList.contains('has-update'),
+}));
+check(
+  /9\.9\.9 is available/.test(notice.text) && /Download/.test(notice.text),
+  `update notice: "${notice.text}"`
+);
+check(notice.dot, 'Help shows a dot');
+await sleep(5500);
+check(
+  await page.evaluate(() => !!document.querySelector('#update-toast')),
+  'the notice stays (after 5 s)'
+);
+await page.evaluate(() =>
+  [...document.querySelectorAll('#update-toast button')]
+    .find((b) => b.textContent.trim() === 'Later')
+    .click()
+);
+await page.evaluate(() => document.querySelector('#help-btn').click());
+await sleep(300);
+const hmenu = await page.evaluate(() =>
+  [...document.querySelectorAll('.popover .menu-item')].map((b) =>
+    b.textContent.trim()
+  )
+);
+check(
+  hmenu[0] === 'Download Paperwing 9.9.9',
+  `Help menu after "Later": ${hmenu.slice(0, 2).join(' | ')}`
+);
+await page.keyboard.press('Escape');
+await page.evaluate(() => localStorage.removeItem('paperwing:availableUpdate'));
 
 await page.evaluate(() => {
   // Leave without prompts

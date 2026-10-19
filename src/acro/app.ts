@@ -11,6 +11,8 @@ import {
   insertBlankPage,
   insertPagesFrom,
   movePage,
+  movePages,
+  pageCount,
   rotatePages,
 } from './pages';
 import {
@@ -35,7 +37,13 @@ import {
 } from './viewer';
 import { Thumbnails, thumbUrl } from './thumbnails';
 import { desktop, isMac, key, toFile } from './desktop';
-import { checkForUpdates, scheduleUpdateCheck } from './updates';
+import {
+  type AvailableUpdate,
+  checkForUpdates,
+  knownUpdate,
+  onUpdateAvailable,
+  scheduleUpdateCheck,
+} from './updates';
 import {
   findShortcut,
   formatCombo,
@@ -341,6 +349,52 @@ function updateReadyToast(version: string) {
   $('#toasts').append(el);
 }
 
+/** A newer version for a build that doesn't update itself (macOS, the
+ *  portable build): stays until the user downloads it or puts it off */
+function updateAvailableToast(update: AvailableUpdate) {
+  document.getElementById('update-toast')?.remove();
+  const el = h(
+    'div',
+    { class: 'toast', role: 'status', id: 'update-toast' },
+    h('span', {}, `Paperwing ${update.version} is available`),
+    h(
+      'button',
+      {
+        type: 'button',
+        onClick: () => {
+          el.remove();
+          downloadUpdate(update);
+        },
+      },
+      'Download'
+    ),
+    h('button', { type: 'button', onClick: () => el.remove() }, 'Later')
+  );
+  $('#toasts').append(el);
+}
+
+/** Fetches the new version's file for this platform (the browser saves it),
+ *  or opens the release page when there isn't one */
+function downloadUpdate(update: AvailableUpdate) {
+  window.open(update.download ?? update.page, '_blank', 'noopener');
+  if (!update.download) return;
+  toast(
+    /\.dmg$/i.test(update.download)
+      ? `Downloading Paperwing ${update.version}. Open it and drag Paperwing to Applications, replacing the old one.`
+      : `Downloading Paperwing ${update.version}. Unzip it and copy your Paperwing Data folder into it.`
+  );
+}
+
+/** Until this build is updated, Help shows a dot and a Download entry */
+function showUpdateMarker(update: AvailableUpdate) {
+  const help = $('#help-btn');
+  help.classList.add('has-update');
+  const label = `Help · Paperwing ${update.version} is available`;
+  help.setAttribute('aria-label', label);
+  // (the tooltip takes its text from title, or data-tip once it has moved it)
+  help.setAttribute(help.hasAttribute('title') ? 'title' : 'data-tip', label);
+}
+
 /** A toast that stays until closed, with text that can change in place */
 function statusToast(message: string) {
   const text = h('span', {}, message);
@@ -413,6 +467,10 @@ interface Tab {
   pageRedo?: ArrayBuffer[];
   /** A page change is being applied */
   pageBusy?: boolean;
+  /** Pages selected in the thumbnails (0-based), when more than one */
+  pageSel?: Set<number>;
+  /** Where a Shift+click range starts */
+  pageAnchor?: number;
 }
 
 const isDirty = (t: Tab) => t.version !== t.savedVersion;
@@ -1962,7 +2020,8 @@ async function changePages(
   tab: Tab,
   change: (bytes: ArrayBuffer) => Promise<ArrayBuffer>,
   page: number,
-  done?: string
+  done?: string,
+  keepSelection = false
 ): Promise<boolean> {
   if (tab.loading || tab.blank || tab.fullTool || tab.pageBusy) return false;
   tab.pageBusy = true;
@@ -1970,6 +2029,8 @@ async function changePages(
     const before = await viewer.exportBytes(tab.id);
     if (!before) throw new Error('the document is still loading');
     const after = await change(before);
+    // Pages that moved or went away: the selection no longer fits them
+    if (!keepSelection) setPageSelection(tab, null);
     await showPageVersion(tab, after, page);
     tab.pageUndo = [...(tab.pageUndo ?? []), before].slice(-PAGE_UNDO_LIMIT);
     tab.pageRedo = [];
@@ -2015,6 +2076,7 @@ async function stepPages(tab: Tab, action: 'undo' | 'redo') {
   try {
     const current = await viewer.exportBytes(tab.id);
     const target = from.pop()!;
+    setPageSelection(tab, null);
     await showPageVersion(tab, target, tab.page.current || 1);
     if (current) {
       const to = action === 'undo' ? 'pageRedo' : 'pageUndo';
@@ -2031,31 +2093,216 @@ function stepEdit(tab: Tab, action: 'undo' | 'redo') {
   if (!viewer.history(tab.id, action)) void stepPages(tab, action);
 }
 
-/** The thumbnail an event is on, in the viewer's page thumbnails panel:
- *  each is a box labelled with its page number */
+/** Is this one of the viewer's page thumbnails: a box labelled with its
+ *  page number, holding the page image */
+function isThumb(n: unknown): n is HTMLElement {
+  // Cheapest tests first: this runs over the viewer's elements
+  return (
+    n instanceof HTMLElement &&
+    n.style.position === 'absolute' &&
+    !!n.querySelector(':scope > div > img, :scope > div > canvas') &&
+    /^\d+$/.test(n.textContent?.trim() ?? '')
+  );
+}
+
+/** The thumbnail an event is on, in the viewer's page thumbnails panel */
 function thumbFor(e: Event): { item: HTMLElement; page: number } | null {
   for (const n of e.composedPath()) {
     if (!(n instanceof HTMLElement) || n.id === 'viewer-host') break;
-    const label = n.textContent?.trim() ?? '';
-    if (
-      /^\d+$/.test(label) &&
-      n.style.position === 'absolute' &&
-      n.querySelector('img, canvas')
-    )
-      return { item: n, page: parseInt(label, 10) - 1 };
+    if (isThumb(n)) {
+      thumbRoot = n.getRootNode();
+      return { item: n, page: parseInt(n.textContent!.trim(), 10) - 1 };
+    }
   }
   return null;
 }
 
-/** The right-click menu for a page thumbnail */
+/** The thumbnails list an event is over (on a thumbnail or between them) */
+function thumbListFor(
+  e: Event
+): { list: HTMLElement; scroller: HTMLElement } | null {
+  const hit = thumbFor(e);
+  const parent = hit?.item.parentElement;
+  if (parent?.parentElement)
+    return { list: parent, scroller: parent.parentElement };
+  for (const n of e.composedPath()) {
+    if (!(n instanceof HTMLElement) || n.id === 'viewer-host') break;
+    const list = n.firstElementChild;
+    if (
+      n.style.overflowY === 'auto' &&
+      list instanceof HTMLElement &&
+      [...list.children].some(isThumb)
+    ) {
+      thumbRoot = n.getRootNode();
+      return { list, scroller: n };
+    }
+  }
+  return null;
+}
+
+/** Where something dropped at height `y` would go in the thumbnails list:
+ *  before page `before` (0-based; the page count for the end), and where to
+ *  draw the line that shows it */
+function dropSpot(
+  list: HTMLElement,
+  scroller: HTMLElement,
+  y: number
+): { before: number; top: number; left: number; width: number } | null {
+  let best: { el: HTMLElement; page: number } | null = null;
+  let dist = Infinity;
+  for (const el of list.children) {
+    if (!isThumb(el)) continue;
+    const r = el.getBoundingClientRect();
+    const d = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+    if (d < dist) {
+      dist = d;
+      best = { el, page: parseInt(el.textContent!.trim(), 10) - 1 };
+    }
+  }
+  if (!best) return null;
+  const r = best.el.getBoundingClientRect();
+  const after = y > r.top + r.height / 2;
+  const sr = scroller.getBoundingClientRect();
+  return {
+    before: best.page + (after ? 1 : 0),
+    top: Math.round(after ? r.bottom + 4 : r.top - 6),
+    left: sr.left + 8,
+    width: sr.width - 16,
+  };
+}
+
+/* Several pages selected: Ctrl/Cmd+click adds or removes one, Shift+click a
+   range. Page actions and dragging then apply to all of them. */
+
+/** The thumbnails panel's root (the viewer draws it in a shadow root) */
+let thumbRoot: Node | null = null;
+let selectionObserver: MutationObserver | null = null;
+
+/** The pages an action on `page` applies to: the selection if `page` is in
+ *  it, otherwise just that page */
+function actionPages(tab: Tab, page: number): number[] {
+  return tab.pageSel?.has(page) && tab.pageSel.size > 1
+    ? [...tab.pageSel].sort((a, b) => a - b)
+    : [page];
+}
+
+function setPageSelection(tab: Tab, pages: Iterable<number> | null) {
+  const next = new Set(pages ?? []);
+  tab.pageSel = next.size ? next : undefined;
+  paintPageSelection();
+}
+
+/** Marks the selected thumbnails; the viewer redraws the list as it
+ *  scrolls, so this runs again whenever it does */
+function paintPageSelection() {
+  const root = thumbRoot as (ShadowRoot | Document) | null;
+  if (!root?.querySelectorAll) return;
+  const sel = activeDoc()?.pageSel;
+  const marked = root.querySelectorAll('[data-pw-selected]');
+  if (!sel) {
+    // Nothing selected: unmark, and stop following the list
+    for (const el of marked) el.removeAttribute('data-pw-selected');
+    selectionObserver?.disconnect();
+    selectionObserver = null;
+    return;
+  }
+  if (!root.querySelector('#pw-page-selection')) {
+    const style = document.createElement('style');
+    style.id = 'pw-page-selection';
+    style.textContent = `
+      [data-pw-selected] > div:first-child {
+        outline: 3px solid var(--ep-accent-primary, #3b63fb);
+        outline-offset: 2px;
+      }
+      [data-pw-selected] span { font-weight: 700; }`;
+    (root instanceof Document ? root.head : root).append(style);
+  }
+  for (const el of root.querySelectorAll('div[style*="position: absolute"]')) {
+    if (!isThumb(el)) continue;
+    const page = parseInt(el.textContent!.trim(), 10) - 1;
+    const on = sel.has(page);
+    if (on !== el.hasAttribute('data-pw-selected'))
+      el.toggleAttribute('data-pw-selected', on);
+  }
+  if (!selectionObserver) {
+    let queued = false;
+    selectionObserver = new MutationObserver(() => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        paintPageSelection();
+      });
+    });
+    selectionObserver.observe(root, { childList: true, subtree: true });
+  }
+}
+
+/** Ctrl/Cmd+click and Shift+click on a thumbnail */
+function selectWithClick(tab: Tab, page: number, e: PointerEvent) {
+  const current = (tab.page.current || 1) - 1;
+  const sel = new Set(tab.pageSel ?? [current]);
+  if (e.shiftKey) {
+    const from = tab.pageAnchor ?? current;
+    const [a, b] = from < page ? [from, page] : [page, from];
+    if (!(e.ctrlKey || e.metaKey)) sel.clear();
+    for (let i = a; i <= b; i++) sel.add(i);
+  } else {
+    if (sel.has(page) && sel.size > 1) sel.delete(page);
+    else sel.add(page);
+    tab.pageAnchor = page;
+  }
+  setPageSelection(tab, sel);
+}
+
+/** The right-click menu for a page thumbnail (or the selected pages) */
 function pageMenu(tab: Tab, page: number, x: number, y: number) {
   const total = tab.page.total || viewer.pageInfo(tab.id)?.total || 1;
-  const n = page + 1;
+  const pages = actionPages(tab, page);
+  if (pages.length === 1 && tab.pageSel) setPageSelection(tab, null);
   const go = (
     change: (b: ArrayBuffer) => Promise<ArrayBuffer>,
     at: number,
-    done?: string
-  ): void => void changePages(tab, change, at, done);
+    done?: string,
+    keepSelection = false
+  ): void => void changePages(tab, change, at, done, keepSelection);
+  if (pages.length > 1) {
+    const count = `${pages.length} pages`;
+    const first = pages[0] + 1;
+    return showMenu(menuPoint(x, y), [
+      {
+        label: `Rotate ${count} clockwise`,
+        icon: icon('rotate', 16),
+        onClick: () =>
+          go((b) => rotatePages(b, pages, 90), first, undefined, true),
+      },
+      {
+        label: `Rotate ${count} counterclockwise`,
+        icon: icon('rotateCcw', 16),
+        onClick: () =>
+          go((b) => rotatePages(b, pages, -90), first, undefined, true),
+      },
+      { divider: true },
+      {
+        label: `Extract ${count}`,
+        icon: icon('fileOut', 16),
+        onClick: () => void extractToTab(tab, pages),
+      },
+      { divider: true },
+      {
+        label: `Delete ${count}`,
+        icon: icon('trash', 16),
+        disabled: pages.length >= total,
+        onClick: () =>
+          go(
+            (b) => deletePages(b, pages),
+            Math.min(first, total - pages.length),
+            `Deleted ${count}`
+          ),
+      },
+    ]);
+  }
+  const n = page + 1;
   showMenu(menuPoint(x, y), [
     {
       label: 'Rotate clockwise',
@@ -2090,17 +2337,7 @@ function pageMenu(tab: Tab, page: number, x: number, y: number) {
     {
       label: 'Extract page',
       icon: icon('fileOut', 16),
-      onClick: async () => {
-        const bytes = await viewer.exportBytes(tab.id);
-        if (!bytes) return;
-        const out = await extractPages(bytes, [page]);
-        const base = tab.name.replace(/\.pdf$/i, '');
-        const name = uniqueTabName(`${base} (page ${n}).pdf`);
-        const file = new File([out], name, { type: 'application/pdf' });
-        const t = await openDocument(file, {}, undefined, undefined, {});
-        if (t)
-          savePrompt(t, `Extracted page ${n} to a new tab. It isn't saved yet`);
-      },
+      onClick: () => void extractToTab(tab, [page]),
     },
     { divider: true },
     {
@@ -2130,7 +2367,23 @@ function pageMenu(tab: Tab, page: number, x: number, y: number) {
   ]);
 }
 
-/** Dragging a thumbnail moves its page (a line shows where it will go) */
+/** Copies pages into a new, unsaved tab */
+async function extractToTab(tab: Tab, pages: number[]) {
+  const bytes = await viewer.exportBytes(tab.id);
+  if (!bytes) return;
+  const out = await extractPages(bytes, pages);
+  const base = tab.name.replace(/\.pdf$/i, '');
+  const what =
+    pages.length === 1 ? `page ${pages[0] + 1}` : `${pages.length} pages`;
+  const name = uniqueTabName(`${base} (${what}).pdf`);
+  const file = new File([out], name, { type: 'application/pdf' });
+  const t = await openDocument(file, {}, undefined, undefined, {});
+  if (t) savePrompt(t, `Extracted ${what} to a new tab. It isn't saved yet`);
+}
+
+/** Dragging a thumbnail moves its page, or all the selected pages (a line
+ *  shows where they'll go). A press without a drag on one of several
+ *  selected pages selects just that one. */
 function dragPage(
   tab: Tab,
   start: PointerEvent,
@@ -2139,37 +2392,20 @@ function dragPage(
   const list = from.item.parentElement;
   const scroller = list?.parentElement;
   if (!list || !scroller) return;
+  const pages = actionPages(tab, from.page);
   let dragging = false;
-  let target = -1; // the page index it would be placed before
+  let target = -1; // the page index they'd be placed before
   let raf = 0;
   let lastY = start.clientY;
   const line = h('div', { class: 'page-drop-line', 'aria-hidden': 'true' });
   const ghost = h('div', { class: 'page-drag-ghost', 'aria-hidden': 'true' });
-  const items = () =>
-    [...list.children]
-      .filter((c): c is HTMLElement => c instanceof HTMLElement)
-      .map((el) => ({
-        el,
-        page: parseInt(el.textContent?.trim() ?? '', 10) - 1,
-      }))
-      .filter((x) => x.page >= 0);
   const update = (y: number) => {
-    const all = items();
-    let best: { el: HTMLElement; page: number } | null = null;
-    let dist = Infinity;
-    for (const x of all) {
-      const r = x.el.getBoundingClientRect();
-      const d = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
-      if (d < dist) [dist, best] = [d, x];
-    }
-    if (!best) return;
-    const r = best.el.getBoundingClientRect();
-    const after = y > r.top + r.height / 2;
-    target = best.page + (after ? 1 : 0);
-    const sr = scroller.getBoundingClientRect();
-    line.style.left = `${sr.left + 8}px`;
-    line.style.width = `${sr.width - 16}px`;
-    line.style.top = `${Math.round(after ? r.bottom + 4 : r.top - 6)}px`;
+    const spot = dropSpot(list, scroller, y);
+    if (!spot) return;
+    target = spot.before;
+    line.style.left = `${spot.left}px`;
+    line.style.width = `${spot.width}px`;
+    line.style.top = `${spot.top}px`;
   };
   // Near the panel's top or bottom edge, the list scrolls
   const scroll = () => {
@@ -2197,7 +2433,8 @@ function dragPage(
       )
         return;
       dragging = true;
-      ghost.textContent = `Page ${from.page + 1}`;
+      ghost.textContent =
+        pages.length > 1 ? `${pages.length} pages` : `Page ${from.page + 1}`;
       $('#popover-layer').append(line, ghost);
       document.body.classList.add('is-dragging-page');
       raf = requestAnimationFrame(scroll);
@@ -2216,11 +2453,24 @@ function dragPage(
     line.remove();
     ghost.remove();
     document.body.classList.remove('is-dragging-page');
-    if (!dragging || !drop || target < 0) return;
-    // Placed before `target`; with the page itself taken out first
-    const to = target > from.page ? target - 1 : target;
-    if (to === from.page) return;
-    void changePages(tab, (b) => movePage(b, from.page, to), to + 1);
+    if (!dragging) {
+      // A plain click: the viewer goes to the page, which is now the only
+      // one selected
+      if (drop && tab.pageSel) setPageSelection(tab, null);
+      tab.pageAnchor = from.page;
+      return;
+    }
+    if (!drop || target < 0) return;
+    if (pages.length === 1) {
+      // Placed before `target`; with the page itself taken out first
+      const to = target > from.page ? target - 1 : target;
+      if (to === from.page) return;
+      void changePages(tab, (b) => movePage(b, from.page, to), to + 1);
+      return;
+    }
+    // Where the first of them ends up, with the moved pages taken out
+    const at = target - pages.filter((p) => p < target).length;
+    void changePages(tab, (b) => movePages(b, pages, target), at + 1);
   };
   const up = () => finish(true);
   // Interrupted (e.g. the window lost focus): nothing moves
@@ -2256,6 +2506,19 @@ $('#viewer-host').addEventListener(
   true
 );
 
+// A Ctrl/Cmd or Shift click selects instead of going to the page
+let swallowClick = false;
+$('#viewer-host').addEventListener(
+  'click',
+  (e) => {
+    if (!swallowClick) return;
+    swallowClick = false;
+    e.preventDefault();
+    e.stopPropagation();
+  },
+  true
+);
+
 // (capture: the thumbnails handle the press themselves)
 $('#viewer-host').addEventListener(
   'pointerdown',
@@ -2263,10 +2526,89 @@ $('#viewer-host').addEventListener(
     if (e.button !== 0) return;
     const tab = activeDoc();
     const hit = tab && thumbFor(e);
-    if (tab && hit) dragPage(tab, e, hit);
+    if (!tab || !hit) return;
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      swallowClick = true;
+      selectWithClick(tab, hit.page, e);
+      return;
+    }
+    dragPage(tab, e, hit);
   },
   true
 );
+
+window.addEventListener('keydown', (e) => {
+  const tab = activeDoc();
+  if (e.key === 'Escape' && tab?.pageSel) setPageSelection(tab, null);
+});
+
+/* Dropping PDFs onto the thumbnails inserts their pages there */
+
+/** Drops the window's handler leaves to the thumbnails */
+const droppedOnPages = new WeakSet<Event>();
+const pageDropLine = h('div', {
+  class: 'page-drop-line',
+  'aria-hidden': 'true',
+});
+
+function endPageDrop() {
+  pageDropLine.remove();
+  document.body.classList.remove('is-dropping-pages');
+}
+
+$('#viewer-host').addEventListener('dragover', (e) => {
+  const tab = activeDoc();
+  const at = tab && e.dataTransfer?.types.includes('Files') && thumbListFor(e);
+  const spot = at && dropSpot(at.list, at.scroller, e.clientY);
+  if (!tab || !spot || tab.loading || tab.fullTool) return endPageDrop();
+  e.preventDefault();
+  e.dataTransfer!.dropEffect = 'copy';
+  pageDropLine.style.left = `${spot.left}px`;
+  pageDropLine.style.width = `${spot.width}px`;
+  pageDropLine.style.top = `${spot.top}px`;
+  if (!pageDropLine.isConnected) $('#popover-layer').append(pageDropLine);
+  document.body.classList.add('is-dropping-pages');
+});
+$('#viewer-host').addEventListener('dragleave', (e) => {
+  if (!thumbListFor(e)) endPageDrop();
+});
+window.addEventListener('dragend', endPageDrop);
+
+$('#viewer-host').addEventListener('drop', (e) => {
+  const tab = activeDoc();
+  const at = tab && thumbListFor(e);
+  const spot = at && dropSpot(at.list, at.scroller, e.clientY);
+  endPageDrop();
+  if (!tab || !spot || tab.loading || tab.fullTool) return;
+  const pdfs = Array.from(e.dataTransfer?.files ?? []).filter(isPdf);
+  if (!pdfs.length) return;
+  e.preventDefault();
+  droppedOnPages.add(e);
+  void (async () => {
+    const others = await Promise.all(pdfs.map((f) => f.arrayBuffer()));
+    const names = pdfs.length === 1 ? pdfs[0].name : `${pdfs.length} files`;
+    const where =
+      spot.before === 0 ? 'at the start' : `after page ${spot.before}`;
+    await changePages(
+      tab,
+      async (b) => {
+        // In the order dropped, each after the last
+        let out = b;
+        let after = spot.before - 1;
+        for (const other of others) {
+          const before = await pageCount(out);
+          out = await insertPagesFrom(out, after, other);
+          after += (await pageCount(out)) - before;
+        }
+        return out;
+      },
+      spot.before + 1,
+      `Inserted ${names} ${where}`
+    );
+  })();
+});
 
 /* Right rail ----------------------------------------------------------- */
 
@@ -2971,8 +3313,19 @@ $('#menu-btn').addEventListener('click', (e) => {
   ]);
 });
 
-$('#help-btn').addEventListener('click', (e) =>
+$('#help-btn').addEventListener('click', (e) => {
+  const update = knownUpdate();
   showMenu(e.currentTarget as HTMLElement, [
+    ...(update
+      ? [
+          {
+            label: `Download Paperwing ${update.version}`,
+            icon: icon('download', 16),
+            onClick: () => downloadUpdate(update),
+          },
+          { divider: true },
+        ]
+      : []),
     { label: 'Keyboard shortcuts', onClick: showShortcuts },
     {
       label: 'Search tools & commands',
@@ -2989,8 +3342,8 @@ $('#help-btn').addEventListener('click', (e) =>
     },
     { divider: true },
     { label: 'About Paperwing', onClick: showAbout },
-  ])
-);
+  ]);
+});
 
 function showThemeMenu(anchor: HTMLElement) {
   const current = getThemePref();
@@ -3780,6 +4133,15 @@ function paletteCommands(): PaletteItem[] {
       run: () => setThemePref('system'),
     },
     { label: 'Keyboard shortcuts', icon: icon('help', 16), run: showShortcuts },
+    ...(knownUpdate()
+      ? [
+          {
+            label: `Download Paperwing ${knownUpdate()!.version}`,
+            icon: icon('download', 16),
+            run: () => downloadUpdate(knownUpdate()!),
+          },
+        ]
+      : []),
     {
       label: 'Check for updates',
       icon: icon('download', 16),
@@ -4157,6 +4519,8 @@ window.addEventListener('drop', async (e) => {
   e.preventDefault();
   dragDepth = 0;
   document.body.classList.remove('is-dragging');
+  // Dropped onto the page thumbnails: inserted there instead
+  if (droppedOnPages.has(e)) return;
   const items = Array.from(e.dataTransfer!.items);
   const getHandle = (
     it: DataTransferItem
@@ -4246,6 +4610,12 @@ if (desktop) {
     const msg = `Downloading the Office conversion engine (one time)…${pct}`;
     if (engineStatus) engineStatus.update(msg);
     else engineStatus = statusToast(msg);
+  });
+  // A newer version (macOS, portable): a notice when it's found, and the
+  // Help marker until this build is updated
+  onUpdateAvailable((update, fresh) => {
+    showUpdateMarker(update);
+    if (fresh) updateAvailableToast(update);
   });
   if (getPrefs().checkUpdates) scheduleUpdateCheck(toast);
   // The Windows installer downloaded an update: offer to restart into it

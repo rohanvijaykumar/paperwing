@@ -237,6 +237,21 @@ button:disabled {
   border-radius: 6px;
   color: var(--text-2);
 }
+/* A newer version is waiting (macOS, portable): a dot on Help */
+#help-btn.has-update {
+  position: relative;
+}
+#help-btn.has-update::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--chrome);
+}
 .tb-btn:hover,
 .tb-btn.is-open {
   background: var(--hover);
@@ -1466,6 +1481,11 @@ kbd {
 }
 body.is-dragging #drop-overlay {
   display: grid;
+}
+/* Over the page thumbnails a dropped PDF is inserted there: the line shows
+   where, not the "open" overlay */
+body.is-dragging.is-dropping-pages #drop-overlay {
+  display: none;
 }
 
 /* About dialog: the launch screen's red card, with its flight path and
