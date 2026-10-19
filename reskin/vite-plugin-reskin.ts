@@ -84,6 +84,50 @@ const VIEWER_PATCHES: ViewerPatch[] = [
     ],
   },
   {
+    // A font a PDF uses without embedding it is drawn with a fallback, and
+    // the viewer picked the fallback by script only: Times, Helvetica,
+    // Courier (PDF's built-in fonts), Arial, Calibri… all came out in one
+    // sans-serif face, letters squeezed or spread to the widths the PDF
+    // expects. Latin text now gets a font chosen by name, with the same
+    // widths (Liberation Serif/Sans/Mono, Carlito, Caladea: fontConfig.faces,
+    // set in src/acro/viewer.ts), and bold or italic by name too. Worker
+    // engine source: no quotes, backslashes or regular expressions.
+    name: 'font faces',
+    edits: [
+      [
+        'const result = this.findBestFontMatch(charset, weight, italic);',
+        'const result = this.pwFaceMatch(charset, pitchFamily, face, weight, italic) || this.findBestFontMatch(charset, weight, italic);',
+        1,
+      ],
+      [
+        '  findBestFontMatch(charset, requestedWeight, requestedItalic) {',
+        '  pwFaceMatch(charset, pitchFamily, face, weight, italic) {\\n' +
+          '    const faces = this.fontConfig.faces;\\n' +
+          '    if (!faces || (charset !== 0 && charset !== 1)) return null;\\n' +
+          '    let n = String(face || "").toLowerCase();\\n' +
+          '    if (n.indexOf("+") === 6) n = n.slice(7);\\n' +
+          '    for (const c of [" ", "-", ",", "_"]) n = n.split(c).join("");\\n' +
+          '    const has = (words) => words.some((w) => n.indexOf(w) >= 0);\\n' +
+          '    if (has(["bold", "black", "heavy", "semibold", "demi"])) weight = Math.max(weight, 700);\\n' +
+          '    if (has(["italic", "oblique"])) italic = true;\\n' +
+          '    let key = null;\\n' +
+          '    if (has(["calibri"])) key = "calibri";\\n' +
+          '    else if (has(["cambria"])) key = "cambria";\\n' +
+          '    else if (has(["courier", "consolas", "lucidaconsole", "monospace", "sansmono", "menlo", "monaco"])) key = "mono";\\n' +
+          '    else if (has(["sansserif", "arial", "helvetica", "verdana", "tahoma", "segoe", "trebuchet", "liberationsans", "arimo"])) key = "sans";\\n' +
+          '    else if (has(["times", "georgia", "garamond", "palatino", "bookantiqua", "century", "liberationserif", "tinos", "serif", "roman"])) key = "serif";\\n' +
+          '    else if (pitchFamily & 1) key = "mono";\\n' +
+          '    else if ((pitchFamily & 240) === 16) key = "serif";\\n' +
+          '    if (!key || !faces[key]) return null;\\n' +
+          '    const best = this.selectBestVariant(faces[key], weight, italic);\\n' +
+          '    return { url: best.url, matchedWeight: best.weight, matchedItalic: best.italic };\\n' +
+          '  }\\n' +
+          '  findBestFontMatch(charset, requestedWeight, requestedItalic) {',
+        1,
+      ],
+    ],
+  },
+  {
     // Some PDFs map their space character to a tab (wkhtmltopdf does). This
     // PDFium build keeps the tab, where browsers' viewers and PDF.js read a
     // space: copied text came out full of tabs, and a search for a phrase
@@ -136,14 +180,41 @@ const VIEWER_PATCHES: ViewerPatch[] = [
   },
 ];
 
-function patchViewer(code: string, id: string): string | null {
+/**
+ * Fixes for other dependencies, applied the same way (checked, or skipped
+ * with a warning).
+ */
+const SIGNER_PATCHES: ViewerPatch[] = [
+  {
+    // zgapdfsigner (timestamps, digital signatures) decides whether it runs
+    // in a browser with `this === globalThis.self` inside a plain function,
+    // which is never true once bundled into a module (`this` is undefined).
+    // Thinking it's elsewhere, it doesn't use fetch and refuses timestamp
+    // servers whose address isn't http(s), as through the desktop app's
+    // relay. In a page, `self` with a fetch is the browser.
+    name: 'signer browser check',
+    edits: [
+      [
+        'z.isBrowser = function(){return this === globalThis.self;}();',
+        'z.isBrowser = typeof globalThis.self !== "undefined" && typeof globalThis.self.fetch === "function";',
+        1,
+      ],
+    ],
+  },
+];
+
+function patchViewer(
+  code: string,
+  id: string,
+  patches: ViewerPatch[] = VIEWER_PATCHES
+): string | null {
   // PAPERWING_VIEWER_PATCHES=0 builds the viewer exactly as upstream ships it
   if (process.env.PAPERWING_VIEWER_PATCHES === '0') return null;
   let out = code;
   let applied = 0;
   // PAPERWING_VIEWER_SKIP="name,name" leaves out individual patches
   const skip = (process.env.PAPERWING_VIEWER_SKIP ?? '').split(',');
-  for (const patch of VIEWER_PATCHES) {
+  for (const patch of patches) {
     if (skip.includes(patch.name)) continue;
     const fits = patch.edits.every(
       ([from, , count]) => out.split(from).length - 1 === count
@@ -196,8 +267,14 @@ export function reskinPlugin(): Plugin {
     },
 
     transform(code, id) {
-      if (!id.replace(/\\/g, '/').includes('/bentopdf-viewer/dist/')) return;
-      const patched = patchViewer(code, id);
+      const file = id.replace(/\\/g, '/');
+      const patches = file.includes('/bentopdf-viewer/dist/')
+        ? VIEWER_PATCHES
+        : file.includes('/zgapdfsigner/lib/zgafetch.js')
+          ? SIGNER_PATCHES
+          : null;
+      if (!patches) return;
+      const patched = patchViewer(code, id, patches);
       return patched ? { code: patched, map: null } : undefined;
     },
 
