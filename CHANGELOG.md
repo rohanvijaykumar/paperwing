@@ -31,6 +31,9 @@ All notable changes to Paperwing are documented here. Paperwing follows
 - The PyMuPDF, Ghostscript and coherentpdf engines ship with the app: PDF to Word, PDF/A, Font
   to Outline, Rasterize and the other tools that use them no longer download anything from a
   CDN, and work offline (the installer grows accordingly)
+- Scan & OCR works offline in English: the Tesseract engine, the English data and the text-layer
+  font ship with the app. Other languages, and text-layer fonts for non-Latin scripts, download
+  once when first used (before, all of it came from a CDN)
 - Tools show only what makes sense inside Paperwing: no website sections, no second upload box
   or "remove file" for the open document, no duplicate Download, Print or Open buttons in the
   embedded viewers, and no main button before there's anything to do

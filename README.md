@@ -122,8 +122,9 @@ and you can [build it yourself](#build-from-source).
 
 **Does it work offline?**
 
-Yes. The only exception is the one-time download of the Office conversion engine, listed under
-[Privacy](#privacy). The other engines (PyMuPDF, Ghostscript, coherentpdf…) come with the app.
+Yes. The exceptions are the one-time downloads listed under [Privacy](#privacy): the Office
+conversion engine, and OCR in languages other than English. The other engines (PyMuPDF,
+Ghostscript, coherentpdf, Tesseract with English…) come with the app.
 
 ## Screenshots
 
@@ -172,6 +173,9 @@ The only network requests it makes are:
   installer to keep the download small, and it's checked against a SHA-256 hash before it's used;
 - **Timestamp** (and a digital signature with a timestamp) contacts the timestamp server you pick,
   sending only a hash of the document;
+- **OCR** in English works offline. Other languages download their Tesseract data (a few MB each)
+  from jsDelivr the first time you use them, and for non-Latin scripts the font for the text
+  layer comes from a CDN;
 - for text in fonts a document doesn't embed, a fallback font is used. The Latin one ships with
   Paperwing; for other scripts (Chinese, Japanese, Korean, Arabic, Hebrew) it's downloaded from a
   CDN the first time it's needed, as is the Latin font in the **Edit text** tool.

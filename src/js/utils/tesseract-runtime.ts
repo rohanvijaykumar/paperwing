@@ -13,6 +13,7 @@ const TESSERACT_ENV_KEYS = [
 const TESSERACT_RUNTIME_ENV_KEYS = [
   ...TESSERACT_ENV_KEYS,
   TESSERACT_AVAILABLE_LANGUAGES_ENV_KEY,
+  'VITE_TESSERACT_BUNDLED_LANGUAGES',
 ] as const;
 
 type TesseractRuntimeEnvKey = (typeof TESSERACT_RUNTIME_ENV_KEYS)[number];
@@ -35,16 +36,25 @@ function getDefaultTesseractAssetEnv(): TesseractAssetEnv {
   return import.meta.env;
 }
 
+// Paperwing: a path ("/engines/tesseract/core") is made absolute: the
+// worker, which loads the core and the languages, may run from a blob URL
+// that a path doesn't resolve against
+function absolute(url: string): string {
+  return url.startsWith('/') && typeof location !== 'undefined'
+    ? location.origin + url
+    : url;
+}
+
 function normalizeDirectoryUrl(url?: string): string | undefined {
   const trimmed = url?.trim();
   if (!trimmed) return undefined;
-  return trimmed.replace(/\/+$/, '');
+  return absolute(trimmed.replace(/\/+$/, ''));
 }
 
 function normalizeFileUrl(url?: string): string | undefined {
   const trimmed = url?.trim();
   if (!trimmed) return undefined;
-  return trimmed.replace(/\/+$/, '');
+  return absolute(trimmed.replace(/\/+$/, ''));
 }
 
 export function resolveTesseractAssetConfig(
@@ -90,7 +100,8 @@ export function getIncompleteTesseractOverrideKeys(
 
 export function buildTesseractWorkerOptions(
   logger?: TesseractWorkerOptions['logger'],
-  env: TesseractAssetEnv = getDefaultTesseractAssetEnv()
+  env: TesseractAssetEnv = getDefaultTesseractAssetEnv(),
+  language?: string
 ): TesseractWorkerOptions {
   const config = resolveTesseractAssetConfig(env);
 
@@ -105,11 +116,26 @@ export function buildTesseractWorkerOptions(
     );
   }
 
+  // Paperwing: when only some languages are self-hosted
+  // (VITE_TESSERACT_BUNDLED_LANGUAGES), a run that needs another one loads
+  // all its languages from Tesseract's default CDN instead
+  const bundled = env.VITE_TESSERACT_BUNDLED_LANGUAGES?.split(/[\s,+]+/)
+    .map((code) => code.trim())
+    .filter(Boolean);
+  const useLangPath =
+    !bundled?.length ||
+    !language ||
+    language
+      .split('+')
+      .map((code) => code.trim())
+      .filter(Boolean)
+      .every((code) => bundled.includes(code));
+
   return {
     ...(logger ? { logger } : {}),
     workerPath: config.workerPath,
     corePath: config.corePath,
-    langPath: config.langPath,
+    ...(useLangPath ? { langPath: config.langPath } : {}),
     gzip: true,
   };
 }
@@ -125,6 +151,6 @@ export async function createConfiguredTesseractWorker(
   return Tesseract.createWorker(
     language,
     oem,
-    buildTesseractWorkerOptions(logger, env)
+    buildTesseractWorkerOptions(logger, env, language)
   );
 }

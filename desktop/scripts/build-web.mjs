@@ -29,8 +29,9 @@ if (!existsSync(resolve(root, 'node_modules'))) {
 rmSync(dist, { recursive: true, force: true });
 
 // The PDF engines some tools load at run time (PyMuPDF, Ghostscript,
-// coherentpdf) ship with the app instead of coming from a CDN, so every
-// tool works offline. They're copied into dist/engines/ after the build;
+// coherentpdf, Tesseract) ship with the app instead of coming from a CDN, so
+// the tools work offline (OCR in languages other than English downloads
+// them once). They're copied into dist/engines/ after the build;
 // the tools find them through these (src/js/utils/wasm-provider.ts).
 const ENGINES = {
   pymupdf: {
@@ -50,6 +51,28 @@ const ENGINES = {
       ],
     ],
   },
+  // OCR: the worker, the LSTM builds of the core (the tools only use
+  // LSTM) and English. Other languages download once, on first use.
+  tesseract: {
+    url: '/engines/tesseract/',
+    copy: [
+      ['tesseract.js/dist/worker.min.js', 'worker.min.js'],
+      ...[
+        'tesseract-core-lstm',
+        'tesseract-core-simd-lstm',
+        'tesseract-core-relaxedsimd-lstm',
+      ].flatMap((core) =>
+        ['.wasm', '.wasm.js'].map((ext) => [
+          `tesseract.js-core/${core}${ext}`,
+          `core/${core}${ext}`,
+        ])
+      ),
+      [
+        '@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz',
+        'lang/eng.traineddata.gz',
+      ],
+    ],
+  },
 };
 
 const env = {
@@ -57,6 +80,13 @@ const env = {
   VITE_WASM_PYMUPDF_URL: ENGINES.pymupdf.url,
   VITE_WASM_GS_URL: ENGINES.gs.url,
   VITE_WASM_CPDF_URL: ENGINES.cpdf.url,
+  VITE_TESSERACT_WORKER_URL: `${ENGINES.tesseract.url}worker.min.js`,
+  VITE_TESSERACT_CORE_URL: `${ENGINES.tesseract.url}core`,
+  VITE_TESSERACT_LANG_URL: `${ENGINES.tesseract.url}lang`,
+  VITE_TESSERACT_BUNDLED_LANGUAGES: 'eng',
+  // The font for OCR's text layer on Latin text
+  VITE_OCR_BUNDLED_FONTS: 'Noto Sans',
+  VITE_OCR_BUNDLED_FONT_BASE_URL: '/engines/ocr-fonts',
   // Timestamp and certificate servers are reached through the desktop
   // app's relay (main.cjs). Absolute, so requests already relayed are
   // recognised as such.
@@ -118,7 +148,14 @@ for (const { url, copy } of Object.values(ENGINES)) {
     cpSync(src, resolve(dist, '.' + url, to), { recursive: true });
   }
 }
-console.log('Bundled the PyMuPDF, Ghostscript and coherentpdf engines');
+// OCR's text-layer font for Latin text: the Noto Sans the viewer ships
+cpSync(
+  resolve(root, 'src/acro/fonts/NotoSans-Regular.ttf'),
+  resolve(dist, 'engines/ocr-fonts/NotoSans-Regular.ttf')
+);
+console.log(
+  'Bundled the PyMuPDF, Ghostscript, coherentpdf and Tesseract (English) engines'
+);
 
 // Manifest of engine files downloaded on first use (see main.cjs)
 const here = dirname(fileURLToPath(import.meta.url));

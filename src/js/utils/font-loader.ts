@@ -10,7 +10,14 @@ const DB_NAME = 'bentopdf-fonts';
 const DB_VERSION = 1;
 const STORE_NAME = 'fonts';
 
-type OcrFontEnv = Partial<Pick<ImportMetaEnv, 'VITE_OCR_FONT_BASE_URL'>>;
+type OcrFontEnv = Partial<
+  Pick<
+    ImportMetaEnv,
+    | 'VITE_OCR_FONT_BASE_URL'
+    | 'VITE_OCR_BUNDLED_FONTS'
+    | 'VITE_OCR_BUNDLED_FONT_BASE_URL'
+  >
+>;
 
 function getDefaultFontEnv(): OcrFontEnv {
   return import.meta.env;
@@ -30,6 +37,15 @@ export function resolveFontUrl(
   fontFamily: string,
   env: OcrFontEnv = getDefaultFontEnv()
 ): string {
+  // Paperwing: some families ship with the app (VITE_OCR_BUNDLED_FONTS,
+  // e.g. "Noto Sans" for Latin text); the others still come from the usual
+  // source the first time they're needed
+  const bundledBase = normalizeFontBaseUrl(env.VITE_OCR_BUNDLED_FONT_BASE_URL);
+  const bundled = env.VITE_OCR_BUNDLED_FONTS?.split(',').map((f) => f.trim());
+  if (bundledBase && bundled?.includes(fontFamily)) {
+    return `${bundledBase}/${getFontAssetFileName(fontFamily)}`;
+  }
+
   const fontBaseUrl = normalizeFontBaseUrl(env.VITE_OCR_FONT_BASE_URL);
 
   if (fontBaseUrl) {

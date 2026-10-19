@@ -21,8 +21,9 @@ tool offline.
 
 ### Better
 
-- **Advanced tools work offline.** The engines for PDF to Word, PDF/A, Font to Outline and the
-  other advanced tools now come with the app instead of downloading on first use.
+- **Advanced tools work offline.** The engines for PDF to Word, PDF/A, Font to Outline, OCR (in
+  English) and the other advanced tools now come with the app instead of downloading on first
+  use.
 - **Cleaner tools.** No more duplicate Download buttons, second upload boxes or leftover website
   text: each tool shows just what it needs.
 - **Crisper icon** in the Windows taskbar, the same size as other apps'.

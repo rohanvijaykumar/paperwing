@@ -34,23 +34,24 @@ If you find Paperwing useful, please consider
 Paperwing includes or loads the following projects (via BentoPDF unless noted).
 Each remains under its own license.
 
-| Component                                                                                     | Purpose                                         | License                                              |
-| --------------------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------- |
-| [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer)                                      | Document viewer & annotations                   | MIT                                                  |
-| [PDFium](https://pdfium.googlesource.com/pdfium/)                                             | PDF rendering & editing core (WebAssembly)      | BSD-3-Clause / Apache-2.0                            |
-| [pdf-lib](https://pdf-lib.js.org/)                                                            | PDF manipulation                                | MIT                                                  |
-| [PDF.js](https://mozilla.github.io/pdf.js/)                                                   | PDF rendering                                   | Apache-2.0                                           |
-| [PDFKit](https://pdfkit.org/)                                                                 | PDF generation                                  | MIT                                                  |
-| [qpdf](https://github.com/qpdf/qpdf) / [qpdf-wasm](https://github.com/neslinesli93/qpdf-wasm) | Repair, encryption, linearisation               | Apache-2.0                                           |
-| [LibreOffice](https://www.libreoffice.org/) (WebAssembly build)                               | Office document conversion                      | MPL-2.0                                              |
-| [wasm-vips](https://github.com/kleisauke/wasm-vips)                                           | Image encoding                                  | MIT / LGPL-2.1 (libvips)                             |
-| [CoherentPDF (cpdf)](https://www.coherentpdf.com/)                                            | Content-preserving operations (bundled)         | AGPL-3.0                                             |
-| [PyMuPDF](https://github.com/pymupdf/PyMuPDF)                                                 | Extraction & conversion (bundled, with Pyodide) | AGPL-3.0                                             |
-| [Ghostscript](https://github.com/ArtifexSoftware/ghostpdl)                                    | PDF/A & font outlining (bundled)                | AGPL-3.0                                             |
-| [Electron](https://www.electronjs.org/)                                                       | Desktop runtime (Paperwing)                     | MIT                                                  |
-| [Lucide](https://lucide.dev/)                                                                 | Interface icons                                 | ISC                                                  |
-| [Phosphor Icons](https://phosphoricons.com/)                                                  | Tool icons                                      | MIT                                                  |
-| [Source Sans 3](https://github.com/adobe-fonts/source-sans)                                   | Interface typeface (Paperwing)                  | SIL OFL 1.1 — see `src/reskin/fonts/OFL-LICENSE.txt` |
+| Component                                                                                                        | Purpose                                         | License                                              |
+| ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------- |
+| [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer)                                                         | Document viewer & annotations                   | MIT                                                  |
+| [PDFium](https://pdfium.googlesource.com/pdfium/)                                                                | PDF rendering & editing core (WebAssembly)      | BSD-3-Clause / Apache-2.0                            |
+| [pdf-lib](https://pdf-lib.js.org/)                                                                               | PDF manipulation                                | MIT                                                  |
+| [PDF.js](https://mozilla.github.io/pdf.js/)                                                                      | PDF rendering                                   | Apache-2.0                                           |
+| [PDFKit](https://pdfkit.org/)                                                                                    | PDF generation                                  | MIT                                                  |
+| [qpdf](https://github.com/qpdf/qpdf) / [qpdf-wasm](https://github.com/neslinesli93/qpdf-wasm)                    | Repair, encryption, linearisation               | Apache-2.0                                           |
+| [LibreOffice](https://www.libreoffice.org/) (WebAssembly build)                                                  | Office document conversion                      | MPL-2.0                                              |
+| [wasm-vips](https://github.com/kleisauke/wasm-vips)                                                              | Image encoding                                  | MIT / LGPL-2.1 (libvips)                             |
+| [CoherentPDF (cpdf)](https://www.coherentpdf.com/)                                                               | Content-preserving operations (bundled)         | AGPL-3.0                                             |
+| [PyMuPDF](https://github.com/pymupdf/PyMuPDF)                                                                    | Extraction & conversion (bundled, with Pyodide) | AGPL-3.0                                             |
+| [Ghostscript](https://github.com/ArtifexSoftware/ghostpdl)                                                       | PDF/A & font outlining (bundled)                | AGPL-3.0                                             |
+| [Tesseract](https://github.com/tesseract-ocr/tesseract) / [tesseract.js](https://github.com/naptha/tesseract.js) | OCR (bundled, with the English language data)   | Apache-2.0                                           |
+| [Electron](https://www.electronjs.org/)                                                                          | Desktop runtime (Paperwing)                     | MIT                                                  |
+| [Lucide](https://lucide.dev/)                                                                                    | Interface icons                                 | ISC                                                  |
+| [Phosphor Icons](https://phosphoricons.com/)                                                                     | Tool icons                                      | MIT                                                  |
+| [Source Sans 3](https://github.com/adobe-fonts/source-sans)                                                      | Interface typeface (Paperwing)                  | SIL OFL 1.1 — see `src/reskin/fonts/OFL-LICENSE.txt` |
 
 The complete dependency list is in [`package.json`](package.json) and
 [`desktop/package.json`](desktop/package.json).

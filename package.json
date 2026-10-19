@@ -45,6 +45,7 @@
     "@bentopdf/gs-wasm": "0.1.1",
     "@bentopdf/pymupdf-wasm": "0.11.16",
     "@eslint/js": "^10.0.1",
+    "@tesseract.js-data/eng": "1.0.0",
     "@testing-library/dom": "^10.4.1",
     "@types/blob-stream": "^0.1.33",
     "@types/html2canvas": "^1.0.0",

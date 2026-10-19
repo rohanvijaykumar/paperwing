@@ -109,7 +109,9 @@ icon grid, with its margin and shadow). Run it again after changing the SVG.
   `PAPERWING_ENGINE_BASE=http://localhost:<port>`.
 - **The other engines are bundled.** PyMuPDF, Ghostscript and coherentpdf (from the
   `@bentopdf/pymupdf-wasm`, `@bentopdf/gs-wasm` and `coherentpdf` packages) are copied into
-  `dist/engines/` by `build-web.mjs`, so the tools that use them work offline.
+  `dist/engines/` by `build-web.mjs`, so the tools that use them work offline. So is OCR: the
+  Tesseract worker, its LSTM cores, the English data (`@tesseract.js-data/eng`) and Noto Sans for
+  the text layer. Other OCR languages download once, from jsDelivr, when first used.
 - **Pre-compressed `.br`/`.gz` copies** that Vite emits for web servers are deleted after the build.
 - **Chromium trimming:** English locales only (`electronLanguages`), maximum compression, and
   `scripts/after-pack.cjs` removes the DirectX shader compiler DLLs used only by WebGPU.
