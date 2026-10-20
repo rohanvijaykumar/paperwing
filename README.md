@@ -4,7 +4,7 @@
 
 # Paperwing
 
-**The free, open-source alternative to Adobe Acrobat for Windows and macOS.**
+**The free, open-source desktop alternative to Adobe Acrobat for Windows and macOS.**
 
 Edit, sign, convert, organize, compress and protect PDFs in a familiar desktop workspace —
 offline, with no account, no subscription and no upsells.
@@ -49,6 +49,9 @@ monthly bill. Every feature is free, and your files never leave your computer.
 ¹ A few tools fetch their engine once on first use; see [Privacy](#privacy).
 
 > Paperwing is an independent project and is not affiliated with or endorsed by Adobe.
+> It is a desktop app, distributed only through [paperwingapp.com](https://paperwingapp.com) and this
+> repository's [Releases](https://github.com/rohanvijaykumar/paperwing/releases). It isn't connected to
+> PaperWingPDF (paperwingpdf.com), a separate set of browser-based PDF tools.
 > See [Trademarks](#trademarks).
 
 ## Features
@@ -105,6 +108,11 @@ Paperwing isn't code-signed yet, so Windows SmartScreen and macOS Gatekeeper wil
 you open it. See **[Installation](docs/INSTALL.md)** for the one-time steps.
 
 ## FAQ
+
+**Is Paperwing the same as PaperWingPDF?**
+
+No. Paperwing is this desktop app for Windows and macOS. PaperWingPDF (paperwingpdf.com) is a
+separate set of browser-based PDF tools by a different developer; the two projects aren't connected.
 
 **Do I need to install LibreOffice for Word, Excel and PowerPoint conversions?**
 
