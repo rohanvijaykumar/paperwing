@@ -1075,6 +1075,10 @@ function buildMenu() {
         submenu: [
           item('Keyboard Shortcuts', undefined, 'shortcuts'),
           {
+            label: 'Paperwing Website',
+            click: () => shell.openExternal(pkg.homepage),
+          },
+          {
             label: 'Paperwing on GitHub',
             click: () =>
               shell.openExternal(

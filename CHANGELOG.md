@@ -6,6 +6,11 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+### Added
+
+- Paperwing has a website: [paperwingapp.com](https://paperwingapp.com). **Help ▸ Paperwing website**
+  and the About box link to it.
+
 ## [1.2.1] — 2026-10-19
 
 ### BentoPDF 2.8.10

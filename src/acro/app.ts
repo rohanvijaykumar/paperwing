@@ -78,6 +78,7 @@ import {
 } from './recent';
 
 const REPO_URL = `https://github.com/${__PAPERWING_REPO__}`;
+const WEBSITE_URL = 'https://paperwingapp.com';
 
 /* ------------------------------------------------------------------ */
 /* DOM helpers                                                         */
@@ -3383,6 +3384,10 @@ $('#help-btn').addEventListener('click', (e) => {
       onClick: () => openPalette(),
     },
     {
+      label: 'Paperwing website',
+      onClick: () => window.open(WEBSITE_URL, '_blank', 'noopener'),
+    },
+    {
       label: 'Paperwing on GitHub',
       onClick: () => window.open(REPO_URL, '_blank', 'noopener'),
     },
@@ -3508,7 +3513,8 @@ function showAbout() {
       h(
         'p',
         { class: 'about-legal' },
-        'Licensed under the GNU AGPL-3.0. ',
+        link(WEBSITE_URL, 'paperwingapp.com'),
+        ' · Licensed under the GNU AGPL-3.0. ',
         link(REPO_URL, 'Source code'),
         ' · ',
         link(`${REPO_URL}/blob/main/NOTICE.md`, 'Third-party notices')

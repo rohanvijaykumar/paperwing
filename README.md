@@ -9,8 +9,9 @@
 Edit, sign, convert, organize, compress and protect PDFs in a familiar desktop workspace —
 offline, with no account, no subscription and no upsells.
 
-Built by [Rohan Vijaykumar](https://rohanvijaykumar.cv)
+**[paperwingapp.com](https://paperwingapp.com)** · Built by [Rohan Vijaykumar](https://rohanvijaykumar.cv)
 
+[![Website](https://img.shields.io/badge/website-paperwingapp.com-D7193A)](https://paperwingapp.com)
 [![Latest release](https://img.shields.io/github/v/release/rohanvijaykumar/paperwing?label=download&color=D7193A)](https://github.com/rohanvijaykumar/paperwing/releases/latest)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-555)](#download)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
@@ -90,7 +91,8 @@ monthly bill. Every feature is free, and your files never leave your computer.
 
 ## Download
 
-Get the latest version from the **[Releases page](https://github.com/rohanvijaykumar/paperwing/releases/latest)**.
+Download it from **[paperwingapp.com](https://paperwingapp.com/#download)**, which picks the right file for
+your computer, or from the **[Releases page](https://github.com/rohanvijaykumar/paperwing/releases/latest)**.
 
 | Platform                  | File                                       | Notes                                                               |
 | ------------------------- | ------------------------------------------ | ------------------------------------------------------------------- |

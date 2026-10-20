@@ -1,7 +1,8 @@
 # Installing Paperwing
 
-Download the file for your computer from the
-**[latest release](https://github.com/rohanvijaykumar/paperwing/releases/latest)**.
+Download Paperwing from **[paperwingapp.com](https://paperwingapp.com/#download)**, which picks the
+right file for your computer, or from the
+**[latest release](https://github.com/rohanvijaykumar/paperwing/releases/latest)** on GitHub.
 
 - [Windows](#windows)
 - [macOS](#macos)

@@ -9,7 +9,8 @@ the app tells you when a new release is available.
 
 Please **do not open a public issue** for security problems. Instead, report them privately through
 GitHub: go to the repository's **Security** tab and choose
-**[Report a vulnerability](https://github.com/rohanvijaykumar/paperwing/security/advisories/new)**.
+**[Report a vulnerability](https://github.com/rohanvijaykumar/paperwing/security/advisories/new)**,
+or email [security@paperwingapp.com](mailto:security@paperwingapp.com).
 
 Include a description of the issue, steps to reproduce (a sample PDF if relevant), the Paperwing
 version and your operating system. You can expect an acknowledgement within a few days.

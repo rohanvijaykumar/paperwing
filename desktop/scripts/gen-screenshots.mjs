@@ -9,8 +9,14 @@
  *   cd desktop && PAPERWING_URL=http://localhost:4173 npm run docs:screenshots [name…]
  *
  * Set CHROME_PATH if Chrome isn't found.
+ *
+ * For the website: SHOTS_RAW_DIR=<dir> saves each scene's bare workspace
+ * (2160×1350, no window or backdrop) as <dir>/<name>-<theme>.png instead of
+ * the README images, and SHOTS_THEME=light|dark renders every scene in that
+ * theme.
+ * SHOTS_SCALE sets the device pixel ratio (default 1.5).
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
@@ -25,13 +31,16 @@ const BASE = (process.env.PAPERWING_URL || 'http://localhost:4173').replace(
 // The app at 1440×900, drawn at 1.5× into a 2160×1350 window
 const W = 1440;
 const H = 900;
-const SCALE = 1.5;
+const SCALE = Number(process.env.SHOTS_SCALE) || 1.5;
 const docs = {
   report: 'Halcyon Annual Report 2026.pdf',
   contract: 'Service Agreement - Northbeam.pdf',
   invoice: 'Invoice INV-2048.pdf',
 };
 const only = new Set(process.argv.slice(2));
+const RAW_DIR = process.env.SHOTS_RAW_DIR;
+const THEME = process.env.SHOTS_THEME;
+if (RAW_DIR) mkdirSync(RAW_DIR, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function findChrome() {
@@ -56,6 +65,7 @@ const browser = await puppeteer.launch({
 
 /** A fresh workspace (its own storage) at 10:42 today, as the desktop app on macOS */
 async function newApp(theme = 'light') {
+  theme = THEME || theme;
   const context = await browser.createBrowserContext();
   const p = await context.newPage();
   await p.setViewport({ width: W, height: H, deviceScaleFactor: SCALE });
@@ -304,7 +314,16 @@ async function capture(p) {
 
 /** Frames the workspace as a window and saves docs/screenshots/<name>.png */
 async function shot(p, name, theme = 'light') {
+  theme = THEME || theme;
   const png = await capture(p);
+  if (RAW_DIR) {
+    writeFileSync(
+      join(RAW_DIR, `${name}-${theme}.png`),
+      Buffer.from(png, 'base64')
+    );
+    console.log('saved', join(RAW_DIR, `${name}-${theme}.png`));
+    return null;
+  }
   await render(
     name,
     2400,
@@ -317,6 +336,7 @@ async function shot(p, name, theme = 'light') {
 
 /** The repository's social image (1280×640): name and tagline beside the window */
 async function socialPreview(png) {
+  if (!png) return;
   const data = (file) => readFileSync(file).toString('base64');
   const font = (
     weight
