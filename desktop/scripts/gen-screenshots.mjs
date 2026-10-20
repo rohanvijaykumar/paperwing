@@ -14,11 +14,12 @@
  * (2160×1350, no window or backdrop) as <dir>/<name>-<theme>.png instead of
  * the README images, and SHOTS_THEME=light|dark renders every scene in that
  * theme.
- * SHOTS_SCALE sets the device pixel ratio (default 1.5).
+ * SHOTS_SCALE sets the device pixel ratio (default 1.5). SHOTS_DOM=<module> hands each
+ * finished scene to that module's capture(page, name, theme) instead of saving an image.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer-core';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -315,6 +316,16 @@ async function capture(p) {
 /** Frames the workspace as a window and saves docs/screenshots/<name>.png */
 async function shot(p, name, theme = 'light') {
   theme = THEME || theme;
+  if (process.env.SHOTS_DOM) {
+    // The website rebuilds the scene from its markup (see that repo's scripts/screens)
+    const { capture: dom } = await import(
+      pathToFileURL(process.env.SHOTS_DOM).href
+    );
+    await p.mouse.move(W - 2, H - 2);
+    await sleep(300);
+    await dom(p, name, theme);
+    return null;
+  }
   const png = await capture(p);
   if (RAW_DIR) {
     writeFileSync(
