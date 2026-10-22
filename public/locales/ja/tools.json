@@ -862,7 +862,7 @@
     "subtitle": "Markdownを記述または貼り付けて、見栄えの良いPDFとしてエクスポートします。",
     "paneMarkdown": "マークダウン",
     "panePreview": "プレビュー",
-    "btnUpload": "アップロード",
+    "btnUpload": "選択",
     "btnSyncScroll": "同期スクロール",
     "btnSettings": "設定",
     "btnExportPdf": "PDFをエクスポート",

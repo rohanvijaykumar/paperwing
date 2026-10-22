@@ -862,7 +862,7 @@
     "subtitle": "Escribe o pega Markdown y expórtalo como un PDF bellamente formateado.",
     "paneMarkdown": "Markdown",
     "panePreview": "Vista Previa",
-    "btnUpload": "Cargar",
+    "btnUpload": "Seleccionar",
     "btnSyncScroll": "Sincronizar Desplazamiento",
     "btnSettings": "Configuración",
     "btnExportPdf": "Exportar PDF",

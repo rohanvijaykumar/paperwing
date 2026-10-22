@@ -862,7 +862,7 @@
     "subtitle": "Markdown을 작성하거나 붙여넣고 깔끔하게 서식이 적용된 PDF로 내보냅니다.",
     "paneMarkdown": "Markdown",
     "panePreview": "미리보기",
-    "btnUpload": "업로드",
+    "btnUpload": "선택",
     "btnSyncScroll": "스크롤 동기화",
     "btnSettings": "설정",
     "btnExportPdf": "PDF 내보내기",

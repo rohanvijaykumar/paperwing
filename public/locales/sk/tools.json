@@ -862,7 +862,7 @@
     "subtitle": "Napíšte alebo vložte Markdown a exportujte ho ako krásne naformátované PDF.",
     "paneMarkdown": "Markdown",
     "panePreview": "Náhľad",
-    "btnUpload": "Nahrať",
+    "btnUpload": "Vybrať",
     "btnSyncScroll": "Synchrónne posúvanie",
     "btnSettings": "Nastavenia",
     "btnExportPdf": "Exportovať PDF",

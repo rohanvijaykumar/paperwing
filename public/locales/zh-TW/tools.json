@@ -862,7 +862,7 @@
     "subtitle": "編寫或貼上 Markdown 並匯出為精美格式的 PDF。",
     "paneMarkdown": "Markdown",
     "panePreview": "預覽",
-    "btnUpload": "上傳",
+    "btnUpload": "選擇",
     "btnSyncScroll": "同步捲動",
     "btnSettings": "設定",
     "btnExportPdf": "匯出 PDF",

@@ -75,6 +75,9 @@ export interface MarkdownEditorOptions {
 
 export type { MarkdownItOptions } from '@/types';
 
+const MIN_TABLE_ZOOM = 0.6;
+const TABLE_BREAK_CLASS = 'md-table-break-anywhere';
+
 const DEFAULT_MARKDOWN = `# Welcome to BentoPDF Markdown Editor
 
 This is a **live preview** markdown editor with full plugin support.
@@ -342,7 +345,7 @@ export class MarkdownEditor {
               <input type="file" accept=".md,.markdown,.txt" id="mdFileInput" style="display: none;" />
               <button class="md-editor-btn md-editor-btn-secondary" id="mdUpload">
                 <i data-lucide="upload"></i>
-                <span data-i18n="tools:markdownToPdf.btnUpload">Upload</span>
+                <span data-i18n="tools:markdownToPdf.btnUpload">Select</span>
               </button>
               <div class="theme-toggle">
                 <i data-lucide="moon" width="16" height="16"></i>
@@ -438,6 +441,13 @@ export class MarkdownEditor {
     this.editor?.addEventListener('input', () => {
       this.updatePreview();
     });
+
+    window
+      .matchMedia('print')
+      .addEventListener('change', (event) =>
+        this.fitTablesToPage(event.matches)
+      );
+    window.addEventListener('afterprint', () => this.fitTablesToPage(false));
 
     // Sync scroll
     const syncScrollBtn = document.getElementById('mdSyncScroll');
@@ -755,6 +765,26 @@ export class MarkdownEditor {
     return DOMPurify.sanitize(this.md.render(this.getContent()), {
       ADD_ATTR: ['target'],
     });
+  }
+
+  private fitTablesToPage(printing: boolean): void {
+    if (!this.preview) return;
+    const available = this.preview.clientWidth;
+    for (const table of this.preview.querySelectorAll('table')) {
+      table.style.zoom = '';
+      table.classList.remove(TABLE_BREAK_CLASS);
+      if (!printing || table.scrollWidth <= available) continue;
+      if (available / table.scrollWidth < MIN_TABLE_ZOOM) {
+        table.classList.add(TABLE_BREAK_CLASS);
+      }
+      let zoom = 1;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const width = table.getBoundingClientRect().width;
+        if (width <= available) break;
+        zoom = Math.floor(((zoom * available) / width) * 100) / 100;
+        table.style.zoom = String(zoom);
+      }
+    }
   }
 
   private exportPdf(): void {

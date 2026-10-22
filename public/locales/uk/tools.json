@@ -862,7 +862,7 @@
     "subtitle": "Напишіть або вставте Markdown і експортуйте його у красиво оформлений PDF.",
     "paneMarkdown": "Markdown",
     "panePreview": "Попередній перегляд",
-    "btnUpload": "Завантажити",
+    "btnUpload": "Вибрати",
     "btnSyncScroll": "Синхронізувати прокрутку",
     "btnSettings": "Налаштування",
     "btnExportPdf": "Експортувати у PDF",

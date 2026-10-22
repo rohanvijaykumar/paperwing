@@ -877,7 +877,7 @@
     "subtitle": "Écrire ou coller du Markdown et l’exporter en PDF avec une mise en forme soignée.",
     "paneMarkdown": "Markdown",
     "panePreview": "Aperçu",
-    "btnUpload": "Téléverser",
+    "btnUpload": "Sélectionner",
     "btnSyncScroll": "Synchroniser le défilement",
     "btnSettings": "Paramètres",
     "btnExportPdf": "Exporter en PDF",
