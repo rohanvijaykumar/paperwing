@@ -520,6 +520,9 @@ interface Tab {
   pageSel?: Set<number>;
   /** Where a Shift+click range starts */
   pageAnchor?: number;
+  /** Fingerprint of the file on disk as this tab last read or wrote it.
+   *  Opening the file again compares it with the file now (refreshIfChanged) */
+  diskHash?: Promise<string | undefined>;
 }
 
 const isDirty = (t: Tab) => t.version !== t.savedVersion;
@@ -837,6 +840,7 @@ async function openDocument(
   const existing = await findOpenTab(source, into);
   if (existing) {
     activate(existing.id);
+    await refreshIfChanged(existing, file);
     return existing;
   }
   let tab: Tab;
@@ -872,6 +876,8 @@ async function openDocument(
   }
   // Closed while it was loading
   if (!tabs.includes(tab)) return undefined;
+  if (!unsaved && (source.path || source.handle))
+    tab.diskHash = fingerprint(file);
   tab.loading = false;
   tab.page = viewer.pageInfo(id) ?? tab.page;
   if (activeId === id) renderDocChrome(tab);
@@ -895,6 +901,91 @@ async function openDocument(
     renderTabs();
   }
   return tab;
+}
+
+/** SHA-256 of a file's contents; undefined if it can't be read */
+async function fingerprint(
+  data: Blob | Uint8Array<ArrayBuffer>
+): Promise<string | undefined> {
+  try {
+    const bytes = data instanceof Blob ? await data.arrayBuffer() : data;
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+    return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A file that's already open was opened again (from Explorer or Finder, Open
+ * or Recent). If it changed on disk since this tab read or saved it (another
+ * app saved it again, like a resume regenerated under the same name), show
+ * the new version: straight away if nothing here is unsaved, else after asking.
+ */
+async function refreshIfChanged(tab: Tab, file: File) {
+  // A restored tab reads the file when it's first shown; a loading one is
+  // reading it now
+  if (tab.pending || tab.loading || tab.pageBusy || !tab.diskHash) return;
+  const [was, now] = await Promise.all([tab.diskHash, fingerprint(file)]);
+  if (!was || !now || was === now || !tabs.includes(tab)) return;
+
+  if (isDirty(tab) || tab.fullTool?.dirty) {
+    if (activeId !== tab.id) activate(tab.id);
+    const reload = await askDialog(
+      `${tab.name} has changed`,
+      'The file was changed on disk since you opened it here. Load the new version? Your unsaved changes in Paperwing will be lost.',
+      [
+        { label: 'Keep my version', value: false, kind: 'secondary' },
+        { label: 'Load new version', value: true, kind: 'primary' },
+      ],
+      false
+    );
+    if (!reload || !tabs.includes(tab) || tab.pageBusy) return;
+  }
+
+  const panel = viewer.activePanel(tab.id);
+  const zoom = viewer.zoom(tab.id) ?? 1;
+  const panelTool = tab.panelTool?.tool;
+  const fullTool = tab.fullTool?.tool;
+  tab.pageBusy = true;
+  try {
+    await viewer.replace(tab.id, await file.arrayBuffer(), {
+      page: tab.page.current || 1,
+      zoom,
+    });
+  } catch (err) {
+    console.error(err);
+    toast(`Couldn't load the new version of ${tab.name}`);
+    return;
+  } finally {
+    tab.pageBusy = false;
+  }
+  if (!tabs.includes(tab)) return;
+  if (panel) viewer.toggleSidebar(tab.id, panel.id, panel.tab);
+  tab.diskHash = Promise.resolve(now);
+  tab.page = viewer.pageInfo(tab.id) ?? tab.page;
+  // What's shown is what's on disk: nothing to save, nothing to undo
+  tab.savedVersion = tab.version;
+  tab.pageUndo = [];
+  tab.pageRedo = [];
+  setPageSelection(tab, null);
+  cancelRecoveryCopy(tab);
+  if (tab.recoveryId) {
+    void desktop?.recovery?.delete(tab.recoveryId);
+    tab.recoveryId = undefined;
+  }
+  if (tab.recentId) void thumbs.invalidate(tab.recentId);
+  renderTabs();
+  if (activeId === tab.id) renderDocChrome(tab);
+  toast(`Loaded the latest version of ${tab.name}`);
+  // Tools took a copy of the old version when they opened: reopen them on
+  // the new one
+  if (fullTool) {
+    disposeFrameTool(tab.fullTool);
+    tab.fullTool = undefined;
+  }
+  if (panelTool) await openToolOnDoc(tab, panelTool);
+  if (fullTool) await openToolOnDoc(tab, fullTool);
 }
 
 /** Where a file was left last time, if that's wanted */
@@ -2850,13 +2941,16 @@ async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
 
   if (desktop && !tab.handle) {
     const bytes = new Uint8Array(await blob.arrayBuffer());
+    const hash = fingerprint(bytes);
     try {
       if (!saveAs && tab.path && (await desktop.writeFile(tab.path, bytes))) {
+        tab.diskHash = hash;
         return done(tab.name);
       }
       const saved = await desktop.saveAs(tab.name, bytes);
       if (!saved) return false;
       tab.path = saved.path;
+      tab.diskHash = hash;
       tab.recentId =
         (await rememberFile(new File([blob], saved.name), {
           path: saved.path,
@@ -2889,6 +2983,7 @@ async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
       await w.write(blob);
       await w.close();
       tab.handle = handle;
+      tab.diskHash = fingerprint(blob);
       return done(handle.name);
     }
   } catch (e) {

@@ -11,6 +11,14 @@ All notable changes to Paperwing are documented here. Paperwing follows
 - Paperwing has a website: [paperwingapp.com](https://paperwingapp.com). **Help ▸ Paperwing website**
   and the About box link to it.
 
+### Fixed
+
+- Opening a PDF that's already open in a tab, after another app saved a new version of it (a resume
+  regenerated under the same name, say), showed the old version until Paperwing was restarted. Paperwing
+  now compares the file on disk with what the tab shows: it loads the new version in place, keeping the
+  page and zoom, and asks first if the tab has unsaved changes. Opening an unchanged file still just
+  switches to its tab.
+
 ## [1.2.1] — 2026-10-19
 
 ### BentoPDF 2.8.10
