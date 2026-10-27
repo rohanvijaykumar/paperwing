@@ -81,8 +81,11 @@ export async function launch({
     for (const line of String(buf).split(/\r?\n/)) {
       const m = /\[paperwing\]\s+(\d+) ms\s+(.+)$/.exec(line);
       if (!m) continue;
-      marks[m[2].trim()] ??= Number(m[1]);
-      if (m[2].trim() === waitFor) resolveSeen();
+      const mark = m[2].trim();
+      marks[mark] ??= Number(m[1]);
+      // A slow first start (a fresh build) is shown by main.cjs's safety net:
+      // "main window shown (timeout)"
+      if (mark === waitFor || mark.startsWith(`${waitFor} (`)) resolveSeen();
     }
   });
   child.stderr.on('data', () => {});

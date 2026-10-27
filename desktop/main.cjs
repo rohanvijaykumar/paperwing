@@ -14,6 +14,7 @@ const {
   nativeTheme,
   net,
   protocol,
+  screen,
   session,
   shell,
 } = require('electron');
@@ -482,7 +483,9 @@ let windowPainted = false;
 function revealMainWindow() {
   if (!mainWindow || mainWindow.isVisible()) return;
   if (!windowPainted || !rendererReady) return;
-  mainWindow.show();
+  // Maximized last time: maximizing shows it, already filling the screen
+  if (startMaximized) mainWindow.maximize();
+  else mainWindow.show();
   mainWindow.focus();
   trace('main window shown');
 }
@@ -507,10 +510,96 @@ nativeTheme.on('updated', () => {
   }
 });
 
+/* Window size and place, remembered between runs ------------------- */
+
+const windowStateFile = () =>
+  path.join(app.getPath('userData'), 'window-state.json');
+/** Set from the saved state; revealMainWindow maximizes instead of showing */
+let startMaximized = false;
+
+/** Where the window was last time, if that's still on a connected screen */
+function savedWindowState() {
+  try {
+    const s = JSON.parse(fs.readFileSync(windowStateFile(), 'utf8'));
+    const { x, y, width, height } = s.bounds ?? {};
+    if (![x, y, width, height].every(Number.isFinite)) return null;
+    // Enough of its top edge on some screen to grab it (screens change:
+    // a laptop away from its monitor)
+    const reachable = screen.getAllDisplays().some(({ workArea: a }) => {
+      const left = Math.max(x, a.x);
+      const right = Math.min(x + width, a.x + a.width);
+      return right - left >= 120 && y >= a.y - 8 && y + 40 <= a.y + a.height;
+    });
+    if (!reachable) return null;
+    return {
+      bounds: {
+        x: Math.round(x),
+        y: Math.round(y),
+        width: Math.max(Math.round(width), 960),
+        height: Math.max(Math.round(height), 620),
+      },
+      maximized: !!s.maximized,
+    };
+  } catch {
+    return null; // first run, or an unreadable file
+  }
+}
+
+/** Saves the window's place after it moves or resizes, and when it closes */
+function rememberWindowState(win) {
+  let timer = null;
+  let maximized = win.isMaximized();
+  const save = () => {
+    clearTimeout(timer);
+    if (win.isDestroyed()) return;
+    // Minimized says nothing about how it should come back
+    if (!win.isMinimized()) maximized = win.isMaximized() || win.isFullScreen();
+    try {
+      fs.writeFileSync(
+        windowStateFile(),
+        JSON.stringify({ bounds: win.getNormalBounds(), maximized })
+      );
+    } catch {
+      /* read-only profile: start at the default size next time */
+    }
+  };
+  const later = () => {
+    clearTimeout(timer);
+    timer = setTimeout(save, 500);
+  };
+  for (const event of [
+    'resize',
+    'move',
+    'maximize',
+    'unmaximize',
+    'enter-full-screen',
+    'leave-full-screen',
+  ])
+    win.on(event, later);
+  win.on('close', save);
+}
+
+/** Windows at fractional scaling (125%) sizes a hidden-title-bar window a
+ *  few pixels larger than asked, so the window grew a little on every
+ *  restart: take the difference off */
+function placeWindow(win, bounds) {
+  win.setBounds(bounds);
+  const got = win.getBounds();
+  const dw = got.width - bounds.width;
+  const dh = got.height - bounds.height;
+  if (dw || dh)
+    win.setBounds({
+      ...bounds,
+      width: bounds.width - dw,
+      height: bounds.height - dh,
+    });
+}
+
 function createWindow() {
+  const saved = savedWindowState();
+  startMaximized = !!saved?.maximized;
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    ...(saved ? saved.bounds : { width: 1400, height: 900 }),
     minWidth: 960,
     minHeight: 620,
     // Hidden until the first screen is drawn (see revealMainWindow)
@@ -542,6 +631,8 @@ function createWindow() {
     },
   });
 
+  if (saved) placeWindow(mainWindow, saved.bounds);
+  rememberWindowState(mainWindow);
   // Let the app ask about unsaved documents before the window closes
   mainWindow.on('close', (e) => {
     if (allowClose || !rendererReady) return;
@@ -549,6 +640,7 @@ function createWindow() {
     mainWindow.webContents.send('paperwing:close-requested');
   });
   mainWindow.on('closed', () => {
+    watchFiles([]);
     mainWindow = null;
     rendererReady = false;
     allowClose = false;
@@ -591,7 +683,8 @@ function createWindow() {
   const win = mainWindow;
   setTimeout(() => {
     if (win.isDestroyed() || win.isVisible()) return;
-    win.show();
+    if (startMaximized) win.maximize();
+    else win.show();
     trace('main window shown (timeout)');
   }, 6000);
 }
@@ -747,6 +840,90 @@ ipcMain.handle('paperwing:clear-recent-documents', (e) => {
 ipcMain.handle('paperwing:show-in-folder', (e, filePath) => {
   if (!senderIsApp(e) || !isPdfPath(filePath)) return;
   shell.showItemInFolder(filePath);
+});
+
+/* Files changed by other apps --------------------------------------- */
+
+/** SHA-256 of a file's contents (the page fingerprints what it shows the
+ *  same way), read in chunks so a large PDF never sits in memory twice */
+function hashFile(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    fs.createReadStream(filePath)
+      .on('error', reject)
+      .on('data', (chunk) => hash.update(chunk))
+      .on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
+// Has another app changed an open file? null if it's gone
+ipcMain.handle('paperwing:file-hash', async (e, filePath) => {
+  if (!senderIsApp(e) || typeof filePath !== 'string') return null;
+  if (!knownPaths.has(pathKey(filePath))) return null;
+  return hashFile(filePath).catch(() => null);
+});
+
+/**
+ * Open files are watched, so a document another app saves while it's open
+ * here gets a notice. Their folders are watched rather than the files: apps
+ * often save by writing a new file and renaming it over the old one, which
+ * ends a watch on the file itself. One watcher per folder.
+ */
+const nameKey = (name) =>
+  process.platform === 'linux' ? name : name.toLowerCase();
+/** folder key -> { watcher, names: Map<file name key, path the page uses> } */
+const watchers = new Map();
+const changeTimers = new Map();
+
+function watchFiles(paths) {
+  const want = new Map();
+  for (const p of paths) {
+    if (typeof p !== 'string' || !knownPaths.has(pathKey(p))) continue;
+    const dir = path.dirname(p);
+    const key = pathKey(dir);
+    if (!want.has(key)) want.set(key, { dir, names: new Map() });
+    want.get(key).names.set(nameKey(path.basename(p)), p);
+  }
+  for (const [key, w] of watchers) {
+    if (want.has(key)) continue;
+    w.watcher.close();
+    watchers.delete(key);
+  }
+  for (const [key, w] of want) {
+    const current = watchers.get(key);
+    if (current) {
+      current.names = w.names;
+      continue;
+    }
+    try {
+      const watcher = fs.watch(w.dir, { persistent: false }, (_event, name) => {
+        const entry = watchers.get(key);
+        const filePath = name && entry?.names.get(nameKey(String(name)));
+        if (!filePath) return;
+        // Apps write in several steps: report once it has settled
+        clearTimeout(changeTimers.get(filePath));
+        changeTimers.set(
+          filePath,
+          setTimeout(() => {
+            changeTimers.delete(filePath);
+            mainWindow?.webContents.send('paperwing:file-changed', filePath);
+          }, 700)
+        );
+      });
+      watcher.on('error', () => {
+        watcher.close();
+        watchers.delete(key);
+      });
+      watchers.set(key, { watcher, names: w.names });
+    } catch {
+      /* folder gone, or not watchable (some network drives) */
+    }
+  }
+}
+
+ipcMain.handle('paperwing:watch-files', (e, paths) => {
+  if (!senderIsApp(e) || !Array.isArray(paths)) return;
+  watchFiles(paths.slice(0, 500));
 });
 
 // Files dropped onto the window: the page gets their real path (webUtils in

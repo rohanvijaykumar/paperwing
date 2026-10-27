@@ -15,6 +15,13 @@ contextBridge.exposeInMainWorld('paperwing', {
   pathForFile: (file) => webUtils.getPathForFile(file),
   allowPath: (path) => ipcRenderer.invoke('paperwing:allow-path', path),
   showInFolder: (path) => ipcRenderer.invoke('paperwing:show-in-folder', path),
+  fileHash: (path) => ipcRenderer.invoke('paperwing:file-hash', path),
+  watchFiles: (paths) => ipcRenderer.invoke('paperwing:watch-files', paths),
+  onFileChanged: (callback) => {
+    const listener = (_e, path) => callback(path);
+    ipcRenderer.on('paperwing:file-changed', listener);
+    return () => ipcRenderer.removeListener('paperwing:file-changed', listener);
+  },
   clearRecentDocuments: () =>
     ipcRenderer.invoke('paperwing:clear-recent-documents'),
   checkUpdate: () => ipcRenderer.invoke('paperwing:update-check'),

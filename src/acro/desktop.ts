@@ -23,6 +23,12 @@ interface DesktopBridge {
   allowPath?(path: string): Promise<boolean>;
   /** Show a file in File Explorer / Finder */
   showInFolder?(path: string): Promise<void>;
+  /** SHA-256 (hex) of an open file as it is on disk now; null if it's gone */
+  fileHash?(path: string): Promise<string | null>;
+  /** The open files to watch for changes made by other apps */
+  watchFiles?(paths: string[]): Promise<void>;
+  /** A watched file changed on disk */
+  onFileChanged?(callback: (path: string) => void): () => void;
   /** Clears the OS's recent documents (jump list, Dock, Open Recent) */
   clearRecentDocuments?(): Promise<void>;
   /** Self-updating install (Windows installer): auto is false otherwise.

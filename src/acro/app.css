@@ -320,6 +320,20 @@ button:disabled {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* Folder of a file whose name another open file shares */
+.tab-hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.tab-label:has(+ .tab-hint) {
+  flex: 0 1 auto;
+}
 .tab-glyph {
   display: grid;
   place-items: center;
@@ -752,7 +766,8 @@ body.is-dragging .drop-inner {
   flex-direction: column;
   min-width: 0;
 }
-.rr-title {
+.rr-title,
+.rr-kind {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1007,6 +1022,41 @@ body.is-dragging .drop-inner {
 #doc-stage.has-full-tool #viewer-host,
 #doc-stage.has-full-tool #quickbar {
   visibility: hidden;
+}
+/* Another app saved the open file (renderDiskBar) */
+#disk-bar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100% - 140px);
+  padding: 6px 6px 6px 16px;
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: var(--float-shadow);
+  font-size: 14px;
+  transform: translateX(-50%);
+  animation: toast-in 0.18s ease-out;
+}
+#disk-bar .db-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+#disk-bar .db-reload {
+  flex: none;
+  height: 30px;
+  padding: 0 14px;
+}
+#disk-bar .db-close {
+  flex: none;
+}
+#doc-stage.has-full-tool #disk-bar {
+  display: none;
 }
 #doc-stage.is-loading::after {
   content: 'Opening…';

@@ -10,6 +10,16 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 - Paperwing has a website: [paperwingapp.com](https://paperwingapp.com). **Help ▸ Paperwing website**
   and the About box link to it.
+- Files with the same name are told apart: tabs and Home's Recent list show the folder each one is
+  in (`Rohan_Resume.pdf  Acme Corp` / `Rohan_Resume.pdf  Globex`), and hovering shows the full path.
+- When another app saves a PDF that's open in Paperwing, a notice says so, with **Reload** to show the
+  new version (keeping the page and zoom) or **Dismiss** to keep working on the one you have.
+- Saving asks first if another app saved a newer version of the file since you opened it: replace it,
+  save yours as a copy, or cancel.
+- Right-click a tab for **Close**, **Close other tabs**, **Close tabs to the right**, **Show in File
+  Explorer** (Finder on macOS), **Copy path** and **Reopen closed document**.
+- The window opens at the size and place you left it, maximized if it was. If that place is on a
+  screen that's no longer connected, it opens at the default place instead.
 
 ### Fixed
 

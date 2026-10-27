@@ -523,6 +523,10 @@ interface Tab {
   /** Fingerprint of the file on disk as this tab last read or wrote it.
    *  Opening the file again compares it with the file now (refreshIfChanged) */
   diskHash?: Promise<string | undefined>;
+  /** Another app saved the file since: the fingerprint of that version (the
+   *  disk bar offers it), and the version whose notice was dismissed */
+  diskChanged?: string;
+  diskDismissed?: string;
 }
 
 const isDirty = (t: Tab) => t.version !== t.savedVersion;
@@ -553,10 +557,64 @@ const activeDoc = () => {
 /* Title bar & tabs                                                    */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Files with the same name in different folders ("Resume.pdf" from two job
+ * folders) look alike. For each item, the end of its folder path that tells it
+ * apart from the others with its name ("Globex", "Acme › Product Manager"),
+ * leaving out folders they all share; '' for names that are unique.
+ */
+function folderHints(items: { name: string; path?: string }[]): string[] {
+  const hints = items.map(() => '');
+  const groups = new Map<string, number[]>();
+  items.forEach((it, i) => {
+    if (!it.path) return;
+    const k = it.name.toLowerCase();
+    groups.set(k, [...(groups.get(k) ?? []), i]);
+  });
+  for (const group of groups.values()) {
+    const dirs = group.map((i) => items[i].path!.split(/[\\/]/).slice(0, -1));
+    const keys = dirs.map((d) => d.map((s) => s.toLowerCase()));
+    if (new Set(keys.map((k) => k.join('/'))).size < 2) continue;
+    // Folders at the end of every path ("…\Product Manager") don't help
+    let common = 0;
+    while (
+      keys.every((k) => k.length > common) &&
+      keys.every(
+        (k) => k[k.length - 1 - common] === keys[0][keys[0].length - 1 - common]
+      )
+    )
+      common++;
+    dirs.forEach((d, j) => {
+      const own = d.slice(0, d.length - common);
+      const ownKey = keys[j].slice(0, keys[j].length - common);
+      // The fewest folders (from the end) that no other file shares
+      let n = 1;
+      while (
+        n < own.length &&
+        keys.some(
+          (k, o) =>
+            o !== j &&
+            k
+              .slice(0, k.length - common)
+              .slice(-n)
+              .join('/') === ownKey.slice(-n).join('/')
+        )
+      )
+        n++;
+      hints[group[j]] = own.slice(-n).join(' › ');
+    });
+  }
+  return hints;
+}
+
 function renderTabs() {
   const strip = $('#tabs');
+  const hints = folderHints(
+    tabs.map((t) => ({ name: t.name, path: t.blank ? undefined : t.path }))
+  );
   strip.replaceChildren(
-    ...tabs.map((t) => {
+    ...tabs.map((t, i) => {
+      const where = t.path ?? t.name;
       const el = h(
         'div',
         {
@@ -564,9 +622,9 @@ function renderTabs() {
           role: 'tab',
           'aria-selected': String(t.id === activeId),
           title: !isDirty(t)
-            ? t.name
+            ? where
             : t.blank || t.path || t.handle
-              ? `${t.name} (unsaved changes)`
+              ? `${where} (unsaved changes)`
               : `${t.name} (not saved yet)`,
           draggable: 'true',
           onDragstart: (e: DragEvent) => {
@@ -596,6 +654,7 @@ function renderTabs() {
               void requestCloseTab(t.id);
             }
           },
+          onContextmenu: (e: MouseEvent) => tabMenu(t, e),
           onClick: () => activate(t.id),
         },
         !t.blank
@@ -625,6 +684,7 @@ function renderTabs() {
                 : icon('grid', 14)
             ),
         h('span', { class: 'tab-label' }, t.name),
+        hints[i] && h('span', { class: 'tab-hint' }, hints[i]),
         iconBtn(
           'close',
           'Close tab',
@@ -642,6 +702,7 @@ function renderTabs() {
   strip
     .querySelector('.tab.is-active')
     ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  syncWatchedFiles();
 }
 
 function activate(id: string) {
@@ -711,6 +772,53 @@ function closeTab(id: string) {
     renderTabs();
   }
   persistSession();
+}
+
+/** Right-click menu of a tab */
+function tabMenu(tab: Tab, e: MouseEvent) {
+  e.preventDefault();
+  const others = tabs.filter((t) => t !== tab);
+  const right = tabs.slice(tabs.indexOf(tab) + 1);
+  const items: MenuItem[] = [
+    {
+      label: 'Close',
+      shortcut: shortcutLabel('close'),
+      onClick: () => void requestCloseTab(tab.id),
+    },
+    {
+      label: 'Close other tabs',
+      disabled: !others.length,
+      onClick: () => void closeTabs(others),
+    },
+    {
+      label: 'Close tabs to the right',
+      disabled: !right.length,
+      onClick: () => void closeTabs(right),
+    },
+  ];
+  if (tab.path && desktop?.showInFolder) {
+    items.push(
+      { divider: true },
+      {
+        label: isMac ? 'Show in Finder' : 'Show in File Explorer',
+        onClick: () => void desktop!.showInFolder!(tab.path!),
+      },
+      {
+        label: 'Copy path',
+        onClick: () => void navigator.clipboard.writeText(tab.path!),
+      }
+    );
+  }
+  items.push(
+    { divider: true },
+    {
+      label: 'Reopen closed document',
+      shortcut: shortcutLabel('reopen'),
+      disabled: !closedDocs.length,
+      onClick: () => void reopenClosedTab(),
+    }
+  );
+  showMenu(menuPoint(e.clientX, e.clientY), items, 'below');
 }
 
 async function reopenClosedTab() {
@@ -876,8 +984,10 @@ async function openDocument(
   }
   // Closed while it was loading
   if (!tabs.includes(tab)) return undefined;
-  if (!unsaved && (source.path || source.handle))
+  if (!unsaved && (source.path || source.handle)) {
     tab.diskHash = fingerprint(file);
+    syncWatchedFiles();
+  }
   tab.loading = false;
   tab.page = viewer.pageInfo(id) ?? tab.page;
   if (activeId === id) renderDocChrome(tab);
@@ -922,7 +1032,7 @@ async function fingerprint(
  * app saved it again, like a resume regenerated under the same name), show
  * the new version: straight away if nothing here is unsaved, else after asking.
  */
-async function refreshIfChanged(tab: Tab, file: File) {
+async function refreshIfChanged(tab: Tab, file: File): Promise<void> {
   // A restored tab reads the file when it's first shown; a loading one is
   // reading it now
   if (tab.pending || tab.loading || tab.pageBusy || !tab.diskHash) return;
@@ -940,7 +1050,12 @@ async function refreshIfChanged(tab: Tab, file: File) {
       ],
       false
     );
-    if (!reload || !tabs.includes(tab) || tab.pageBusy) return;
+    if (!reload || !tabs.includes(tab) || tab.pageBusy) {
+      // Decided: no notice about this version
+      tab.diskDismissed = now;
+      renderDiskBar();
+      return;
+    }
   }
 
   const panel = viewer.activePanel(tab.id);
@@ -963,6 +1078,8 @@ async function refreshIfChanged(tab: Tab, file: File) {
   if (!tabs.includes(tab)) return;
   if (panel) viewer.toggleSidebar(tab.id, panel.id, panel.tab);
   tab.diskHash = Promise.resolve(now);
+  tab.diskChanged = tab.diskDismissed = undefined;
+  renderDiskBar();
   tab.page = viewer.pageInfo(tab.id) ?? tab.page;
   // What's shown is what's on disk: nothing to save, nothing to undo
   tab.savedVersion = tab.version;
@@ -986,6 +1103,121 @@ async function refreshIfChanged(tab: Tab, file: File) {
   }
   if (panelTool) await openToolOnDoc(tab, panelTool);
   if (fullTool) await openToolOnDoc(tab, fullTool);
+}
+
+/* Files changed by other apps while open ------------------------------ */
+
+/** Tell the desktop shell which files are open, so it reports changes */
+let watchedKey = '';
+function syncWatchedFiles() {
+  if (!desktop?.watchFiles) return;
+  const paths = [
+    ...new Set(
+      tabs.filter((t) => t.path && !t.blank && !t.pending).map((t) => t.path!)
+    ),
+  ];
+  const key = paths.join('\n');
+  if (key === watchedKey) return;
+  watchedKey = key;
+  void desktop.watchFiles(paths);
+}
+
+/** A watched file changed: if it's no longer what its tab shows, say so */
+async function noticeDiskChange(path: string): Promise<void> {
+  const open = tabs.filter(
+    (t) => t.path === path && t.diskHash && !t.pending && !t.loading
+  );
+  if (!open.length || !desktop?.fileHash) return;
+  const now = await desktop.fileHash(path).catch((): null => null);
+  for (const tab of open) {
+    const was = await tab.diskHash;
+    if (!tabs.includes(tab)) continue;
+    // Gone (deleted, or mid-save): nothing to offer
+    tab.diskChanged = now && was && now !== was ? now : undefined;
+  }
+  renderDiskBar();
+}
+
+/** The notice over the active document when another app saved its file */
+function renderDiskBar(): void {
+  const tab = activeTab();
+  const show =
+    !!tab?.diskChanged && tab.diskChanged !== tab.diskDismissed && !tab.loading;
+  let bar = document.getElementById('disk-bar');
+  if (!show) {
+    bar?.remove();
+    return;
+  }
+  if (!bar) {
+    bar = h('div', { id: 'disk-bar', role: 'status' });
+    $('#doc-stage').append(bar);
+  }
+  bar.replaceChildren(
+    h('span', { class: 'db-text' }, `${tab.name} was changed by another app.`),
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'accent-btn db-reload',
+        onClick: (): void => void reloadFromDisk(tab),
+      },
+      'Reload'
+    ),
+    iconBtn(
+      'close',
+      'Dismiss',
+      () => {
+        tab.diskDismissed = tab.diskChanged;
+        renderDiskBar();
+      },
+      'db-close'
+    )
+  );
+}
+
+/** Show the version of a tab's file that's on disk now (asks first if there
+ *  are unsaved changes; see refreshIfChanged) */
+async function reloadFromDisk(tab: Tab): Promise<void> {
+  if (!tab.path || !desktop) return;
+  const data = await desktop.readFile(tab.path).catch((): null => null);
+  if (!data) {
+    toast(`${tab.name} is no longer available`);
+    tab.diskChanged = undefined;
+    renderDiskBar();
+    return;
+  }
+  const file = new File([new Uint8Array(data)], tab.name, {
+    type: 'application/pdf',
+  });
+  await refreshIfChanged(tab, file);
+}
+
+/** Before saving over a tab's file: if another app saved it since this tab
+ *  read it, saving would lose that version, so ask */
+async function confirmOverwrite(tab: Tab): Promise<'save' | 'copy' | 'cancel'> {
+  const was = await tab.diskHash;
+  let now: string | null | undefined;
+  try {
+    now = tab.path
+      ? await desktop?.fileHash?.(tab.path)
+      : tab.handle
+        ? await fingerprint(await tab.handle.getFile())
+        : undefined;
+  } catch {
+    now = undefined;
+  }
+  if (!was || !now || was === now) return 'save';
+  if (activeId !== tab.id) activate(tab.id);
+  return askDialog<'save' | 'copy' | 'cancel'>(
+    `A newer version of ${tab.name} is on disk`,
+    'Another app saved this file after you opened it here. Saving now replaces that version with yours.',
+    [
+      { label: 'Cancel', value: 'cancel', kind: 'quiet' },
+      { label: 'Save as a copy…', value: 'copy', kind: 'secondary' },
+      { label: 'Replace it', value: 'save', kind: 'primary' },
+    ],
+    'cancel'
+  );
 }
 
 /** Where a file was left last time, if that's wanted */
@@ -1700,6 +1932,7 @@ function renderDocChrome(tab: Tab) {
   // (the rail drives the viewer, which a full-page tool covers)
   $('#view-doc').classList.toggle('has-full-tool', !!tab.fullTool);
   $('#doc-stage').classList.toggle('is-loading', tab.loading);
+  renderDiskBar();
   $('#doc-stage').classList.toggle('is-blank', tab.blank);
   $('#view-doc').classList.toggle('is-workspace', tab.blank);
   for (const id of ['#save-btn', '#print-btn', '#download-btn']) {
@@ -2919,12 +3152,21 @@ async function docBlob(tab: Tab): Promise<Blob | null> {
 
 /** Save a document; resolves true if it was written somewhere */
 async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
+  // Saving over a file another app has saved since: ask first
+  if (!saveAs && (tab.path || tab.handle)) {
+    const choice = await confirmOverwrite(tab);
+    if (choice === 'cancel') return false;
+    if (choice === 'copy') return saveDoc(tab, true);
+  }
   const version = tab.version;
   const blob = await docBlob(tab);
   if (!blob) return false;
   const done = (name: string) => {
     tab.savedVersion = version;
     tab.name = name;
+    // What's on disk is what's shown now
+    tab.diskChanged = tab.diskDismissed = undefined;
+    renderDiskBar();
     renderTabs();
     persistSession();
     toast(`Saved ${name}`);
@@ -3209,7 +3451,8 @@ async function refreshRecent() {
     return;
   }
 
-  const rows = items.map((r) => {
+  const hints = folderHints(items);
+  const rows = items.map((r, i) => {
     const star = iconBtn(
       'star',
       r.starred ? 'Unstar' : 'Star',
@@ -3235,6 +3478,7 @@ async function refreshRecent() {
         class: 'recent-row',
         role: 'button',
         tabindex: '0',
+        title: r.path,
         dataset: { id: r.id },
         onClick: () => openRecent(r),
         onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && openRecent(r),
@@ -3245,7 +3489,7 @@ async function refreshRecent() {
         'span',
         { class: 'rr-name' },
         h('span', { class: 'rr-title' }, r.name),
-        h('span', { class: 'rr-kind' }, 'PDF')
+        h('span', { class: 'rr-kind' }, hints[i] ? `PDF · ${hints[i]}` : 'PDF')
       ),
       h('span', { class: 'rr-opened' }, formatOpened(r.openedAt)),
       h('span', { class: 'rr-size' }, formatBytes(r.size)),
@@ -3826,10 +4070,11 @@ function confirmUnsaved(docs: Tab[]): Promise<UnsavedChoice> {
 }
 
 /** Ask about unsaved documents (saving them if wanted); false = cancelled */
-async function settleUnsaved(): Promise<boolean> {
-  for (const t of tabs.filter((t) => t.fullTool?.dirty))
+/** Unsaved work in `list` (all tabs by default): ask once, and save if asked */
+async function settleUnsaved(list: Tab[] = tabs): Promise<boolean> {
+  for (const t of list.filter((t) => t.fullTool?.dirty))
     if (!(await mayDiscardTool(t))) return false;
-  const dirty = tabs.filter(isDirty);
+  const dirty = list.filter(isDirty);
   if (!dirty.length) return true;
   const choice = await confirmUnsaved(dirty);
   if (choice === 'cancel') return false;
@@ -3843,8 +4088,13 @@ async function settleUnsaved(): Promise<boolean> {
 }
 
 async function closeAllTabs(): Promise<boolean> {
-  if (!(await settleUnsaved())) return false;
-  [...tabs].forEach((t) => closeTab(t.id));
+  return closeTabs([...tabs]);
+}
+
+/** Close several tabs, asking once about unsaved work among them */
+async function closeTabs(list: Tab[]): Promise<boolean> {
+  if (!(await settleUnsaved(list))) return false;
+  list.forEach((t) => tabs.includes(t) && closeTab(t.id));
   return true;
 }
 
@@ -4724,6 +4974,7 @@ void desktop?.setTheme(getThemePref());
 // the right (Windows) or left (macOS) end of our title bar.
 if (desktop) {
   document.body.classList.add('is-desktop', isMac ? 'is-mac' : 'is-win');
+  desktop.onFileChanged?.((path) => void noticeDiskChange(path));
   desktop.onOpenFile((f) => {
     performance.mark('pw:file-received');
     if (restoring) launchPath = f.path;
