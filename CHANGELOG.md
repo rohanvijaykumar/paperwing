@@ -28,6 +28,9 @@ All notable changes to Paperwing are documented here. Paperwing follows
   now compares the file on disk with what the tab shows: it loads the new version in place, keeping the
   page and zoom, and asks first if the tab has unsaved changes. Opening an unchanged file still just
   switches to its tab.
+- Served from a web server (self-hosting), changing the theme while a tool was still loading could
+  switch it back: the tool applied the theme it was opened with and saved it over your choice. The
+  desktop app wasn't affected.
 
 ## [1.2.1] — 2026-10-19
 

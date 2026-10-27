@@ -51,13 +51,26 @@ function findChrome() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Poll a page function until it returns a truthy value */
+/** Poll a function in a page or frame until it returns a truthy value.
+ *  (Not waitForFunction for tool frames: its requestAnimationFrame poller
+ *  could start in the iframe's initial blank document and never run again
+ *  once the tool page replaced it, timing out on a page that was ready.)
+ *  A frame that's still navigating is asked again on the next poll. */
 async function waitFor(page, fn, arg, timeout = 15000) {
   const end = Date.now() + timeout;
+  let error;
   for (;;) {
-    const v = await page.evaluate(fn, arg);
-    if (v) return v;
-    if (Date.now() > end) throw new Error(`Timed out waiting for: ${fn}`);
+    try {
+      const v = await page.evaluate(fn, arg);
+      if (v) return v;
+      error = undefined;
+    } catch (e) {
+      error = e;
+    }
+    if (Date.now() > end)
+      throw new Error(
+        `Timed out waiting for: ${fn}${error ? ` (${error.message})` : ''}`
+      );
     await sleep(150);
   }
 }
@@ -290,12 +303,14 @@ describe('Paperwing UI', () => {
     );
     const frame = await page.waitForSelector('#left-panel iframe');
     const content = await frame.contentFrame();
-    await content.waitForFunction(
+    await waitFor(
+      content,
       () =>
         document
           .querySelector('#file-display-area')
           ?.textContent.includes('Report.pdf'),
-      { timeout: 20000 }
+      undefined,
+      20000
     );
     await content.waitForSelector('#process-btn');
     await content.click('#process-btn');
@@ -421,7 +436,8 @@ describe('Paperwing UI', () => {
     const frame = await handle.contentFrame();
     // (the class is set before the first paint, before the stylesheets have
     // loaded: check once the page has)
-    await frame.waitForFunction(
+    await waitFor(
+      frame,
       () =>
         document.documentElement.classList.contains('rs-embedded') &&
         document.readyState === 'complete'
@@ -438,6 +454,39 @@ describe('Paperwing UI', () => {
       r < 60 && Math.abs(r - b) <= 4,
       `dark neutral background: ${state.bg}`
     );
+  });
+  test('a tool made before a theme change keeps the theme chosen since', async () => {
+    // Its URL says "system", but the user picked dark while it loaded
+    await openApp('light');
+    await page.evaluate(() => localStorage.setItem('paperwing:theme', 'dark'));
+    await page.evaluate(() => {
+      const f = document.createElement('iframe');
+      f.id = 'stale-theme';
+      f.src = '/compress-pdf.html?embed=panel&theme=system';
+      document.body.append(f);
+    });
+    const frame = await (
+      await page.waitForSelector('#stale-theme')
+    ).contentFrame();
+    await waitFor(
+      frame,
+      () =>
+        document.documentElement.classList.contains('rs-embedded') &&
+        document.readyState === 'complete'
+    );
+    assert.equal(
+      await page.evaluate(() => localStorage.getItem('paperwing:theme')),
+      'dark',
+      'the choice is still saved'
+    );
+    assert.equal(
+      await frame.evaluate(() => document.documentElement.dataset.theme),
+      'dark'
+    );
+    await page.evaluate(() => {
+      document.getElementById('stale-theme').remove();
+      localStorage.removeItem('paperwing:theme');
+    });
   });
   test('asks for the password of a protected PDF', async () => {
     // Start without the documents earlier tests left in the session
@@ -497,7 +546,7 @@ describe('Paperwing UI', () => {
     const handle = await page.waitForSelector('#left-panel iframe');
     assert.match(await handle.evaluate((f) => f.src), /[?&]theme=system\b/);
     const content = await handle.contentFrame();
-    await content.waitForFunction(() =>
+    await waitFor(content, () =>
       document.documentElement.classList.contains('rs-embedded')
     );
 
@@ -506,11 +555,13 @@ describe('Paperwing UI', () => {
     await page.keyboard.press('KeyK');
     await page.keyboard.up('Control');
     await page.select('.pref-select', 'dark');
-    await content.waitForFunction(
+    await waitFor(
+      content,
       () => document.documentElement.dataset.theme === 'dark'
     );
     await page.select('.pref-select', 'system');
-    await content.waitForFunction(
+    await waitFor(
+      content,
       () => document.documentElement.dataset.theme === undefined
     );
     await page.evaluate(() =>
@@ -558,13 +609,15 @@ describe('Paperwing UI', () => {
       '#left-panel .lp:not([hidden]) iframe'
     );
     const content = await frame.contentFrame();
-    await content.waitForFunction(
+    await waitFor(
+      content,
       () => {
         const text =
           document.querySelector('#file-display-area')?.textContent ?? '';
         return text.includes('sample.pdf') && text.includes('Second.pdf');
       },
-      { timeout: 20000 }
+      undefined,
+      20000
     );
     const names = await tabNames();
     assert.ok(

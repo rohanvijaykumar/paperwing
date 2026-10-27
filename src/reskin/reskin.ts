@@ -37,9 +37,13 @@ const embedded = window.self !== window.top;
 const shell = shellOrigin();
 const params = new URLSearchParams(location.search);
 
-// The shell passes its theme in the URL, so the page starts out right
+// The shell passes its theme in the URL, so the page starts out right. Not
+// when it shares this origin (served from a web server): the storage they
+// share has its theme already, and the URL may be out of date (changed while
+// the tool loaded), so saving it would undo the user's choice in the shell
 const initialTheme = params.get('theme');
-if (shell && isThemePref(initialTheme)) setThemePref(initialTheme);
+if (shell && shell !== location.origin && isThemePref(initialTheme))
+  setThemePref(initialTheme);
 
 applyTheme();
 onThemeChange(() => {});
