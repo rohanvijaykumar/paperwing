@@ -1188,7 +1188,7 @@ updaterCacheDirName: paperwing-updater-test
 }
 let updateDownloading = false;
 
-// The page checks on launch, every few hours and from Help ▸ Check for updates
+// The page checks on every launch, every two hours and from Help ▸ Check for updates
 ipcMain.handle('paperwing:update-check', async (e) => {
   if (!senderIsApp(e)) return { auto: false };
   // Builds that don't update themselves download the file for their

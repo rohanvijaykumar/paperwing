@@ -41,7 +41,9 @@ import {
   type AvailableUpdate,
   checkForUpdates,
   knownUpdate,
+  isRemindLater,
   onUpdateAvailable,
+  remindLater,
   scheduleUpdateCheck,
 } from './updates';
 import {
@@ -375,7 +377,7 @@ function updateAvailableToast(update: AvailableUpdate) {
         type: 'button',
         onClick: () => {
           el.remove();
-          laterFor = update.version;
+          remindLater(update.version);
         },
       },
       'Later'
@@ -383,10 +385,6 @@ function updateAvailableToast(update: AvailableUpdate) {
   );
   $('#toasts').append(el);
 }
-
-/** "Later" holds the notice back for the rest of this session (Help still
- *  shows the update); the next launch shows it again */
-let laterFor: string | null = null;
 
 /** The user agreed to update: the self-updating build downloads it (with
  *  progress, then the restart notice); others download the file */
@@ -4440,7 +4438,7 @@ function showPreferences() {
       ),
       toggle(
         'Check for updates',
-        'Looks for new versions on GitHub when Paperwing starts and every few hours. Nothing else is sent.',
+        'Looks for new versions on GitHub when Paperwing starts and every two hours. Nothing else is sent.',
         prefs.checkUpdates,
         (v) => setPrefs({ checkUpdates: v })
       ),
@@ -5019,7 +5017,7 @@ if (desktop) {
   // Help marker until this build is updated
   onUpdateAvailable((update, fresh) => {
     showUpdateMarker(update);
-    if (fresh && update.version !== laterFor && !updateProgress)
+    if (fresh && !isRemindLater(update.version) && !updateProgress)
       updateAvailableToast(update);
   });
   if (getPrefs().checkUpdates) scheduleUpdateCheck(toast);

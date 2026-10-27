@@ -6,6 +6,13 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+### Changed
+
+- Paperwing checks for updates every time it starts (before, a launch within an hour of the last check
+  skipped it, so a release could go unnoticed for hours), and every two hours while it's open instead
+  of six. Choosing **Later** on the notice now holds it back for a day, so checking on every launch
+  doesn't show it each time you open Paperwing; **Help ▸ Check for updates** always shows it.
+
 ### Fixed
 
 - Long file paths in tooltips (hovering a tab or a Recent file) ran off the edge of the window. They

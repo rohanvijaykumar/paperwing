@@ -1,7 +1,7 @@
 /**
  * Update check against the project's GitHub Releases.
  *
- * Paperwing checks on each launch and every few hours while open
+ * Paperwing checks on every launch and every two hours while open
  * (scheduleUpdateCheck). A newer version is announced, never downloaded
  * by itself: the workspace shows a notice that stays, and a marker until
  * this build is updated (onUpdateAvailable). On the Windows installer,
@@ -19,14 +19,17 @@ type Toast = (
   action?: { label: string; onClick: () => void }
 ) => void;
 
-const LAST_CHECK_KEY = 'paperwing:lastUpdateCheck';
 /** The newer version last seen, so the marker survives restarts */
 const AVAILABLE_KEY = 'paperwing:availableUpdate';
+/** The version the user said "Later" to, and until when */
+const LATER_KEY = 'paperwing:updateLater';
 const HOUR = 60 * 60 * 1000;
-/** Each launch checks, unless a check ran this recently */
-const MIN_GAP = HOUR;
-/** And a window left open checks again this often */
-const RECHECK_EVERY = 6 * HOUR;
+/** A window left open checks again this often */
+const RECHECK_EVERY = 2 * HOUR;
+/** "Later" holds back the notice for a version this long (the Help marker
+ *  still shows it): checking on every launch would otherwise show it again
+ *  each time Paperwing opens */
+const LATER_FOR = 24 * HOUR;
 
 /** A newer version than this one, for builds that don't update themselves */
 export interface AvailableUpdate {
@@ -126,9 +129,16 @@ export async function checkForUpdates(
   toast: Toast,
   manual = false
 ): Promise<void> {
+  // Asking (Help ▸ Check for updates) shows a newer version even after Later
+  if (manual) {
+    try {
+      localStorage.removeItem(LATER_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+  }
   const auto = await desktop?.checkUpdate?.().catch((): null => null);
   if (auto?.auto) {
-    markChecked();
     if (auto.error) {
       if (manual) toast("Couldn't check for updates. Are you online?");
     } else if (auto.ready || auto.downloading) {
@@ -157,7 +167,6 @@ export async function checkForUpdates(
       html_url: string;
       assets?: ReleaseAsset[];
     };
-    markChecked();
     if (isNewer(release.tag_name, __PAPERWING_VERSION__)) {
       announce({
         version: release.tag_name.replace(/^v/, ''),
@@ -172,30 +181,34 @@ export async function checkForUpdates(
   }
 }
 
-function markChecked() {
-  try {
-    localStorage.setItem(LAST_CHECK_KEY, String(Date.now()));
-  } catch {
-    /* storage unavailable */
-  }
-}
-
-function lastChecked(): number {
-  try {
-    return Number(localStorage.getItem(LAST_CHECK_KEY)) || 0;
-  } catch {
-    return 0;
-  }
-}
-
 /**
- * Checks a few seconds after each launch (unless one ran within the hour)
- * and every few hours while the window stays open
+ * Checks a few seconds after every launch, however recently the last check
+ * ran (a release published minutes earlier is found), and every two hours
+ * while the window stays open
  */
 export function scheduleUpdateCheck(toast: Toast) {
-  const due = () => Date.now() - lastChecked() >= MIN_GAP;
-  if (due()) setTimeout(() => void checkForUpdates(toast), 8000);
-  setInterval(() => {
-    if (due()) void checkForUpdates(toast);
-  }, RECHECK_EVERY);
+  setTimeout(() => void checkForUpdates(toast), 8000);
+  setInterval(() => void checkForUpdates(toast), RECHECK_EVERY);
+}
+
+/** The user chose "Later" on the notice for `version` */
+export function remindLater(version: string) {
+  try {
+    localStorage.setItem(
+      LATER_KEY,
+      JSON.stringify({ version, until: Date.now() + LATER_FOR })
+    );
+  } catch {
+    /* storage unavailable: it shows again next launch */
+  }
+}
+
+/** True while the notice for `version` is held back by "Later" */
+export function isRemindLater(version: string): boolean {
+  try {
+    const later = JSON.parse(localStorage.getItem(LATER_KEY) ?? 'null');
+    return later?.version === version && Date.now() < later.until;
+  } catch {
+    return false;
+  }
 }

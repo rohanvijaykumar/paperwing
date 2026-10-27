@@ -176,8 +176,8 @@ The full list is in **[docs/SHORTCUTS.md](docs/SHORTCUTS.md)** and inside the ap
 All PDF processing happens on your computer. Paperwing has no accounts, analytics or telemetry.
 The only network requests it makes are:
 
-- an optional check of this repository's GitHub Releases for updates, when Paperwing starts (at most
-  once an hour) and every few hours while it's open (can be turned off in **Preferences**). When
+- an optional check of this repository's GitHub Releases for updates, every time Paperwing starts
+  and every two hours while it's open (can be turned off in **Preferences**). When
   there's a new version, Paperwing tells you and downloads nothing until you choose to: the Windows
   installer then downloads and installs it, and the portable build and macOS download the right file;
 - the **Word, Excel and PowerPoint → PDF** converters download the LibreOffice engine (about 75 MB,

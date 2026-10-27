@@ -15,9 +15,11 @@ const MAC = { auto: false, platform: 'darwin', arch: 'arm64' };
 
 import {
   checkForUpdates,
+  isRemindLater,
   knownUpdate,
   onUpdateAvailable,
   pickAsset,
+  remindLater,
   scheduleUpdateCheck,
 } from '../acro/updates';
 
@@ -111,23 +113,41 @@ describe('when Paperwing checks', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('checks on each launch, even when the last check was earlier today', async () => {
-    localStorage.setItem(
-      'paperwing:lastUpdateCheck',
-      String(Date.now() - 2 * 60 * 60 * 1000)
-    );
+  it('checks on every launch, even right after another check', async () => {
+    localStorage.setItem('paperwing:lastUpdateCheck', String(Date.now()));
     scheduleUpdateCheck(() => {});
     await vi.advanceTimersByTimeAsync(9000);
     expect(checkUpdate).toHaveBeenCalledTimes(1);
   });
 
-  it('skips the launch check right after another one, and checks again hours later', async () => {
-    localStorage.setItem('paperwing:lastUpdateCheck', String(Date.now()));
+  it('checks again every two hours while the window stays open', async () => {
     scheduleUpdateCheck(() => {});
     await vi.advanceTimersByTimeAsync(9000);
-    expect(checkUpdate).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
-    expect(checkUpdate).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000);
+    expect(checkUpdate).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000);
+    expect(checkUpdate).toHaveBeenCalledTimes(3);
+  });
+
+  it('"Later" holds back that version for a day, not a newer one', () => {
+    remindLater('1.3.0');
+    expect(isRemindLater('1.3.0')).toBe(true);
+    expect(isRemindLater('1.3.1')).toBe(false);
+    vi.advanceTimersByTime(23 * 60 * 60 * 1000);
+    expect(isRemindLater('1.3.0')).toBe(true);
+    vi.advanceTimersByTime(2 * 60 * 60 * 1000);
+    expect(isRemindLater('1.3.0')).toBe(false);
+  });
+
+  it('asking (Check for updates) shows it even after "Later"', async () => {
+    remindLater('1.3.0');
+    checkUpdate.mockResolvedValue({
+      auto: true,
+      available: true,
+      version: '1.3.0',
+    });
+    await checkForUpdates(() => {}, true);
+    expect(isRemindLater('1.3.0')).toBe(false);
   });
 
   it('announces an update to a self-updating build without downloading it', async () => {
