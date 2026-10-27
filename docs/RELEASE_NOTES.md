@@ -1,33 +1,32 @@
-## Paperwing 1.2.1
+## Paperwing 1.2.2
 
-Fixes for 1.2, and the latest BentoPDF (2.8.10) with its security hardening.
-
-### Safer
-
-- **Built on BentoPDF 2.8.10.** Sanitize, Flatten and Redact remove hidden content more
-  thoroughly, signature validation is stricter, and the PDF engine and viewer are newer.
-- **Signature checks you can trust.** Validate Signatures no longer reports a valid signature as
-  unverified when the signer's certificate isn't the first one in it.
-
-### Better
-
-- **Updates show up sooner, and wait for you.** Paperwing now checks each time it starts and every
-  few hours while it's open, instead of once a day. On Windows it tells you a new version is
-  available and downloads it only when you choose **Update**, with its progress shown.
+A fix for opening files that changed, and smoother work with many PDFs open at once.
 
 ### Fixed
 
-- **Readable shortcuts in tooltips.** The keyboard shortcut next to each tooltip's label was grey
-  on grey in both light and dark themes. It's now an outlined key with clear, high-contrast text.
-- **Full-size taskbar icon.** On Windows, Paperwing's icon is now the same size as other apps'
-  (it was a few pixels smaller at common display scaling). If the taskbar still shows the old one
-  after updating, unpin Paperwing and pin it again; Windows caches icons.
+- **Opening a file shows its latest version.** If a PDF was already open in a tab and another app
+  saved a new version of it (a resume regenerated under the same name, say), opening it again
+  showed the old version until Paperwing was restarted. Paperwing now loads the new version in
+  place, keeping your page and zoom, and asks first if the tab has unsaved changes.
+
+### Better
+
+- **Same-named files told apart.** Tabs and Home's Recent list show which folder each file is in
+  when two have the same name, and hovering a tab shows its full path.
+- **Know when a file changes.** When another app saves a PDF you have open, Paperwing says so, with
+  **Reload** to show the new version or **Dismiss** to keep working on yours.
+- **No accidental overwrites.** Saving asks first if another app saved a newer version since you
+  opened it: replace it, save yours as a copy, or cancel.
+- **Tab menu.** Right-click a tab to close it, close the others or those to its right, show the
+  file in File Explorer or Finder, copy its path, or reopen a document you closed.
+- **The window remembers its place.** Paperwing opens at the size and position you left it,
+  maximized if it was.
 
 Everything new in 1.2 (Acrobat-style toolbar menus, page actions on thumbnails, recovery of unsaved
 edits, offline engines and OCR) is in the [1.2.0 release](https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.0).
 
 On Windows, Paperwing 1.1 and later update themselves: open Paperwing and choose **Help ▸ Check
-for updates** if it hasn't offered 1.2.1 yet. On macOS and the portable build, download it below
+for updates** if it hasn't offered 1.2.2 yet. On macOS and the portable build, download it below
 and install it over the old version. Full list of changes: [CHANGELOG.md](https://github.com/rohanvijaykumar/paperwing/blob/main/CHANGELOG.md).
 
 ### Downloads

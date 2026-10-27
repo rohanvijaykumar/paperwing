@@ -6,6 +6,8 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+## [1.2.2] — 2026-10-27
+
 ### Added
 
 - Paperwing has a website: [paperwingapp.com](https://paperwingapp.com). **Help ▸ Paperwing website**
@@ -193,7 +195,10 @@ First public release, built on BentoPDF 2.8.8.
 - Tool pages run on their own origin, isolated from the workspace and its file bridge (see [SECURITY.md](SECURITY.md))
 - Unit tests for the shell and an end-to-end UI test suite
 
-[Unreleased]: https://github.com/rohanvijaykumar/paperwing/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/rohanvijaykumar/paperwing/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.2
+[1.2.1]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.1
+[1.2.0]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.0
 [1.1.0]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.1.0
 [1.0.1]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.0.1
 [1.0.0]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.0.0
