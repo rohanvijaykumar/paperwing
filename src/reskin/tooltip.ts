@@ -26,6 +26,8 @@ const STYLE = `
   font: 500 12px/1.35 'Source Sans 3', 'Segoe UI', system-ui, sans-serif;
   letter-spacing: 0.01em;
   white-space: normal;
+  /* A long word can't run out of the box (and off the window's edge) */
+  overflow-wrap: anywhere;
   pointer-events: none;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
   opacity: 0;
@@ -135,6 +137,13 @@ function place(el: HTMLDivElement, t: Element) {
   el.classList.toggle('is-above', above);
 }
 
+/** A file path has no spaces to wrap at: let it wrap after each folder */
+function breakable(label: string): (string | Node)[] {
+  return label
+    .split(/(?<=[\\/])/)
+    .flatMap((part, i) => (i ? [document.createElement('wbr'), part] : [part]));
+}
+
 function show(t: Element) {
   const [label, shortcut] = tipText(t);
   if (!label) return;
@@ -144,7 +153,7 @@ function show(t: Element) {
     tip.setAttribute('role', 'tooltip');
     tip.id = 'pw-tip';
   }
-  tip.replaceChildren(label);
+  tip.replaceChildren(...breakable(label));
   if (shortcut) {
     const k = document.createElement('kbd');
     k.textContent = shortcut;

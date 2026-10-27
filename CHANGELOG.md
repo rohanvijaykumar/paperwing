@@ -6,6 +6,11 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Long file paths in tooltips (hovering a tab or a Recent file) ran off the edge of the window. They
+  now wrap after a folder and stay inside it.
+
 ## [1.2.2] — 2026-10-27
 
 ### Added
