@@ -107,13 +107,130 @@ const isPdfPath = (p) =>
  *  on Windows, the Dock menu and File ▸ Open Recent on macOS) */
 function openedPath(filePath) {
   knownPaths.add(pathKey(filePath));
-  if (process.platform === 'win32' || IS_MAC) {
-    try {
-      app.addRecentDocument(filePath);
-    } catch {
-      /* not registered for the file type (e.g. unpackaged): no jump list */
-    }
+  if (process.platform === 'win32') rememberRecent(filePath);
+  else if (IS_MAC) app.addRecentDocument(filePath);
+}
+
+/* Recent files in the taskbar jump list (Windows) --------------------- */
+
+// Windows' own recent documents keep one shortcut per file *name*, so files
+// that share one (versions of a document kept in different folders, say)
+// replaced each other and the jump list
+// showed just the last. Paperwing keeps its own list instead, and names
+// same-named files by their folder, as its tabs do.
+
+const RECENT_MAX = 10;
+const recentFile = () =>
+  path.join(app.getPath('userData'), 'recent-files.json');
+
+function readRecent() {
+  try {
+    const list = JSON.parse(fs.readFileSync(recentFile(), 'utf8'));
+    return Array.isArray(list) ? list.filter((p) => typeof p === 'string') : [];
+  } catch {
+    return [];
   }
+}
+
+function rememberRecent(filePath) {
+  const key = pathKey(filePath);
+  const list = [
+    filePath,
+    ...readRecent().filter((p) => pathKey(p) !== key),
+  ].slice(0, 30);
+  try {
+    fs.writeFileSync(recentFile(), JSON.stringify(list));
+  } catch {
+    /* read-only profile: the jump list just doesn't change */
+  }
+  updateJumpList(list);
+}
+
+/** For files that share a name: the fewest trailing folders that tell each
+ *  apart ("Acme Corp", "Globex › Product Manager"); '' for unique names */
+function folderHints(paths) {
+  const hints = paths.map(() => '');
+  const groups = new Map();
+  paths.forEach((p, i) => {
+    const name = path.basename(p).toLowerCase();
+    groups.set(name, [...(groups.get(name) ?? []), i]);
+  });
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const dirs = group.map((i) =>
+      path
+        .dirname(paths[i])
+        .split(/[\\/]+/)
+        .filter(Boolean)
+    );
+    // Folders all of them end with say nothing: leave them out
+    let common = 0;
+    while (
+      dirs.every((d) => d.length > common) &&
+      dirs.every(
+        (d) =>
+          d[d.length - 1 - common].toLowerCase() ===
+          dirs[0][dirs[0].length - 1 - common].toLowerCase()
+      )
+    )
+      common++;
+    const trimmed = dirs.map((d) => d.slice(0, d.length - common));
+    const tail = (d, n) => d.slice(-n).join(' › ').toLowerCase();
+    group.forEach((i, g) => {
+      const d = trimmed[g];
+      let n = 1;
+      while (
+        n < d.length &&
+        trimmed.some((o, h) => h !== g && tail(o, n) === tail(d, n))
+      )
+        n++;
+      hints[i] = d.slice(-n).join(' › ');
+    });
+  }
+  return hints;
+}
+
+function updateJumpList(list = readRecent()) {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  // Entries the user removed from the jump list must stay out of it
+  // (Windows refuses the whole list otherwise)
+  const removed = new Set(
+    (app.getJumpListSettings().removedItems ?? []).map((item) => item.args)
+  );
+  const files = list
+    .filter((p) => isPdfPath(p))
+    .map((p) => ({ p, args: `"${p}"` }))
+    .filter(({ args }) => !removed.has(args))
+    .slice(0, RECENT_MAX);
+  const hints = folderHints(files.map(({ p }) => p));
+  const items = files.map(({ p, args }, i) => ({
+    type: 'task',
+    title:
+      path.basename(p, path.extname(p)) + (hints[i] ? ` (${hints[i]})` : ''),
+    description: p,
+    program: process.execPath,
+    args,
+    iconPath: process.execPath,
+    iconIndex: 0,
+  }));
+  try {
+    // Never null: that brings back Windows' own list, the one we replace
+    app.setJumpList(
+      items.length ? [{ type: 'custom', name: 'Recent', items }] : []
+    );
+  } catch {
+    /* the jump list is a nicety */
+  }
+}
+
+function clearRecent() {
+  try {
+    fs.rmSync(recentFile(), { force: true });
+  } catch {
+    /* nothing to clear */
+  }
+  app.clearRecentDocuments();
+  updateJumpList([]);
 }
 
 function pdfArgs(argv) {
@@ -833,7 +950,7 @@ ipcMain.handle('paperwing:open-dialog', async (e) => {
 
 // Home ▸ Clear recent also clears the OS's list
 ipcMain.handle('paperwing:clear-recent-documents', (e) => {
-  if (senderIsApp(e)) app.clearRecentDocuments();
+  if (senderIsApp(e)) clearRecent();
 });
 
 // Recent files' "Show in File Explorer / Finder"
@@ -1276,6 +1393,9 @@ app.whenReady().then(() => {
   trace('electron ready');
   registerProtocol();
   buildMenu();
+  // Recent files that were moved or deleted since leave the jump list (not
+  // while the window is starting up)
+  setTimeout(() => updateJumpList(), 5000);
 
   // Exports that aren't PDFs (images, Word, ZIP...) ask where to save
   session.defaultSession.on('will-download', (_e, item) => {

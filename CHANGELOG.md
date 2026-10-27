@@ -10,6 +10,10 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 - Long file paths in tooltips (hovering a tab or a Recent file) ran off the edge of the window. They
   now wrap after a folder and stay inside it.
+- On Windows, the taskbar's **Recent** list showed only one of several files with the same name (a
+  resume tailored for each job, say): Windows keeps one entry per file name. Paperwing now keeps its
+  own list of the last 10 files, with the folder after the name when files share one. Home ▸ Clear
+  recent clears it too.
 
 ## [1.2.2] — 2026-10-27
 

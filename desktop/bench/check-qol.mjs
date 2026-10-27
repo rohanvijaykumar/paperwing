@@ -8,6 +8,7 @@
  *   node bench/check-qol.mjs
  */
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -155,6 +156,56 @@ check(
     kinds.includes('PDF'),
   "Home's Recent list shows the folder for same-named files",
   JSON.stringify(kinds)
+);
+
+// 1b. The taskbar's Recent list (Windows jump list). Windows' own list kept
+// one entry per file name; Paperwing keeps its own, newest first, and names
+// same-named files by their folder. (The jump list itself is only set by an
+// installed copy: this checks the list and the titles it's built from.)
+const recentJson = join(profile, 'recent-files.json');
+const recent = await until(() => {
+  try {
+    const l = JSON.parse(readFileSync(recentJson, 'utf8'));
+    return l.length === 3 ? l : null;
+  } catch {
+    return null;
+  }
+});
+check(
+  !!recent && recent[0] === C && recent[1] === B && recent[2] === A,
+  'every opened file is on the Recent list, newest first (same names too)',
+  JSON.stringify(recent?.map((p) => p.slice(root.length)))
+);
+const mainSrc = readFileSync(new URL('../main.cjs', import.meta.url), 'utf8');
+const hintsSrc = mainSrc.slice(
+  mainSrc.indexOf('function folderHints'),
+  mainSrc.indexOf('function updateJumpList')
+);
+const jumpHints = new Function('path', `${hintsSrc}; return folderHints;`)(
+  require('node:path')
+);
+const hints = jumpHints(recent ?? []);
+check(
+  JSON.stringify(hints) === JSON.stringify(['', 'Globex', 'Acme Corp']),
+  'jump list titles name same-named files by their folder',
+  JSON.stringify(hints)
+);
+check(
+  JSON.stringify(
+    jumpHints([
+      'D:/a/Acme/PM/r.pdf',
+      'D:/a/Globex/PM/r.pdf',
+      'D:/a/Initech/r.pdf',
+    ])
+  ) === JSON.stringify(['Acme › PM', 'Globex › PM', 'Initech']),
+  'a shared parent folder is skipped for the one that tells them apart'
+);
+await page.click('#clear-recent');
+await until(dialogTitle, 5000);
+await clickButton('.dlg button', 'Clear');
+check(
+  !!(await until(() => !existsSync(recentJson), 5000)),
+  "Home's Clear recent clears the taskbar's list too"
 );
 
 // 2. Tab right-click menu
