@@ -15,6 +15,7 @@ Updates are noticed sooner, a touchscreen fix, and fixes from BentoPDF.
 
 - **Select works on touchscreens.** On touchscreen Windows computers, Select could leave the viewer
   in Hand mode, so text couldn't be selected or copied. Thanks to
+  [@Lehnemann](https://github.com/Lehnemann) for reporting it and
   [@austinwilkerson](https://github.com/austinwilkerson) for the fix.
 - **Long paths in tooltips** wrap and stay inside the window.
 - **From BentoPDF:** Validate Signature detects more signatures, XPS to PDF converts XPS files from
