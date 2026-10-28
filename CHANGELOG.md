@@ -19,8 +19,10 @@ All notable changes to Paperwing are documented here. Paperwing follows
 ### Fixed
 
 - On touchscreen Windows computers, **Select** (V) could leave the viewer in Hand mode, so text
-  couldn't be selected or copied. Select now always selects text, and Hand (H) still pans. Thanks to
-  [@austinwilkerson](https://github.com/austinwilkerson) ([#19](https://github.com/rohanvijaykumar/paperwing/pull/19)).
+  couldn't be selected or copied
+  ([#20](https://github.com/rohanvijaykumar/paperwing/issues/20)). Select now always selects text,
+  and Hand (H) still pans. Thanks to [@austinwilkerson](https://github.com/austinwilkerson)
+  ([#19](https://github.com/rohanvijaykumar/paperwing/pull/19)).
 - Long file paths in tooltips (hovering a tab or a Recent file) ran off the edge of the window. They
   now wrap after a folder and stay inside it.
 - On Windows, the taskbar's **Recent** list showed only one of several files with the same name
