@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
+import { PDFDocument } from 'pdf-lib';
 
 const BASE = (process.env.PAPERWING_URL || 'http://localhost:5173').replace(
   /\/$/,
@@ -290,6 +291,100 @@ describe('Paperwing UI', () => {
         await mode(),
         'pointerMode',
         'V explicitly enables text selection'
+      );
+    } finally {
+      await context.close();
+      page = previousPage;
+    }
+  });
+
+  test('renders saved form values and checkboxes without flattening the document', async () => {
+    const previousPage = page;
+    const context = await browser.createBrowserContext();
+    page = await context.newPage();
+    try {
+      const pdf = await PDFDocument.create();
+      const sheet = pdf.addPage([612, 792]);
+      const form = pdf.getForm();
+      const text = form.createTextField('saved-text');
+      text.setText('Visible saved form value');
+      text.addToPage(sheet, { x: 120, y: 500, width: 210, height: 32 });
+      const check = form.createCheckBox('saved-check');
+      check.addToPage(sheet, { x: 120, y: 430, width: 20, height: 20 });
+      check.check();
+      await openApp();
+      await dropBytes(
+        'Saved form.pdf',
+        Buffer.from(await pdf.save()).toString('base64')
+      );
+      await waitFor(
+        page,
+        () =>
+          document.querySelector('#view-doc.is-active') &&
+          !document.querySelector('#doc-stage.is-loading')
+      );
+      const rendered = await page.evaluate(async () => {
+        const viewer = window.__acro.viewer;
+        const id = [...viewer.docIds.values()][0];
+        async function ink(options) {
+          const blob = await viewer
+            .cap('render')
+            .renderPage({ pageIndex: 0, options }, id)
+            .toPromise();
+          const bitmap = await createImageBitmap(blob);
+          const canvas = document.createElement('canvas');
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(bitmap, 0, 0);
+          const dark = (x, y, w, h) => {
+            const pixels = ctx.getImageData(x, y, w, h).data;
+            let count = 0;
+            for (let i = 0; i < pixels.length; i += 4)
+              if (pixels[i] < 100 && pixels[i + 1] < 100 && pixels[i + 2] < 100)
+                count++;
+            return count;
+          };
+          const result = {
+            text: dark(123, 263, 204, 26),
+            check: dark(124, 346, 12, 12),
+          };
+          bitmap.close();
+          return result;
+        }
+        return {
+          current: await ink({ scaleFactor: 1 }),
+          withoutForms: await ink({ scaleFactor: 1, withForms: false }),
+          exported: Array.from(
+            new Uint8Array(
+              await viewer.exportBytes([...viewer.docIds.keys()][0])
+            )
+          ),
+        };
+      });
+      assert.ok(rendered.current.text > 50, 'saved text must be visible');
+      assert.ok(
+        rendered.current.check > 10,
+        'saved checkbox mark must be visible'
+      );
+      assert.equal(
+        rendered.withoutForms.text,
+        0,
+        'baseline reproduces invisible saved text'
+      );
+      assert.equal(
+        rendered.withoutForms.check,
+        0,
+        'baseline reproduces invisible check mark'
+      );
+      const saved = await PDFDocument.load(Uint8Array.from(rendered.exported));
+      assert.equal(
+        saved.getForm().getTextField('saved-text').getText(),
+        'Visible saved form value'
+      );
+      assert.equal(
+        saved.getForm().getCheckBox('saved-check').isChecked(),
+        true
       );
     } finally {
       await context.close();

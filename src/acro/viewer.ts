@@ -258,6 +258,8 @@ export class Viewer {
         tabBar: 'never',
         // A touchscreen does not mean the desktop Select tool should pan.
         pan: { defaultMode: 'never' },
+        // Form widgets carry saved field values and checkbox appearances.
+        render: { withForms: true },
         documentManager: { maxDocuments: 50 },
         theme: viewerTheme(),
         zoom: {
