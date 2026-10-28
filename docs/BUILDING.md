@@ -135,6 +135,8 @@ In GitHub Actions, add these as repository secrets and expose them as environmen
 
 1. Update `version` in `desktop/package.json` and add a section to `CHANGELOG.md`.
 2. Update `docs/RELEASE_NOTES.md` (it becomes the GitHub release description).
+   Run `node desktop/scripts/contributors.mjs` and add anyone new to `CONTRIBUTORS.md` (code, and
+   bug reports that were fixed).
 3. Commit, then tag and push the branch and the tag (push only this one tag: GitHub doesn't start
    workflows when more than three tags are pushed at once):
    ```bash
