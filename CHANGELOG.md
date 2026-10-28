@@ -6,21 +6,36 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+## [1.2.3] — 2026-10-28
+
 ### Changed
 
 - Paperwing checks for updates every time it starts (before, a launch within an hour of the last check
   skipped it, so a release could go unnoticed for hours), and every two hours while it's open instead
   of six. Choosing **Later** on the notice now holds it back for a day, so checking on every launch
   doesn't show it each time you open Paperwing; **Help ▸ Check for updates** always shows it.
+- Built on Electron 45 (from 44.8), with electron-builder 26.18 and electron-updater 6.8.11.
 
 ### Fixed
 
+- On touchscreen Windows computers, **Select** (V) could leave the viewer in Hand mode, so text
+  couldn't be selected or copied. Select now always selects text, and Hand (H) still pans. Thanks to
+  [@austinwilkerson](https://github.com/austinwilkerson) ([#19](https://github.com/rohanvijaykumar/paperwing/pull/19)).
 - Long file paths in tooltips (hovering a tab or a Recent file) ran off the edge of the window. They
   now wrap after a folder and stay inside it.
-- On Windows, the taskbar's **Recent** list showed only one of several files with the same name (a
-  resume tailored for each job, say): Windows keeps one entry per file name. Paperwing now keeps its
-  own list of the last 10 files, with the folder after the name when files share one. Home ▸ Clear
-  recent clears it too.
+- On Windows, the taskbar's **Recent** list showed only one of several files with the same name
+  (versions of a document kept in different folders, say): Windows keeps one entry per file name.
+  Paperwing now keeps its own list of the last 10 files, with the folder after the name when files
+  share one. Home ▸ Clear recent clears it too.
+
+### From BentoPDF
+
+Fixes from BentoPDF's main branch since 2.8.10 (not yet in a BentoPDF release):
+
+- **Validate Signature** detects signatures whose dictionary has no `/Type` entry.
+- **XPS to PDF** repairs XPS files from scanners that failed to convert.
+- **Merge PDF** shows clearer result and error messages.
+- **Markdown to PDF**: wide tables fit when printing, and the editor panes no longer collapse.
 
 ## [1.2.2] — 2026-10-27
 
@@ -211,7 +226,8 @@ First public release, built on BentoPDF 2.8.8.
 - Tool pages run on their own origin, isolated from the workspace and its file bridge (see [SECURITY.md](SECURITY.md))
 - Unit tests for the shell and an end-to-end UI test suite
 
-[Unreleased]: https://github.com/rohanvijaykumar/paperwing/compare/v1.2.2...HEAD
+[Unreleased]: https://github.com/rohanvijaykumar/paperwing/compare/v1.2.3...HEAD
+[1.2.3]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.3
 [1.2.2]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.2
 [1.2.1]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.1
 [1.2.0]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.0
