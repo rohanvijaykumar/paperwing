@@ -6,6 +6,17 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Saved form values and checkbox marks show in the viewer, and text fields and checkboxes can be
+  filled in, saved, and reopened. Documents that contain scripts show a notice; those scripts are
+  not run. Desktop printing shows a page preview and sends the real PDF on Windows, macOS, and
+  Linux. Thanks to [@austinwilkerson](https://github.com/austinwilkerson) for
+  [#24](https://github.com/rohanvijaykumar/paperwing/pull/24),
+  [#25](https://github.com/rohanvijaykumar/paperwing/pull/25),
+  [#26](https://github.com/rohanvijaykumar/paperwing/issues/26), and
+  [#27](https://github.com/rohanvijaykumar/paperwing/issues/27).
+
 ## [1.2.3] — 2026-10-28
 
 ### Changed
