@@ -184,6 +184,9 @@ export interface PageInfo {
 export interface DocView {
   page: number;
   zoom: number;
+  /** Where it was scrolled to at that zoom (see scrollPos), rather than the
+   *  top of the page */
+  scroll?: { x: number; y: number };
 }
 
 /** PDFium's error code for a document that needs a password */
@@ -219,6 +222,9 @@ export class Viewer {
   >();
   /** Asks for the password of a protected document; null cancels opening */
   passwordPrompt?: (tabId: string, wrong: boolean) => Promise<string | null>;
+  /** Takes the document the print dialog prepared (its page range and
+   *  annotation choice applied) instead of the viewer's own print frame */
+  printTo?: (tabId: string, pdf: Uint8Array) => void;
   /** Tabs closed while their document was loading */
   private cancelled = new Set<string>();
   /** The tab last shown, so it can get the viewer back after a discard */
@@ -354,6 +360,25 @@ export class Viewer {
         if (tabId) this.changeListeners.forEach((fn) => fn(tabId));
       });
 
+      // The viewer prints by loading the document into a hidden frame and
+      // calling its print(), which in Electron reports success without
+      // printing anything. With printTo set, that frame is stopped before
+      // its document loads (listeners run synchronously, the load later).
+      (this.registry as any)
+        .getPlugin('print')
+        ?.onPrintRequest?.(
+          (e: { documentId: string; buffer: ArrayBuffer; task: any }) => {
+            const tabId = this.tabFor(e.documentId);
+            if (!this.printTo || !tabId) return;
+            queueMicrotask(() => {
+              const frame = this.printFrame();
+              if (frame) frame.onload = null;
+            });
+            e.task.resolve(e.buffer);
+            this.printTo(tabId, new Uint8Array(e.buffer));
+          }
+        );
+
       this.cap('annotation').onActiveToolChange((e: any) => {
         const tabId = this.tabFor(e.documentId);
         if (tabId)
@@ -404,6 +429,12 @@ export class Viewer {
     if (d.getActiveSidebar('right', 'main') === STYLES_PANEL)
       d.closeSidebarSlot('right', 'main');
     else d.toggleSidebar('right', 'main', STYLES_PANEL);
+  }
+
+  /** The viewer's hidden print frame (in its shadow root) */
+  private printFrame(): HTMLIFrameElement | null {
+    const root = (this.container as any)?.shadowRoot ?? this.host;
+    return root.querySelector('iframe[title="Print Document"]');
   }
 
   private tabFor(docId: string): string | undefined {
@@ -465,6 +496,12 @@ export class Viewer {
     // After the zoom has laid the pages out again
     setTimeout(() => {
       try {
+        if (view.scroll) {
+          this.cap('viewport')
+            .forDocument(id)
+            .scrollTo({ ...view.scroll, behavior: 'instant' });
+          return;
+        }
         const scroll = this.cap('scroll').forDocument(id);
         const page = Math.min(Math.max(1, view.page), scroll.getTotalPages());
         if (page > 1)
@@ -690,6 +727,18 @@ export class Viewer {
       return typeof level === 'number' ? level : null;
     } catch {
       return null;
+    }
+  }
+
+  /** Where the document is scrolled to (for DocView.scroll) */
+  scrollPos(tabId: string): { x: number; y: number } | undefined {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return undefined;
+    try {
+      const m = this.cap('viewport').forDocument(id).getMetrics();
+      return { x: m.scrollLeft, y: m.scrollTop };
+    } catch {
+      return undefined;
     }
   }
 

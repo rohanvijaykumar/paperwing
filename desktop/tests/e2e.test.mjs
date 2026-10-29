@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
 
 const BASE = (process.env.PAPERWING_URL || 'http://localhost:5173').replace(
   /\/$/,
@@ -138,6 +138,97 @@ async function dropPdf(name = 'sample.pdf') {
 
 const tabNames = () =>
   page.$$eval('#tabs .tab-label', (els) => els.map((e) => e.textContent));
+
+/** Where the form fields of formPdf are (PDF points, from the bottom left) */
+const FIELDS = {
+  name: { x: 50, y: 640, width: 320, height: 48 },
+  agree: { x: 50, y: 560, width: 40, height: 40 },
+};
+
+/** A one-page form made with pdf-lib, as base64: a text field (name), a
+ *  checkbox (agree) and a read-only field; optionally a script that runs
+ *  when it opens */
+async function formPdf({ text = '', checked = false, script = false } = {}) {
+  const doc = await PDFDocument.create();
+  const p = doc.addPage([612, 792]);
+  const form = doc.getForm();
+  const name = form.createTextField('name');
+  name.setText(text || undefined);
+  name.addToPage(p, { ...FIELDS.name, borderWidth: 0 });
+  name.setFontSize(28);
+  const agree = form.createCheckBox('agree');
+  agree.addToPage(p, { ...FIELDS.agree, borderWidth: 0 });
+  if (checked) agree.check();
+  const ref = form.createTextField('reference');
+  ref.setText('REF-1');
+  ref.enableReadOnly();
+  ref.addToPage(p, { x: 50, y: 400, width: 200, height: 30 });
+  if (script)
+    doc.catalog.set(
+      PDFName.of('OpenAction'),
+      doc.context.obj({ S: 'JavaScript', JS: PDFString.of('app.alert(1)') })
+    );
+  return Buffer.from(await doc.save()).toString('base64');
+}
+
+/** Dark pixels inside each form field, on page 1 of the active document as
+ *  the viewer renders it (options: the viewer's render options) */
+const inkInFields = (options = {}) =>
+  page.evaluate(
+    async ({ options, fields }) => {
+      const v = window.__acro.viewer;
+      const id = v.docIds.get(v.current);
+      const blob = await v
+        .cap('render')
+        .forDocument(id)
+        .renderPage({ pageIndex: 0, options: { scaleFactor: 1, ...options } })
+        .toPromise();
+      const img = await createImageBitmap(blob);
+      const canvas = new OffscreenCanvas(img.width, img.height);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const scale = img.width / 612;
+      const ink = {};
+      for (const [field, r] of Object.entries(fields)) {
+        const { data } = ctx.getImageData(
+          Math.round(r.x * scale),
+          Math.round((792 - r.y - r.height) * scale),
+          Math.round(r.width * scale),
+          Math.round(r.height * scale)
+        );
+        let dark = 0;
+        for (let i = 0; i < data.length; i += 4)
+          if (data[i] + data[i + 1] + data[i + 2] < 300) dark++;
+        ink[field] = dark;
+      }
+      return ink;
+    },
+    { options, fields: FIELDS }
+  );
+
+/** The active document as the viewer would save it, read with pdf-lib */
+async function exportedForm() {
+  const b64 = await page.evaluate(async () => {
+    const v = window.__acro.viewer;
+    const bytes = new Uint8Array(await v.exportBytes(v.current));
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000)
+      s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  });
+  const doc = await PDFDocument.load(Buffer.from(b64, 'base64'));
+  return { b64, form: doc.getForm() };
+}
+
+/** Wait for a dropped document to be shown */
+const shown = () =>
+  waitFor(
+    page,
+    () =>
+      !document.querySelector('#doc-stage.is-loading') &&
+      document.querySelector('#view-doc.is-active') &&
+      document.querySelector('#right-rail .rr-total')?.textContent === '1'
+  );
 
 describe('Paperwing UI', () => {
   before(async () => {
@@ -771,5 +862,111 @@ describe('Paperwing UI', () => {
       undefined,
       60000
     );
+  });
+
+  test('shows saved form values and checkbox marks, and keeps them as fields', async () => {
+    await page.evaluate(() => localStorage.removeItem('paperwing:session'));
+    await openApp();
+    await dropBytes(
+      'Filled.pdf',
+      await formPdf({ text: 'SAVED VALUE', checked: true })
+    );
+    await shown();
+    const ink = await inkInFields();
+    assert.ok(ink.name > 200, `saved text painted (${ink.name} dark pixels)`);
+    assert.ok(ink.agree > 40, `checkbox mark painted (${ink.agree})`);
+    // What the viewer showed before: widget appearances left out
+    const without = await inkInFields({ withForms: false });
+    assert.ok(without.name < 20 && without.agree < 10, JSON.stringify(without));
+    // Exported as a form, not flattened
+    const { form } = await exportedForm();
+    assert.equal(form.getTextField('name').getText(), 'SAVED VALUE');
+    assert.equal(form.getCheckBox('agree').isChecked(), true);
+    assert.equal(form.getFields().length, 3);
+  });
+
+  test('fills in form fields beside the document; the values are saved', async () => {
+    await dropBytes('Blank form.pdf', await formPdf());
+    await shown();
+    assert.ok((await inkInFields()).name < 20, 'empty to start with');
+    await page.waitForSelector('#right-rail [aria-label="Form fields"]');
+    await page.click('#right-rail [aria-label="Form fields"]');
+    await page.waitForSelector('#form-panel [data-field="name"]');
+    assert.equal(
+      await page
+        .$eval('#form-panel [data-field="reference"]', (e) => [
+          e.value,
+          e.disabled,
+        ])
+        .then(String),
+      'REF-1,true',
+      'read-only field shown, not editable'
+    );
+
+    await page.click('#form-panel [data-field="name"]');
+    await page.keyboard.type('TYPED VALUE');
+    await page.keyboard.press('Tab'); // leaving the field writes it
+    await waitFor(page, () =>
+      document.querySelector('#tabs .tab.is-active.is-dirty')
+    );
+    await page.click('#form-panel [data-field="agree"]');
+    let exported;
+    for (const end = Date.now() + 15000; Date.now() < end; await sleep(200)) {
+      exported = await exportedForm().catch(() => null);
+      if (exported?.form.getCheckBox('agree').isChecked()) break;
+    }
+    // The page shows the new values
+    const ink = await inkInFields();
+    assert.ok(ink.name > 200 && ink.agree > 40, JSON.stringify(ink));
+    const { b64, form } = exported;
+    assert.equal(form.getTextField('name').getText(), 'TYPED VALUE');
+    assert.equal(form.getCheckBox('agree').isChecked(), true);
+    assert.equal(form.getTextField('reference').getText(), 'REF-1');
+    assert.equal(form.getFields().length, 3, 'still a form');
+
+    // Reopening the saved file shows them
+    await dropBytes('Saved form.pdf', b64);
+    await shown();
+    await waitFor(page, () =>
+      document
+        .querySelector('#tabs .tab.is-active .tab-label')
+        ?.textContent.includes('Saved form')
+    );
+    await page.waitForSelector('#right-rail [aria-label="Form fields"]');
+    await page.click('#right-rail [aria-label="Form fields"]');
+    await waitFor(
+      page,
+      () =>
+        document.querySelector('#form-panel [data-field="name"]')?.value ===
+          'TYPED VALUE' &&
+        document.querySelector('#form-panel [data-field="agree"]')?.checked
+    );
+    const reopened = await inkInFields();
+    assert.ok(reopened.name > 200 && reopened.agree > 40);
+  });
+
+  test('says when a document has scripts it does not run', async () => {
+    await dropBytes('Scripted.pdf', await formPdf({ script: true }));
+    await shown();
+    const text = await waitFor(
+      page,
+      () => document.querySelector('#script-bar')?.textContent
+    );
+    assert.match(text, /scripted instructions that Paperwing does not run/);
+    // Still there after switching tabs and back
+    await page.click('#home-btn');
+    await page.evaluate(() =>
+      [...document.querySelectorAll('#tabs .tab')]
+        .find((t) => t.textContent.includes('Scripted.pdf'))
+        .click()
+    );
+    await page.waitForSelector('#script-bar');
+    await sleep(300); // (it slides in)
+    await page.click('#script-bar [aria-label="Dismiss"]');
+    assert.equal(await page.$('#script-bar'), null, 'dismissed');
+
+    await dropPdf('Plain.pdf');
+    await sleep(500);
+    assert.equal(await page.$('#script-bar'), null, 'none for a normal PDF');
   });
 });

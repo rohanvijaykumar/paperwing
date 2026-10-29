@@ -58,6 +58,7 @@ import {
   RotateCcw,
   FilePlus,
   FileOutput,
+  TextCursorInput,
   type IconNode,
 } from 'lucide';
 
@@ -121,6 +122,7 @@ const ICONS = {
   rotateCcw: RotateCcw,
   filePlus: FilePlus,
   fileOut: FileOutput,
+  form: TextCursorInput,
 } satisfies Record<string, IconNode>;
 
 export type IconName = keyof typeof ICONS;

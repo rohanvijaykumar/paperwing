@@ -25,6 +25,7 @@ const { pathToFileURL } = require('node:url');
 const { Readable, Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const crypto = require('node:crypto');
+const { createPrinting } = require('./print.cjs');
 
 /** PAPERWING_TRACE=1 prints startup timings (ms since the process started) */
 const trace = process.env.PAPERWING_TRACE
@@ -946,6 +947,28 @@ ipcMain.handle('paperwing:open-dialog', async (e) => {
       return { path: p, name: path.basename(p), data: await fsp.readFile(p) };
     })
   );
+});
+
+// Printing (see print.cjs): the page's print dialog lists the printers,
+// then sends the prepared document to a printer or to a PDF file
+let printing = null;
+const getPrinting = () =>
+  (printing ??= createPrinting({
+    BrowserWindow,
+    dialog,
+    settingsFile: path.join(app.getPath('userData'), 'print-settings.json'),
+    documentsDir: app.getPath('documents'),
+    writeFile: writeAtomic,
+  }));
+
+ipcMain.handle('paperwing:printers', (e) => {
+  if (!senderIsApp(e)) return { printers: [], selected: null };
+  return getPrinting().printers(e.sender);
+});
+
+ipcMain.handle('paperwing:print-pages', (e, data, request) => {
+  if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
+  return getPrinting().run(e.sender, mainWindow, data, request);
 });
 
 // Home ▸ Clear recent also clears the OS's list

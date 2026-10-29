@@ -38,6 +38,13 @@ import {
 import { Thumbnails, thumbUrl } from './thumbnails';
 import { desktop, isMac, key, toFile } from './desktop';
 import {
+  inspectPdf,
+  setFieldValues,
+  type FieldValues,
+  type FormInfo,
+} from './forms';
+import { showPrintDialog, type PrintBridge } from './print';
+import {
   type AvailableUpdate,
   checkForUpdates,
   knownUpdate,
@@ -525,6 +532,14 @@ interface Tab {
    *  disk bar offers it), and the version whose notice was dismissed */
   diskChanged?: string;
   diskDismissed?: string;
+  /** The shown version's form fields (null: none), see inspectDoc */
+  form?: FormInfo | null;
+  /** The form fields panel is open */
+  formOpen?: boolean;
+  /** The document has scripts Paperwing doesn't run; the notice about
+   *  them was dismissed */
+  scripted?: boolean;
+  scriptDismissed?: boolean;
 }
 
 const isDirty = (t: Tab) => t.version !== t.savedVersion;
@@ -990,6 +1005,7 @@ async function openDocument(
   tab.page = viewer.pageInfo(id) ?? tab.page;
   if (activeId === id) renderDocChrome(tab);
   else renderTabs();
+  void inspectDoc(tab, file.arrayBuffer(), true);
 
   if (unsaved) {
     tab.savedVersion = -1; // shows as unsaved; closing asks first
@@ -1074,6 +1090,7 @@ async function refreshIfChanged(tab: Tab, file: File): Promise<void> {
     tab.pageBusy = false;
   }
   if (!tabs.includes(tab)) return;
+  void inspectDoc(tab, file.arrayBuffer());
   if (panel) viewer.toggleSidebar(tab.id, panel.id, panel.tab);
   tab.diskHash = Promise.resolve(now);
   tab.diskChanged = tab.diskDismissed = undefined;
@@ -1171,6 +1188,258 @@ function renderDiskBar(): void {
       'db-close'
     )
   );
+}
+
+/* Form fields and scripts ------------------------------------------------ */
+
+/** The latest inspection of each tab (an older one finishing late is
+ *  ignored) */
+const inspections = new WeakMap<Tab, number>();
+
+/** Reads what the shown version of a document holds beside its pages: form
+ *  fields to fill in, and scripts Paperwing doesn't run */
+async function inspectDoc(
+  tab: Tab,
+  bytes: ArrayBuffer | Promise<ArrayBuffer>,
+  opened = false
+): Promise<void> {
+  const seq = (inspections.get(tab) ?? 0) + 1;
+  inspections.set(tab, seq);
+  let info: Awaited<ReturnType<typeof inspectPdf>>;
+  try {
+    info = await inspectPdf(await bytes);
+  } catch (err) {
+    console.warn(`Couldn't read the form of ${tab.name}`, err);
+    info = { form: null, scripted: false };
+  }
+  if (inspections.get(tab) !== seq || !tabs.includes(tab)) return;
+  tab.form = info.form;
+  tab.scripted = info.scripted;
+  if (!tab.form) tab.formOpen = false;
+  if (activeId === tab.id) {
+    renderRightRail(tab);
+    renderScriptBar();
+    renderFormPanel();
+  }
+  if (opened && !tab.formOpen && tab.form?.fields.some((f) => !f.readOnly))
+    toast(`${tab.name} has form fields you can fill in`, {
+      label: 'Fill in',
+      onClick: () => toggleFormPanel(tab, true),
+    });
+}
+
+/** The notice over a document with scripts (document JavaScript, actions
+ *  when it opens, field or page actions): none of them run here */
+function renderScriptBar(): void {
+  const tab = activeTab();
+  const show =
+    !!tab?.scripted && !tab.scriptDismissed && !tab.loading && !tab.blank;
+  let bar = document.getElementById('script-bar');
+  if (!show) {
+    bar?.remove();
+    return;
+  }
+  if (!bar) {
+    bar = h('div', { id: 'script-bar', role: 'status' });
+    $('#doc-stage').append(bar);
+  }
+  bar.replaceChildren(
+    h(
+      'span',
+      {
+        class: 'db-text',
+        title:
+          'Calculations, checks, pop-ups or other actions its author added will not happen.',
+      },
+      'This document has scripted instructions that Paperwing does not run.'
+    ),
+    iconBtn(
+      'close',
+      'Dismiss',
+      () => {
+        tab.scriptDismissed = true;
+        renderScriptBar();
+      },
+      'db-close'
+    )
+  );
+}
+
+function toggleFormPanel(tab: Tab, open = !tab.formOpen) {
+  tab.formOpen = open && !!tab.form;
+  if (activeId !== tab.id) return;
+  renderFormPanel();
+  renderRightRail(tab);
+  // The panel narrows the document: zoom out if its page no longer fits
+  const zoom = viewer.zoom(tab.id);
+  const pageWidth = viewer.docInfo(tab.id)?.width;
+  const room = $('#viewer-host').clientWidth - 96;
+  if (tab.formOpen && zoom && pageWidth && room > 0 && pageWidth * zoom > room)
+    viewer.setZoom(tab.id, room / pageWidth);
+}
+
+/** The form fields panel beside the document: what's typed (or ticked) is
+ *  written into the document when the field is left */
+function renderFormPanel(): void {
+  const tab = activeTab();
+  const form = tab?.form;
+  const show = !!form && !!tab?.formOpen && !tab.loading && !tab.blank;
+  $('#doc-stage').classList.toggle('has-form-panel', show);
+  let panel = document.getElementById('form-panel');
+  if (!show) {
+    panel?.remove();
+    return;
+  }
+  // The same fields: only update the values (rebuilding would take the
+  // focus away from the field being filled in)
+  const key = [tab.id, form.locked, ...form.fields.map((f) => f.name)].join(
+    '\n'
+  );
+  if (panel?.dataset.key === key) {
+    for (const f of form.fields) {
+      const input = panel.querySelector<HTMLInputElement>(
+        `[data-field="${CSS.escape(f.name)}"]`
+      );
+      if (!input || input === document.activeElement) continue;
+      if (f.kind === 'checkbox') input.checked = f.value === true;
+      else input.value = String(f.value);
+    }
+    return;
+  }
+  const rows = form.fields.map((f, i) => {
+    const id = `fp-field-${i}`;
+    const disabled = f.readOnly || form.locked;
+    const readOnly = f.readOnly ? h('small', {}, ' (read-only)') : null;
+    const page = f.page
+      ? h(
+          'button',
+          {
+            type: 'button',
+            class: 'fp-page',
+            // Tab goes from field to field
+            tabindex: '-1',
+            title: `Go to page ${f.page}`,
+            onClick: () => viewer.goToPage(tab.id, f.page),
+          },
+          `p. ${f.page}`
+        )
+      : null;
+    if (f.kind === 'checkbox') {
+      const input = h('input', {
+        type: 'checkbox',
+        id,
+        checked: f.value === true,
+        disabled,
+        'data-field': f.name,
+      });
+      input.addEventListener('change', () =>
+        fillFields(tab, { [f.name]: input.checked })
+      );
+      return h(
+        'div',
+        { class: 'fp-field is-check' },
+        input,
+        h('label', { for: id }, f.label, readOnly),
+        page
+      );
+    }
+    const input = h(f.multiline ? 'textarea' : 'input', {
+      class: 'dlg-input',
+      id,
+      disabled,
+      maxlength: f.maxLength,
+      rows: f.multiline ? 3 : undefined,
+      'data-field': f.name,
+    });
+    input.value = String(f.value);
+    input.addEventListener('change', () =>
+      fillFields(tab, { [f.name]: input.value })
+    );
+    return h(
+      'div',
+      { class: 'fp-field' },
+      h('label', { for: id }, f.label, readOnly),
+      page,
+      input
+    );
+  });
+  const next = h(
+    'aside',
+    { id: 'form-panel', 'aria-label': 'Form fields' },
+    h(
+      'div',
+      { class: 'fp-head' },
+      h('h2', {}, 'Form fields'),
+      iconBtn('close', 'Close', () => toggleFormPanel(tab, false))
+    ),
+    h(
+      'div',
+      { class: 'fp-body' },
+      form.locked &&
+        h(
+          'p',
+          { class: 'muted' },
+          "This document is protected, so its form can't be filled in here."
+        ),
+      ...rows,
+      !form.locked &&
+        form.other > 0 &&
+        h(
+          'p',
+          { class: 'muted' },
+          form.other === 1
+            ? "1 other field (a choice, radio button or signature) can't be filled in here."
+            : `${form.other} other fields (choices, radio buttons, signatures) can't be filled in here.`
+        )
+    )
+  );
+  next.dataset.key = key;
+  if (panel) panel.replaceWith(next);
+  else $('#doc-stage').append(next);
+}
+
+/** Form writes waiting their turn, per tab */
+const formWrites = new WeakMap<Tab, Promise<void>>();
+
+/** Writes form values into the document (see forms.ts), one change after
+ *  another. The tab reopens on the result, unsaved, and Ctrl+Z takes it
+ *  back as for page changes. */
+function fillFields(tab: Tab, values: FieldValues) {
+  const write = async () => {
+    const failed = (message: string) => {
+      toast(`Couldn't fill in the form: ${message}`);
+      // Show what the document holds again
+      if (activeId === tab.id) {
+        document.getElementById('form-panel')?.remove();
+        renderFormPanel();
+      }
+    };
+    if (!tabs.includes(tab)) return;
+    if (tab.loading || tab.blank || tab.fullTool || tab.pageBusy) {
+      failed('the document is busy, try again');
+      return;
+    }
+    tab.pageBusy = true;
+    try {
+      const before = await viewer.exportBytes(tab.id);
+      if (!before) throw new Error('the document is still loading');
+      const after = await setFieldValues(before, values);
+      await showPageVersion(
+        tab,
+        after,
+        tab.page.current || 1,
+        viewer.scrollPos(tab.id)
+      );
+      tab.pageUndo = [...(tab.pageUndo ?? []), before].slice(-PAGE_UNDO_LIMIT);
+      tab.pageRedo = [];
+    } catch (err) {
+      console.error(err);
+      failed((err as Error).message ?? String(err));
+    } finally {
+      tab.pageBusy = false;
+    }
+  };
+  formWrites.set(tab, (formWrites.get(tab) ?? Promise.resolve()).then(write));
 }
 
 /** Show the version of a tab's file that's on disk now (asks first if there
@@ -1931,6 +2200,8 @@ function renderDocChrome(tab: Tab) {
   $('#view-doc').classList.toggle('has-full-tool', !!tab.fullTool);
   $('#doc-stage').classList.toggle('is-loading', tab.loading);
   renderDiskBar();
+  renderScriptBar();
+  renderFormPanel();
   $('#doc-stage').classList.toggle('is-blank', tab.blank);
   $('#view-doc').classList.toggle('is-workspace', tab.blank);
   for (const id of ['#save-btn', '#print-btn', '#download-btn']) {
@@ -2426,11 +2697,20 @@ async function changePages(
 
 /** Shows another version of the document's pages, keeping the zoom and
  *  the open panel, and marks it changed */
-async function showPageVersion(tab: Tab, bytes: ArrayBuffer, page: number) {
+async function showPageVersion(
+  tab: Tab,
+  bytes: ArrayBuffer,
+  page: number,
+  /** Keep this scroll position (the pages didn't move) */
+  scroll?: DocView['scroll']
+) {
   const panel = viewer.activePanel(tab.id);
   const zoom = viewer.zoom(tab.id) ?? undefined;
-  await viewer.replace(tab.id, bytes, { page, zoom: zoom ?? 1 });
+  // (a copy: the viewer may take the buffer)
+  const shown = bytes.slice(0);
+  await viewer.replace(tab.id, bytes, { page, zoom: zoom ?? 1, scroll });
   if (!tabs.includes(tab)) return;
+  void inspectDoc(tab, shown);
   if (panel) viewer.toggleSidebar(tab.id, panel.id, panel.tab);
   tab.page = viewer.pageInfo(tab.id) ?? tab.page;
   tab.version++;
@@ -3019,7 +3299,20 @@ function renderRightRail(tab: Tab) {
     ),
     panelBtn('search', 'Find text', 'search-panel', () =>
       viewer.command(tab.id, 'panel:toggle-search')
-    )
+    ),
+    tab.form &&
+      h(
+        'button',
+        {
+          type: 'button',
+          class: `rr-btn${tab.formOpen ? ' is-on' : ''}`,
+          title: 'Form fields',
+          'aria-label': 'Form fields',
+          'aria-pressed': String(!!tab.formOpen),
+          onClick: () => toggleFormPanel(tab),
+        },
+        icon('form')
+      )
   );
   const pageInput = h('input', {
     class: 'rr-page',
@@ -3241,6 +3534,16 @@ $('#save-btn').addEventListener('click', () => {
   const t = activeDoc();
   if (t) void saveDoc(t);
 });
+// Desktop app: the document the viewer's print dialog prepares (pages,
+// annotations) goes to Paperwing's, which prints it through the desktop
+// shell (the viewer's own way prints nothing there)
+if (desktop?.printers && desktop.printPages) {
+  const bridge = desktop as PrintBridge;
+  viewer.printTo = (tabId, pdf) => {
+    const tab = tabs.find((t) => t.id === tabId);
+    void showPrintDialog(bridge, pdf, tab?.name ?? 'Document.pdf', toast);
+  };
+}
 $('#print-btn').addEventListener('click', () => {
   const t = activeDoc();
   if (t) viewer.command(t.id, 'document:print');
