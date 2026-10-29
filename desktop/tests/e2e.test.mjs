@@ -969,4 +969,119 @@ describe('Paperwing UI', () => {
     await sleep(500);
     assert.equal(await page.$('#script-bar'), null, 'none for a normal PDF');
   });
+
+  /** A tool frame (or a frame inside one) once its page has `ready` */
+  async function frameWhere(urlPattern, ready) {
+    for (let i = 0; i < 200; i++) {
+      const f = page.frames().find((f) => urlPattern.test(f.url()));
+      if (f && (await f.evaluate(ready).catch(() => false))) return f;
+      await sleep(150);
+    }
+    throw new Error(`No frame ${urlPattern}`);
+  }
+
+  /** Records the viewer commands the workspace runs; print isn't run */
+  const recordCommands = () =>
+    page.evaluate(() => {
+      window.__commands = [];
+      const v = window.__acro.viewer;
+      const run = v.command.bind(v);
+      v.command = (id, command) => {
+        window.__commands.push(command);
+        if (command !== 'document:print') return run(id, command);
+      };
+    });
+
+  test('Markdown Export PDF opens the PDF as a document, without printing', async () => {
+    await waitFor(page, () => 'ready' in document.documentElement.dataset);
+    await page.click('#home-btn');
+    await page.click('#create-btn');
+    await page.evaluate(() =>
+      [...document.querySelectorAll('.menu-item')]
+        .find((b) => b.textContent.includes('From Markdown'))
+        .click()
+    );
+    const tool = await frameWhere(
+      /markdown-to-pdf/,
+      () => !!document.getElementById('mdExport')
+    );
+    await recordCommands();
+    await tool.evaluate(() => {
+      const text = document.getElementById('mdTextarea');
+      text.value =
+        '# Exported\n\n' +
+        Array.from({ length: 70 }, (_, i) => `- Line ${i + 1}`).join('\n');
+      text.dispatchEvent(new Event('input'));
+    });
+    const exported = async () =>
+      (await tabNames()).filter((n) => n === 'Markdown.pdf').length;
+    const before = await exported();
+    await tool.click('#mdExport');
+    await waitFor(
+      page,
+      () =>
+        document.querySelector('#tabs .tab.is-active .tab-label')
+          ?.textContent === 'Markdown.pdf' &&
+        document.querySelector('#right-rail .rr-total')?.textContent === '2',
+      undefined,
+      60000
+    );
+    assert.equal(await exported(), before + 1, 'opened as a document');
+    const head = await page.evaluate(async () => {
+      const v = window.__acro.viewer;
+      const bytes = new Uint8Array(await v.exportBytes(v.current));
+      return String.fromCharCode(...bytes.subarray(0, 5));
+    });
+    assert.equal(head, '%PDF-');
+    assert.deepEqual(
+      await page.evaluate(() => window.__commands),
+      [],
+      'not printed'
+    );
+  });
+
+  test('print() in a tool, or in the PDF.js viewer it embeds, prints the open document', async () => {
+    await dropPdf('Report.pdf');
+    await recordCommands();
+    await page.evaluate(() =>
+      [...document.querySelectorAll('.lp-tool')]
+        .find((b) => b.textContent.includes('Fill & Sign'))
+        .click()
+    );
+    const tool = await frameWhere(/sign-pdf/, () => !!document.body);
+    const viewer = await frameWhere(
+      /pdfjs-viewer\/viewer\.html/,
+      () =>
+        !!window.PDFViewerApplication?.pdfDocument &&
+        document.readyState === 'complete'
+    );
+    await tool.evaluate(() => window.print());
+    await waitFor(page, () => window.__commands.length === 1);
+    await viewer.evaluate(() => window.print());
+    await waitFor(page, () => window.__commands.length === 2);
+    // PDF.js's own Ctrl+P
+    await viewer.evaluate(() =>
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'p',
+          keyCode: 80,
+          ctrlKey: true,
+          cancelable: true,
+        })
+      )
+    );
+    await waitFor(page, () => window.__commands.length === 3);
+    assert.deepEqual(await page.evaluate(() => window.__commands), [
+      'document:print',
+      'document:print',
+      'document:print',
+    ]);
+    assert.equal(
+      await viewer.evaluate(
+        () => !!document.querySelector('#printContainer > *')
+      ),
+      false,
+      "PDF.js didn't prepare a print of its own"
+    );
+  });
 });

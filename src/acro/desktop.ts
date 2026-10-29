@@ -98,6 +98,14 @@ export interface DesktopBridge {
   printers?(): Promise<{ printers: Printer[]; selected: string | null }>;
   /** Print a document (one at a time), or save it as a PDF file */
   printPages?(data: Uint8Array, request: PrintRequest): Promise<PrintResult>;
+  /** A complete HTML document, styled for print, made into a PDF by the
+   *  print engine (scripts don't run) */
+  htmlToPdf?(html: string): Promise<{
+    ok: boolean;
+    data?: Uint8Array;
+    error?: string;
+    message?: string;
+  }>;
   onOpenFile(callback: (file: DesktopFile) => void): () => void;
   /** The window is about to close; call confirmClose() to let it */
   onCloseRequested?(callback: () => void): () => void;

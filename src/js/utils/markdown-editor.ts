@@ -30,6 +30,7 @@ import taskLists from 'markdown-it-task-lists';
 import anchor from 'markdown-it-anchor';
 import tocDoneRight from 'markdown-it-toc-done-right';
 import { applyTranslations } from '../i18n/i18n';
+import { exportPdfToShell } from '../../reskin/export-pdf';
 import type {
   WindowWithLucide,
   WindowWithI18next,
@@ -788,13 +789,19 @@ export class MarkdownEditor {
   }
 
   private exportPdf(): void {
+    // Inside Paperwing the PDF opens as a document, and is printed from there
+    if (
+      exportPdfToShell(
+        this.getStyledHtml(this.preview?.innerHTML),
+        'Markdown.pdf'
+      )
+    )
+      return;
     // Use browser's native print functionality
     window.print();
   }
 
-  private getStyledHtml(): string {
-    const content = this.getHtml();
-
+  private getStyledHtml(content: string = this.getHtml()): string {
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -1029,6 +1036,14 @@ export class MarkdownEditor {
       font-family: monospace;
       font-size: 0.9em;
     }
+    /* On paper (as markdown-editor.css prints the preview) */
+    @page { size: A4; margin: 16mm; }
+    html, body { background: white; }
+    body { max-width: none; margin: 0; padding: 0; overflow-wrap: break-word; }
+    body > :first-child { margin-top: 0; }
+    pre, pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
+    h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+    pre, table, .mermaid-diagram { break-inside: avoid; }
   </style>
 </head>
 <body>

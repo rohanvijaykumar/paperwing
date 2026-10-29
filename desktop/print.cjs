@@ -7,17 +7,28 @@
  * is opened in a hidden window by Chromium's PDF viewer and printed from
  * there: the real PDF goes to the printer, so text stays text.
  *
+ * Tools that make a document from a web page (Markdown to PDF) have it made
+ * into a PDF here too (htmlToPdf), by the same print engine, instead of
+ * calling print(), whose dialog can't preview in Electron.
+ *
  * Electron's dependencies are passed in, so tests can stand in for them.
  */
 const path = require('node:path');
 const os = require('node:os');
 const fsp = require('node:fs/promises');
+const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 
 const DUPLEX_MODES = ['simplex', 'longEdge', 'shortEdge'];
 const MAX_COPIES = 99;
 /** How long the PDF viewer may take to open the document */
 const LOAD_TIMEOUT_MS = 60000;
+/** Pages made into a PDF (htmlToPdf) are shown on their own session, by a
+ *  scheme of their own: nothing else is served there, and a page on it can't
+ *  load the computer's files (file: URLs) */
+const HTML_PARTITION = 'paperwing-html-to-pdf';
+const HTML_SCHEME = 'paperwing-pdf';
+const MAX_HTML_CHARS = 64 * 1024 * 1024;
 
 /** The printer to preselect: the last one printed to, if it's still
  *  there, else the system default (else the first one) */
@@ -72,6 +83,7 @@ async function pdfLoaded(wc, timeout = LOAD_TIMEOUT_MS) {
 function createPrinting({
   BrowserWindow,
   dialog,
+  session,
   /** JSON file for the last printer used */
   settingsFile,
   /** Where Save as PDF suggests saving */
@@ -206,7 +218,74 @@ function createPrinting({
     }
   }
 
-  return { printers, run };
+  /** Pages being made into PDFs, by URL */
+  const pages = new Map();
+  let htmlSession = null;
+  function sessionForHtml() {
+    if (htmlSession) return htmlSession;
+    const ses = session.fromPartition(HTML_PARTITION, { cache: false });
+    ses.protocol.handle(HTML_SCHEME, (request) => {
+      const html = pages.get(request.url);
+      return html === undefined
+        ? new Response('', { status: 404 })
+        : new Response(html, {
+            headers: { 'content-type': 'text/html; charset=utf-8' },
+          });
+    });
+    ses.webRequest.onBeforeRequest((details, callback) =>
+      callback({ cancel: /^(file|app):/i.test(details.url) })
+    );
+    ses.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
+    htmlSession = ses;
+    return ses;
+  }
+
+  /**
+   * A web page (a complete HTML document, styled for print) as a PDF, laid
+   * out by Chromium's print engine: text stays text. Scripts don't run.
+   */
+  async function htmlToPdf(html) {
+    try {
+      if (typeof html !== 'string' || !html.trim())
+        throw new TypeError('Not an HTML document');
+      if (html.length > MAX_HTML_CHARS)
+        throw new TypeError('The document is too large');
+      const url = `${HTML_SCHEME}://page/${randomUUID()}.html`;
+      pages.set(url, html);
+      let win = null;
+      try {
+        win = new BrowserWindow({
+          show: false,
+          webPreferences: {
+            session: sessionForHtml(),
+            sandbox: true,
+            contextIsolation: true,
+            nodeIntegration: false,
+            javascript: false,
+          },
+        });
+        win.webContents.setWindowOpenHandler?.(() => ({ action: 'deny' }));
+        win.webContents.on('will-navigate', (e) => e.preventDefault());
+        await win.loadURL(url);
+        const data = await win.webContents.printToPDF({
+          printBackground: true,
+          preferCSSPageSize: true,
+        });
+        return { ok: true, data: new Uint8Array(data) };
+      } finally {
+        pages.delete(url);
+        if (win && !win.isDestroyed()) win.destroy();
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof TypeError ? 'invalid' : 'failed',
+        message: String(err?.message ?? err),
+      };
+    }
+  }
+
+  return { printers, run, htmlToPdf };
 }
 
 module.exports = { createPrinting, pickPrinter, checkOptions, pdfLoaded };

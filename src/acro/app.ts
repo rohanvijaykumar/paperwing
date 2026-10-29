@@ -1722,6 +1722,21 @@ window.addEventListener('message', async (e: MessageEvent) => {
     ft.reveal();
   } else if (e.data?.type === 'acro:dirty') {
     ft.dirty = !!e.data.dirty;
+  } else if (e.data?.type === 'acro:print-document') {
+    if (!document.querySelector('.dlg-backdrop')) printActiveDoc();
+  } else if (
+    e.data?.type === 'acro:html-to-pdf' &&
+    typeof e.data.html === 'string'
+  ) {
+    // The tool can't reach the desktop bridge itself (see origins.ts)
+    const result = desktop?.htmlToPdf
+      ? await desktop.htmlToPdf(e.data.html).catch((): null => null)
+      : null;
+    postToFrame(ft, {
+      type: 'acro:html-to-pdf',
+      id: e.data.id,
+      data: result?.ok ? result.data : null,
+    });
   } else if (e.data?.type === 'acro:download' && e.data.blob instanceof Blob) {
     const blob = e.data.blob;
     const name = uniqueTabName(String(e.data.name || 'download'));
@@ -3544,10 +3559,11 @@ if (desktop?.printers && desktop.printPages) {
     void showPrintDialog(bridge, pdf, tab?.name ?? 'Document.pdf', toast);
   };
 }
-$('#print-btn').addEventListener('click', () => {
+function printActiveDoc() {
   const t = activeDoc();
   if (t) viewer.command(t.id, 'document:print');
-});
+}
+$('#print-btn').addEventListener('click', printActiveDoc);
 $('#download-btn').addEventListener('click', async () => {
   const t = activeDoc();
   const blob = t && (await docBlob(t));

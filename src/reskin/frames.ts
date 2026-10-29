@@ -97,6 +97,23 @@ export function onViewerDownload(fn: (blob: Blob, name: string) => void) {
   viewerDownload = fn;
 }
 
+/** What print() in an embedded viewer does instead (set by reskin.ts) */
+let viewerPrint: (() => void) | null = null;
+
+export function onViewerPrint(fn: () => void) {
+  viewerPrint = fn;
+}
+
+/**
+ * A viewer's print() (its Ctrl+P, a print button) would open the browser's
+ * print dialog, which in the desktop app can't show a preview. PDF.js puts
+ * its own print() in place as it starts, so this is done again each time
+ * the viewer is themed (also once it has loaded).
+ */
+function routeViewerPrint(win: Window | null) {
+  if (win && viewerPrint) win.print = viewerPrint;
+}
+
 interface PdfjsDownloads {
   download?: (data: Uint8Array, url: string, name: string) => unknown;
   downloadData?: (data: Uint8Array, name: string, type: string) => unknown;
@@ -219,6 +236,7 @@ function themeDocument(doc: Document, kind: ViewerKind) {
   applyThemeTo(doc);
   if (kind === 'pdfjs') routeViewerDownloads(doc.defaultView);
   routeLinkDownloads(doc.defaultView);
+  routeViewerPrint(doc.defaultView);
 
   if (!themedDocs.has(doc)) {
     themedDocs.add(doc);
