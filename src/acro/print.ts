@@ -1,8 +1,8 @@
 /**
- * The desktop app's print dialog: where the document the viewer's print
- * dialog prepared goes (a printer, or a PDF file) and how. The printing
- * itself happens in the desktop shell (desktop/print.cjs), the same way on
- * Windows, macOS and Linux.
+ * The desktop app's print dialog: a preview of the document the viewer's
+ * print dialog prepared, and where it goes (a printer, or a PDF file) and
+ * how. The printing itself happens in the desktop shell (desktop/print.cjs),
+ * the same way on Windows, macOS and Linux.
  */
 import type {
   DesktopBridge,
@@ -10,6 +10,8 @@ import type {
   PrintRequest,
   PrintResult,
 } from './desktop';
+import { icon } from './icons';
+import { openPreview, type PrintPreview } from './print-preview';
 
 export type PrintBridge = Required<
   Pick<DesktopBridge, 'printers' | 'printPages'>
@@ -95,6 +97,29 @@ export async function showPrintDialog(
       if (!on) printBtn.disabled = !printers.length;
     };
 
+    const canvas = el('canvas', { class: 'pd-page' });
+    const sheet = el(
+      'div',
+      { class: 'pd-sheet', role: 'img', 'aria-label': 'Preview' },
+      canvas
+    );
+    const count = el(
+      'span',
+      { class: 'pd-count', 'aria-live': 'polite' },
+      'Preparing preview…'
+    );
+    const navBtn = (label: string, glyph: 'chevronLeft' | 'chevronRight') => {
+      const b = el(
+        'button',
+        { type: 'button', class: 'tb-btn', 'aria-label': label, title: label },
+        icon(glyph, 16)
+      );
+      b.hidden = true;
+      return b;
+    };
+    const prevBtn = navBtn('Previous page', 'chevronLeft');
+    const nextBtn = navBtn('Next page', 'chevronRight');
+
     const backdrop = el(
       'div',
       { class: 'dlg-backdrop' },
@@ -104,23 +129,74 @@ export async function showPrintDialog(
         el('div', { class: 'dlg-head' }, el('h2', {}, 'Print')),
         el(
           'div',
-          { class: 'dlg-body prefs' },
-          printers.length
-            ? row('Printer', printer)
-            : el(
-                'p',
-                { class: 'pd-none' },
-                'No printers found. You can save the document as a PDF instead.'
-              ),
-          row('Copies', copies),
-          row('Color', color),
-          row('Two-sided', duplex),
+          { class: 'dlg-body' },
+          el(
+            'div',
+            { class: 'pd-layout' },
+            el(
+              'div',
+              { class: 'pd-preview' },
+              sheet,
+              el('div', { class: 'pd-nav' }, prevBtn, count, nextBtn)
+            ),
+            el(
+              'div',
+              { class: 'prefs pd-settings' },
+              printers.length
+                ? row('Printer', printer)
+                : el(
+                    'p',
+                    { class: 'pd-none' },
+                    'No printers found. You can save the document as a PDF instead.'
+                  ),
+              row('Copies', copies),
+              row('Color', color),
+              row('Two-sided', duplex)
+            )
+          ),
           status,
           el('div', { class: 'dlg-actions' }, cancelBtn, pdfBtn, printBtn)
         )
       )
     );
     busy(false);
+
+    let preview: PrintPreview | null = null;
+    let shown = 1;
+    let closed = false;
+    function showPage(n: number) {
+      if (!preview) return;
+      shown = n;
+      prevBtn.disabled = n <= 1;
+      nextBtn.disabled = n >= preview.pages;
+      count.textContent =
+        preview.pages > 1 ? `Page ${n} of ${preview.pages}` : '1 page';
+      sheet.setAttribute('aria-label', `Preview of page ${n}`);
+      const pad = 16;
+      preview
+        .draw(
+          n,
+          canvas,
+          Math.max(sheet.clientWidth - pad * 2, 1),
+          Math.max(sheet.clientHeight - pad * 2, 1)
+        )
+        .catch(() => (count.textContent = "The preview couldn't be drawn"));
+    }
+    prevBtn.addEventListener('click', () => showPage(shown - 1));
+    nextBtn.addEventListener('click', () => showPage(shown + 1));
+    // The printer gets `pdf` as it is: PDF.js takes over the buffer it's
+    // given, so the preview gets a copy
+    openPreview(pdf.slice()).then(
+      (p) => {
+        if (closed) return p.close();
+        preview = p;
+        prevBtn.hidden = nextBtn.hidden = p.pages < 2;
+        showPage(1);
+      },
+      () => {
+        if (!closed) count.textContent = 'No preview for this document';
+      }
+    );
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -133,6 +209,8 @@ export async function showPrintDialog(
     (printers.length ? printBtn : pdfBtn).focus();
 
     function finish(outcome: PrintOutcome) {
+      closed = true;
+      preview?.close();
       backdrop.remove();
       document.removeEventListener('keydown', onKey, true);
       resolve(outcome);

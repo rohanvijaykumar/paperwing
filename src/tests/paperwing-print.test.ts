@@ -1,10 +1,45 @@
 // The desktop app's print dialog (src/acro/print.ts), with a stand-in for
 // the desktop bridge: nothing is printed
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { showPrintDialog, type PrintBridge } from '../acro/print';
 import type { Printer, PrintResult } from '../acro/desktop';
 
-const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]);
+const PDF_BYTES = [0x25, 0x50, 0x44, 0x46, 0x2d];
+const PDF = new Uint8Array(PDF_BYTES);
+
+/** Stand-in for the PDF.js preview. Like PDF.js, it takes over the buffer
+ *  it's given (moves it to a worker), leaving that array empty. */
+const preview = vi.hoisted(() => ({
+  pages: 3,
+  fail: false,
+  given: [] as Uint8Array[],
+  draw: [] as number[],
+  closed: 0,
+}));
+vi.mock('../acro/print-preview', () => ({
+  openPreview: async (data: Uint8Array) => {
+    preview.given.push(data);
+    structuredClone(data, { transfer: [data.buffer as ArrayBuffer] });
+    if (preview.fail) throw new Error('unreadable');
+    return {
+      pages: preview.pages,
+      draw: async (n: number) => {
+        preview.draw.push(n);
+      },
+      close: () => {
+        preview.closed++;
+      },
+    };
+  },
+}));
+
+beforeEach(() => {
+  preview.pages = 3;
+  preview.fail = false;
+  preview.given = [];
+  preview.draw = [];
+  preview.closed = 0;
+});
 const OFFICE: Printer = {
   name: 'office',
   displayName: 'Office laser',
@@ -158,5 +193,89 @@ describe('print dialog', () => {
     );
     expect(button('Print').disabled).toBe(false);
     button('Cancel').click();
+  });
+});
+
+describe('print preview', () => {
+  const count = () => document.querySelector('.pd-count')?.textContent;
+  const nav = (label: string) =>
+    document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+
+  it('shows the pages of the prepared document beside the printer', async () => {
+    const b = bridge([OFFICE], 'office');
+    const { button } = await open(b);
+    expect(document.querySelector('.pd-preview canvas')).not.toBeNull();
+    expect(
+      document.querySelector('.pd-settings [aria-label="Printer"]')
+    ).not.toBeNull();
+    await vi.waitFor(() => expect(count()).toBe('Page 1 of 3'));
+    // The document the dialog was given (a copy of it)
+    expect(preview.given).toHaveLength(1);
+    expect(preview.draw).toEqual([1]);
+    expect(nav('Previous page').hidden).toBe(false);
+    expect(nav('Previous page').disabled).toBe(true);
+    nav('Next page').click();
+    nav('Next page').click();
+    expect(count()).toBe('Page 3 of 3');
+    expect(nav('Next page').disabled).toBe(true);
+    nav('Previous page').click();
+    expect(count()).toBe('Page 2 of 3');
+    expect(preview.draw).toEqual([1, 2, 3, 2]);
+    button('Cancel').click();
+    expect(preview.closed).toBe(1);
+  });
+
+  it('a one-page document: no page buttons', async () => {
+    preview.pages = 1;
+    const { button } = await open(bridge([OFFICE], 'office'));
+    await vi.waitFor(() => expect(count()).toBe('1 page'));
+    expect(nav('Previous page').hidden).toBe(true);
+    expect(nav('Next page').hidden).toBe(true);
+    button('Cancel').click();
+  });
+
+  it('drawing the preview does not change what is printed', async () => {
+    const pdf = new Uint8Array(PDF_BYTES);
+    const b = bridge([OFFICE], 'office');
+    const done = showPrintDialog(b, pdf, 'Report.pdf', vi.fn());
+    await vi.waitFor(() => expect(count()).toBe('Page 1 of 3'));
+    // The preview took over its copy; the dialog's document is untouched
+    expect(preview.given[0] === pdf).toBe(false);
+    expect(preview.given[0].byteLength).toBe(0);
+    expect([...pdf]).toEqual(PDF_BYTES);
+    document
+      .querySelector<HTMLButtonElement>('.dlg-actions .accent-btn')!
+      .click();
+    expect(await done).toBe('printed');
+    const [sent] = b.printPages.mock.calls[0] as unknown as [Uint8Array];
+    expect(sent).toBe(pdf);
+    expect([...sent]).toEqual(PDF_BYTES);
+  });
+
+  it('Save as PDF saves the original bytes too', async () => {
+    const pdf = new Uint8Array(PDF_BYTES);
+    const b = bridge([OFFICE], 'office');
+    const done = showPrintDialog(b, pdf, 'Report.pdf', vi.fn());
+    await vi.waitFor(() => expect(count()).toBe('Page 1 of 3'));
+    document
+      .querySelector<HTMLButtonElement>('.dlg-actions .pill-btn')!
+      .click();
+    expect(await done).toBe('saved');
+    const [sent] = b.printPages.mock.calls[0] as unknown as [Uint8Array];
+    expect([...sent]).toEqual(PDF_BYTES);
+  });
+
+  it("a document PDF.js can't read still prints", async () => {
+    preview.fail = true;
+    const b = bridge([OFFICE], 'office');
+    const { button, done } = await open(b);
+    await vi.waitFor(() =>
+      expect(count()).toBe('No preview for this document')
+    );
+    expect(nav('Next page').hidden).toBe(true);
+    button('Print').click();
+    expect(await done).toBe('printed');
+    expect(b.printPages).toHaveBeenCalledWith(PDF, expect.anything());
+    expect([...PDF]).toEqual(PDF_BYTES);
   });
 });

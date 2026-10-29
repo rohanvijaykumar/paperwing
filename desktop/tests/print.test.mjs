@@ -43,11 +43,19 @@ class FakeWindow {
         const { ok, reason, delay = 0 } = printResult;
         setTimeout(() => done(ok, reason), delay);
       },
+      async printToPDF(opts) {
+        this.pdfOptions = opts;
+        if (pdfResult instanceof Error) throw pdfResult;
+        return pdfResult;
+      },
     };
     windows.push(this);
   }
   async loadURL(url) {
     this.url = url;
+    // A page on the HTML session is served by its protocol handler
+    const ses = this.options.webPreferences.session;
+    if (ses) this.served = await (await ses.serve(url)).text();
   }
   isDestroyed() {
     return this.destroyed;
@@ -60,10 +68,44 @@ class FakeWindow {
 const sender = { getPrintersAsync: async () => printers };
 const prints = () => windows.flatMap((w) => w.webContents.prints);
 
+let pdfResult;
+let partitions;
+/** Stand-in for Electron's session module */
+const fakeSession = {
+  fromPartition(name, options) {
+    const ses = {
+      name,
+      options,
+      handlers: {},
+      blocked: null,
+      protocol: {
+        handle(scheme, handler) {
+          ses.handlers[scheme] = handler;
+        },
+      },
+      webRequest: {
+        onBeforeRequest(listener) {
+          ses.blocked = (url) =>
+            new Promise((resolve) =>
+              listener({ url }, ({ cancel }) => resolve(!!cancel))
+            );
+        },
+      },
+      setPermissionRequestHandler(handler) {
+        ses.permission = handler;
+      },
+      serve: (url) => ses.handlers[url.split(':')[0]]({ url }),
+    };
+    partitions.push(ses);
+    return ses;
+  },
+};
+
 function service() {
   return createPrinting({
     BrowserWindow: FakeWindow,
     dialog: { showSaveDialog: async (...args) => saveDialog(...args) },
+    session: fakeSession,
     settingsFile: join(dir, 'print-settings.json'),
     documentsDir: join(dir, 'Documents'),
     writeFile: async (file, data) => written.push({ file, data }),
@@ -88,6 +130,8 @@ beforeEach(() => {
   printResult = { ok: true };
   saveDialog = async () => ({ canceled: true });
   written = [];
+  pdfResult = Buffer.from('%PDF-1.4\n%from html\n%%EOF\n');
+  partitions = [];
 });
 
 describe('choosing the printer', () => {
@@ -265,6 +309,74 @@ describe('Save as PDF', () => {
     assert.deepEqual(result, { ok: false, cancelled: true });
     assert.equal(written.length, 0);
     assert.equal(prints().length, 0);
+  });
+});
+
+describe('making a web page into a PDF (Markdown to PDF)', () => {
+  const HTML = '<!DOCTYPE html><html><body><h1>Notes</h1></body></html>';
+
+  test('lays the page out with the print engine, scripts off', async () => {
+    const result = await service().htmlToPdf(HTML);
+    assert.equal(result.ok, true);
+    assert.deepEqual(Buffer.from(result.data).toString(), pdfResult.toString());
+    assert.equal(windows.length, 1);
+    const [win] = windows;
+    assert.equal(win.options.show, false);
+    const prefs = win.options.webPreferences;
+    assert.equal(prefs.sandbox, true);
+    assert.equal(prefs.javascript, false);
+    assert.equal(prefs.nodeIntegration, false);
+    assert.equal(prefs.session, partitions[0]);
+    assert.equal(win.served, HTML);
+    assert.deepEqual(win.webContents.pdfOptions, {
+      printBackground: true,
+      preferCSSPageSize: true,
+    });
+    // Never printed, never written anywhere, nothing left behind
+    assert.equal(prints().length, 0);
+    assert.equal(written.length, 0);
+    assert.ok(win.destroyed);
+    assert.equal((await partitions[0].serve(win.url)).status, 404);
+  });
+
+  test('on a session of its own that cannot load local files', async () => {
+    const p = service();
+    await p.htmlToPdf(HTML);
+    await p.htmlToPdf(HTML);
+    assert.equal(partitions.length, 1, 'one session, made once');
+    const [ses] = partitions;
+    assert.notEqual(ses.name, '');
+    assert.ok(!ses.name.startsWith('persist:'), 'kept in memory only');
+    assert.equal(await ses.blocked('file:///etc/passwd'), true);
+    assert.equal(await ses.blocked('app://paperwing/app.html'), true);
+    assert.equal(await ses.blocked('https://example.com/a.png'), false);
+    let allowed;
+    ses.permission(null, 'media', (ok) => (allowed = ok));
+    assert.equal(allowed, false);
+  });
+
+  test('does not wait for or block printing', async () => {
+    const p = service();
+    printResult = { ok: true, delay: 50 };
+    const printing = p.run(sender, null, PDF, toPrinter('office'));
+    assert.equal((await p.htmlToPdf(HTML)).ok, true);
+    assert.deepEqual(await printing, { ok: true });
+  });
+
+  test('refuses what is not a page; reports a failure', async () => {
+    const p = service();
+    for (const bad of ['', '   ', null, 42, new Uint8Array(3)]) {
+      const result = await p.htmlToPdf(bad);
+      assert.equal(result.ok, false);
+      assert.equal(result.error, 'invalid');
+    }
+    assert.equal(windows.length, 0);
+    pdfResult = new Error('render process gone');
+    const failed = await p.htmlToPdf(HTML);
+    assert.equal(failed.ok, false);
+    assert.equal(failed.error, 'failed');
+    assert.match(failed.message, /render process gone/);
+    assert.ok(windows[0].destroyed);
   });
 });
 
