@@ -274,6 +274,8 @@ export class Viewer {
         },
       } as any) as EmbedPdfContainer;
       this.registry = await (this.container as any).registry;
+      skinViewerDialogs(this.host);
+      requestAnimationFrame(() => skinViewerDialogs(this.host));
       performance.mark('pw:engine-ready');
       onThemeChange(() => (this.container as any)?.setTheme?.(viewerTheme()));
 
@@ -821,4 +823,63 @@ export class Viewer {
     if (!id) return null;
     return this.cap('export').forDocument(id).saveAsCopy().toPromise();
   }
+}
+
+/** The viewer's own dialogs (Print Settings and the others built the same
+ *  way) live in its shadow tree, so they miss the shell's window style.
+ *  This paints that shell: the same radius, type, and pill buttons. */
+function skinViewerDialogs(host: HTMLElement) {
+  const root = host.querySelector('embedpdf-container')?.shadowRoot;
+  if (!root || root.getElementById('pw-dialog-skin')) return;
+  const style = document.createElement('style');
+  style.id = 'pw-dialog-skin';
+  style.textContent = `
+    .fixed.inset-0.z-50 {
+      font-family: 'Source Sans 3', 'Segoe UI', system-ui, sans-serif;
+      background: rgb(0 0 0 / 0.35) !important;
+    }
+    .fixed.inset-0.z-50 > div {
+      width: min(460px, calc(100vw - 32px)) !important;
+      border: 0 !important;
+      border-radius: 10px !important;
+      box-shadow: 0 12px 40px rgb(0 0 0 / 0.25) !important;
+    }
+    .fixed.inset-0.z-50 h2 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .fixed.inset-0.z-50 .border-b {
+      border-bottom: 0;
+      padding: 14px 10px 6px 20px;
+    }
+    .fixed.inset-0.z-50 .border-t {
+      border-top: 0;
+      margin-top: 18px;
+      padding-top: 0;
+    }
+    .fixed.inset-0.z-50 button.bg-accent {
+      height: 34px;
+      padding: 0 18px !important;
+      border: 0 !important;
+      border-radius: 17px !important;
+      background: var(--accent, #3b63fb) !important;
+      color: #fff !important;
+      font-weight: 700;
+    }
+    .fixed.inset-0.z-50 button.border:not(.bg-accent) {
+      height: 32px;
+      padding: 0 12px !important;
+      border: 0 !important;
+      border-radius: 16px !important;
+      background: transparent !important;
+      color: var(--text-2, #4b4b4b) !important;
+      font-weight: 600;
+    }
+    .fixed.inset-0.z-50 button.border:not(.bg-accent):hover {
+      background: var(--hover-soft, #f3f3f3) !important;
+      color: var(--text, #222) !important;
+    }
+  `;
+  root.append(style);
 }
