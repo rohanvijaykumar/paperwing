@@ -1024,7 +1024,8 @@ body.is-dragging .drop-inner {
   visibility: hidden;
 }
 /* Another app saved the open file (renderDiskBar) */
-#disk-bar {
+#disk-bar,
+#script-bar {
   position: absolute;
   top: 16px;
   left: 50%;
@@ -1041,7 +1042,8 @@ body.is-dragging .drop-inner {
   transform: translateX(-50%);
   animation: toast-in 0.18s ease-out;
 }
-#disk-bar .db-text {
+#disk-bar .db-text,
+#script-bar .db-text {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -1052,10 +1054,102 @@ body.is-dragging .drop-inner {
   height: 30px;
   padding: 0 14px;
 }
-#disk-bar .db-close {
+#disk-bar .db-close,
+#script-bar .db-close {
   flex: none;
 }
 #doc-stage.has-full-tool #disk-bar {
+  display: none;
+}
+/* The document has scripts Paperwing doesn't run (renderScriptBar) */
+#doc-stage:has(#disk-bar) #script-bar {
+  top: 64px;
+}
+#doc-stage.has-form-panel #disk-bar,
+#doc-stage.has-form-panel #script-bar {
+  left: calc((100% - var(--form-panel-w)) / 2);
+  max-width: calc(100% - var(--form-panel-w) - 140px);
+}
+/* Form fields beside the document (renderFormPanel) */
+#doc-stage {
+  --form-panel-w: 300px;
+}
+#doc-stage.has-form-panel #viewer-host {
+  right: var(--form-panel-w);
+}
+#form-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  width: var(--form-panel-w);
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+#form-panel .fp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 6px 6px 16px;
+}
+#form-panel .fp-head h2 {
+  font-size: 15px;
+}
+#form-panel .fp-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+}
+#form-panel .fp-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 0;
+}
+#form-panel .fp-field > label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 600;
+}
+#form-panel .fp-field small {
+  color: var(--text-3);
+  font-weight: 400;
+}
+#form-panel .fp-field .dlg-input {
+  flex-basis: 100%;
+  margin: 0;
+}
+#form-panel textarea.dlg-input {
+  height: auto;
+  padding: 6px 10px;
+  resize: vertical;
+}
+#form-panel .fp-field.is-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+#form-panel .fp-page {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+#form-panel .fp-page:hover {
+  background: var(--hover-soft);
+  color: var(--text);
+}
+#doc-stage.has-full-tool #script-bar,
+#doc-stage.has-full-tool #form-panel {
   display: none;
 }
 #doc-stage.is-loading::after {
@@ -1785,6 +1879,14 @@ body.is-dragging.is-dropping-pages #drop-overlay {
 .find-results .menu-item:focus-visible {
   outline: none;
   background: var(--hover-soft);
+}
+
+/* Print (desktop app, src/acro/print.ts) */
+.dlg-print .pref-row {
+  align-items: center;
+}
+.dlg-print input.pref-select {
+  width: 72px;
 }
 
 /* Read mode / full screen: just the document */
