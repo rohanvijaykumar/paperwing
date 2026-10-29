@@ -1882,11 +1882,66 @@ body.is-dragging.is-dropping-pages #drop-overlay {
 }
 
 /* Print (desktop app, src/acro/print.ts) */
+.dlg.dlg-print {
+  width: min(820px, calc(100vw - 32px));
+}
+.pd-layout {
+  display: flex;
+  gap: 24px;
+}
+.pd-preview {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.pd-sheet {
+  display: grid;
+  place-items: center;
+  height: min(560px, calc(100vh - 220px));
+  min-height: 240px;
+  border-radius: 6px;
+  background: var(--canvas);
+  overflow: hidden;
+}
+.pd-page {
+  display: block;
+  background: #fff;
+  box-shadow: var(--card-shadow);
+}
+.pd-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 32px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.pd-nav .tb-btn:disabled {
+  opacity: 0.4;
+  background: none;
+}
+.pd-settings {
+  flex: 0 0 260px;
+}
 .dlg-print .pref-row {
   align-items: center;
 }
 .dlg-print input.pref-select {
   width: 72px;
+}
+@media (max-width: 640px) {
+  .pd-layout {
+    flex-direction: column;
+  }
+  .pd-sheet {
+    height: 300px;
+  }
+  .pd-settings {
+    flex-basis: auto;
+  }
 }
 
 /* Read mode / full screen: just the document */

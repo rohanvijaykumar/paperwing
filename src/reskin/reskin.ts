@@ -18,11 +18,14 @@
  *   tool  -> shell { type: 'acro:dirty', dirty: boolean } (full-page tools)
  *   tool  -> shell { type: 'acro:download', blob: Blob, name: string }
  *   tool  -> shell { type: 'acro:key', key: KeyInput, editing: boolean }
+ *   tool  -> shell { type: 'acro:print-document' }  (print() was called)
+ *   tool  -> shell { type: 'acro:html-to-pdf', id, html } (see export-pdf.ts)
+ *   shell -> tool  { type: 'acro:html-to-pdf', id, data: Uint8Array | null }
  */
 
 import { applyTheme, isThemePref, onThemeChange, setThemePref } from './theme';
 import { initApps } from './apps';
-import { initFrames, onViewerDownload } from './frames';
+import { initFrames, onViewerDownload, onViewerPrint } from './frames';
 import { shellOrigin } from './origins';
 import { initTooltips } from './tooltip';
 import { initLabels } from './labels';
@@ -95,6 +98,13 @@ if (shell) {
     toShell({ type: 'acro:download', blob, name: named || 'document.pdf' });
     markSaved();
   });
+
+  // print() here, or in a viewer the tool embeds, would open the browser's
+  // print dialog (in the desktop app one that can't preview): the workspace
+  // prints its open document instead, with its own print dialog
+  const printDocument = () => toShell({ type: 'acro:print-document' });
+  window.print = printDocument;
+  onViewerPrint(printDocument);
 
   // Unsaved work in a full-page tool (the document area): the workspace asks
   // before closing it. Edit a PDF says so itself (its Export button);

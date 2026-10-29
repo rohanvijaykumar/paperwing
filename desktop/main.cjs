@@ -956,6 +956,7 @@ const getPrinting = () =>
   (printing ??= createPrinting({
     BrowserWindow,
     dialog,
+    session,
     settingsFile: path.join(app.getPath('userData'), 'print-settings.json'),
     documentsDir: app.getPath('documents'),
     writeFile: writeAtomic,
@@ -969,6 +970,12 @@ ipcMain.handle('paperwing:printers', (e) => {
 ipcMain.handle('paperwing:print-pages', (e, data, request) => {
   if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
   return getPrinting().run(e.sender, mainWindow, data, request);
+});
+
+// A tool's print-styled page (Markdown to PDF) made into a PDF document
+ipcMain.handle('paperwing:html-to-pdf', (e, html) => {
+  if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
+  return getPrinting().htmlToPdf(html);
 });
 
 // Home ▸ Clear recent also clears the OS's list
