@@ -1090,13 +1090,18 @@ body.is-dragging .drop-inner {
   background: var(--surface);
 }
 #form-panel .fp-head {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 6px 6px 16px;
+  gap: 4px;
+  height: 44px;
+  padding: 0 6px 0 14px;
+  border-bottom: 1px solid var(--border);
 }
 #form-panel .fp-head h2 {
   font-size: 15px;
+  font-weight: 700;
 }
 #form-panel .fp-body {
   flex: 1;
@@ -1928,6 +1933,10 @@ body.is-dragging.is-dropping-pages #drop-overlay {
 }
 .dlg-print .pref-row {
   align-items: center;
+}
+.dlg-print .pref-select {
+  font: inherit;
+  color: var(--text);
 }
 .dlg-print input.pref-select {
   width: 72px;
