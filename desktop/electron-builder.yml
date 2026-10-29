@@ -10,6 +10,7 @@ directories:
 files:
   - main.cjs
   - preload.cjs
+  - print.cjs
   - engines.json
   - package.json
 
