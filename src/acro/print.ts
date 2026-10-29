@@ -120,13 +120,21 @@ export async function showPrintDialog(
     const prevBtn = navBtn('Previous page', 'chevronLeft');
     const nextBtn = navBtn('Next page', 'chevronRight');
 
+    const closeBtn = el(
+      'button',
+      { type: 'button', class: 'tb-btn', title: 'Close', 'aria-label': 'Close' }
+    );
+    closeBtn.append(icon('close'));
+    closeBtn.addEventListener('click', () => {
+      if (!cancelBtn.disabled) finish('cancelled');
+    });
     const backdrop = el(
       'div',
       { class: 'dlg-backdrop' },
       el(
         'div',
         { class: 'dlg dlg-print', role: 'dialog', 'aria-label': 'Print' },
-        el('div', { class: 'dlg-head' }, el('h2', {}, 'Print')),
+        el('div', { class: 'dlg-head' }, el('h2', {}, 'Print'), closeBtn),
         el(
           'div',
           { class: 'dlg-body' },
@@ -205,6 +213,9 @@ export async function showPrintDialog(
       if (!cancelBtn.disabled) finish('cancelled');
     };
     document.addEventListener('keydown', onKey, true);
+    backdrop.addEventListener('pointerdown', (e) => {
+      if (e.target === backdrop && !cancelBtn.disabled) finish('cancelled');
+    });
     document.body.append(backdrop);
     (printers.length ? printBtn : pdfBtn).focus();
 
