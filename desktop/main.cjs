@@ -856,6 +856,11 @@ function senderIsApp(e) {
   return !!e.senderFrame && isWorkspaceFrame(e.senderFrame);
 }
 
+ipcMain.handle('paperwing:print-pages', (event, pages) => {
+  if (!senderIsApp(event)) throw new Error('Print request must come from the workspace.');
+  return require('./print-pages.cjs').printPages(pages, mainWindow);
+});
+
 /** Write via a temporary file, so a crash can't leave a half-written PDF */
 async function writeAtomic(filePath, data) {
   const tmp = `${filePath}.paperwing-${process.pid}.tmp`;

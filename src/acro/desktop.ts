@@ -10,6 +10,9 @@ export interface DesktopFile {
 }
 
 interface DesktopBridge {
+  printPages?(
+    pages: { image: string; width: number; height: number }[]
+  ): Promise<{ success: boolean; reason?: string }>;
   platform: string;
   ready(): Promise<void>;
   setTheme(pref: 'system' | 'light' | 'dark'): Promise<void>;

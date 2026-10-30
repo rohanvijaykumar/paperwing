@@ -10,6 +10,9 @@ directories:
 files:
   - main.cjs
   - preload.cjs
+  - print-pages.cjs
+  - print-preview-preload.cjs
+  - print-preview.js
   - engines.json
   - package.json
 

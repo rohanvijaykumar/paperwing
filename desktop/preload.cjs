@@ -6,6 +6,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('paperwing', {
   platform: process.platform,
+  printPages: (pages) => ipcRenderer.invoke('paperwing:print-pages', pages),
   ready: () => ipcRenderer.invoke('paperwing:ready'),
   setTheme: (pref) => ipcRenderer.invoke('paperwing:set-theme', pref),
   openDialog: () => ipcRenderer.invoke('paperwing:open-dialog'),

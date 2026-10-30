@@ -52,6 +52,7 @@ import cambriaI from './fonts/fallback/Caladea-Italic.ttf?url';
 import cambriaBI from './fonts/fallback/Caladea-BoldItalic.ttf?url';
 import { getThemePref, onThemeChange } from '../reskin/theme';
 import { getPrefs } from './prefs';
+import { installDesktopPrinting } from './printing';
 
 /** Zoom level for the viewer from the "Default zoom" preference */
 const zoomLevel = () => {
@@ -268,6 +269,7 @@ export class Viewer {
         },
       } as any) as EmbedPdfContainer;
       this.registry = await (this.container as any).registry;
+      installDesktopPrinting(this.registry);
       performance.mark('pw:engine-ready');
       onThemeChange(() => (this.container as any)?.setTheme?.(viewerTheme()));
 
