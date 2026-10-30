@@ -992,7 +992,10 @@ describe('Paperwing UI', () => {
       };
     });
 
-  test('Markdown Export PDF opens the PDF as a document, without printing', async () => {
+  // (These run Paperwing in a browser. In the desktop app, Export PDF and
+  // print() go to Paperwing's print dialog instead: see
+  // src/tests/paperwing-print-routing.test.ts and bench/check-print.mjs.)
+  test('in a browser, Markdown Export PDF uses its print dialog, which works there', async () => {
     await waitFor(page, () => 'ready' in document.documentElement.dataset);
     await page.click('#home-btn');
     await page.click('#create-btn');
@@ -1006,41 +1009,23 @@ describe('Paperwing UI', () => {
       () => !!document.getElementById('mdExport')
     );
     await recordCommands();
+    // The browser's print dialog, recorded instead of shown
     await tool.evaluate(() => {
+      window.__printed = 0;
+      window.print = () => window.__printed++;
       const text = document.getElementById('mdTextarea');
-      text.value =
-        '# Exported\n\n' +
-        Array.from({ length: 70 }, (_, i) => `- Line ${i + 1}`).join('\n');
+      text.value = '# Exported\n\n- One\n- Two';
       text.dispatchEvent(new Event('input'));
     });
-    const exported = async () =>
-      (await tabNames()).filter((n) => n === 'Markdown.pdf').length;
-    const before = await exported();
+    const tabsBefore = (await tabNames()).length;
     await tool.click('#mdExport');
-    await waitFor(
-      page,
-      () =>
-        document.querySelector('#tabs .tab.is-active .tab-label')
-          ?.textContent === 'Markdown.pdf' &&
-        document.querySelector('#right-rail .rr-total')?.textContent === '2',
-      undefined,
-      60000
-    );
-    assert.equal(await exported(), before + 1, 'opened as a document');
-    const head = await page.evaluate(async () => {
-      const v = window.__acro.viewer;
-      const bytes = new Uint8Array(await v.exportBytes(v.current));
-      return String.fromCharCode(...bytes.subarray(0, 5));
-    });
-    assert.equal(head, '%PDF-');
-    assert.deepEqual(
-      await page.evaluate(() => window.__commands),
-      [],
-      'not printed'
-    );
+    await waitFor(tool, () => window.__printed === 1);
+    await sleep(800);
+    assert.equal((await tabNames()).length, tabsBefore, 'no tab opened');
+    assert.deepEqual(await page.evaluate(() => window.__commands), []);
   });
 
-  test('print() in a tool, or in the PDF.js viewer it embeds, prints the open document', async () => {
+  test("in a browser, print() in a tool and its PDF.js viewer doesn't ask the workspace", async () => {
     await dropPdf('Report.pdf');
     await recordCommands();
     await page.evaluate(() =>
@@ -1049,39 +1034,18 @@ describe('Paperwing UI', () => {
         .click()
     );
     const tool = await frameWhere(/sign-pdf/, () => !!document.body);
-    const viewer = await frameWhere(
+    await frameWhere(
       /pdfjs-viewer\/viewer\.html/,
       () =>
         !!window.PDFViewerApplication?.pdfDocument &&
         document.readyState === 'complete'
     );
-    await tool.evaluate(() => window.print());
-    await waitFor(page, () => window.__commands.length === 1);
-    await viewer.evaluate(() => window.print());
-    await waitFor(page, () => window.__commands.length === 2);
-    // PDF.js's own Ctrl+P
-    await viewer.evaluate(() =>
-      window.dispatchEvent(
-        new KeyboardEvent('keydown', {
-          key: 'p',
-          keyCode: 80,
-          ctrlKey: true,
-          cancelable: true,
-        })
-      )
-    );
-    await waitFor(page, () => window.__commands.length === 3);
-    assert.deepEqual(await page.evaluate(() => window.__commands), [
-      'document:print',
-      'document:print',
-      'document:print',
-    ]);
+    // The tool page's print() is still the browser's own
     assert.equal(
-      await viewer.evaluate(
-        () => !!document.querySelector('#printContainer > *')
-      ),
-      false,
-      "PDF.js didn't prepare a print of its own"
+      await tool.evaluate(() => /\[native code\]/.test(String(window.print))),
+      true
     );
+    await sleep(800);
+    assert.deepEqual(await page.evaluate(() => window.__commands), []);
   });
 });
