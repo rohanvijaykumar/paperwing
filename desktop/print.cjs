@@ -18,11 +18,16 @@ const os = require('node:os');
 const fsp = require('node:fs/promises');
 const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
+const { execFile } = require('node:child_process');
 
 const DUPLEX_MODES = ['simplex', 'longEdge', 'shortEdge'];
 const MAX_COPIES = 99;
 /** How long the PDF viewer may take to open the document */
 const LOAD_TIMEOUT_MS = 60000;
+/** How long sending a job to the printer may take before giving up */
+const PRINT_TIMEOUT_MS = 120000;
+/** How long a page may take to be made into a PDF */
+const HTML_TIMEOUT_MS = 30000;
 /** Pages made into a PDF (htmlToPdf) are shown on their own session, by a
  *  scheme of their own: nothing else is served there, and a page on it can't
  *  load the computer's files (file: URLs) */
@@ -32,10 +37,36 @@ const MAX_HTML_CHARS = 64 * 1024 * 1024;
 
 /** The printer to preselect: the last one printed to, if it's still
  *  there, else the system default (else the first one) */
-function pickPrinter(printers, remembered) {
-  if (remembered && printers.some((p) => p.name === remembered))
-    return remembered;
-  return (printers.find((p) => p.isDefault) ?? printers[0])?.name ?? null;
+function pickPrinter(printers, remembered, systemDefault) {
+  for (const name of [remembered, systemDefault])
+    if (name && printers.some((p) => p.name === name)) return name;
+  return printers[0]?.name ?? null;
+}
+
+const run = (cmd, args) =>
+  new Promise((resolve) =>
+    execFile(cmd, args, { timeout: 4000, windowsHide: true }, (err, out) =>
+      resolve(err ? '' : String(out))
+    )
+  );
+
+/** The operating system's default printer (null if there's none or it
+ *  can't be told). Electron's printer list doesn't say which one it is. */
+async function systemDefaultPrinter(platform = process.platform, exec = run) {
+  if (platform === 'win32') {
+    // "Microsoft Print to PDF,winspool,Ne01:"
+    const out = await exec('reg', [
+      'query',
+      'HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows',
+      '/v',
+      'Device',
+    ]);
+    const m = /Device\s+REG_SZ\s+([^,\r\n]+)/.exec(out);
+    return m ? m[1].trim() : null;
+  }
+  // CUPS (macOS, Linux): "system default destination: Office_Laser"
+  const m = /default destination:\s*(\S+)/.exec(await exec('lpstat', ['-d']));
+  return m ? m[1] : null;
 }
 
 /** The page's print options, checked; throws on anything unexpected */
@@ -91,6 +122,8 @@ function createPrinting({
   writeFile = (file, data) => fsp.writeFile(file, data),
   tempDir = os.tmpdir(),
   waitForPdf = pdfLoaded,
+  defaultPrinter = systemDefaultPrinter,
+  printTimeout = PRINT_TIMEOUT_MS,
 }) {
   let busy = false;
 
@@ -113,12 +146,17 @@ function createPrinting({
 
   /** The printers to choose from, and the one to preselect */
   async function printers(wc) {
-    const list = (await wc.getPrintersAsync()).map((p) => ({
+    const [found, last, system] = await Promise.all([
+      wc.getPrintersAsync(),
+      remembered(),
+      defaultPrinter().catch(() => null),
+    ]);
+    const list = found.map((p) => ({
       name: p.name,
       displayName: p.displayName || p.name,
-      isDefault: !!p.isDefault,
+      isDefault: p.name === system,
     }));
-    return { printers: list, selected: pickPrinter(list, await remembered()) };
+    return { printers: list, selected: pickPrinter(list, last, system) };
   }
 
   async function printPdf(wc, data, options) {
@@ -149,7 +187,13 @@ function createPrinting({
       win.webContents.on('will-navigate', (e) => e.preventDefault());
       await win.loadURL(pathToFileURL(file).toString());
       await waitForPdf(win.webContents);
-      const [ok, reason] = await new Promise((resolve) =>
+      const [ok, reason] = await new Promise((resolve) => {
+        // A printer that never answers mustn't hold the dialog (and every
+        // later print) forever
+        const timer = setTimeout(
+          () => resolve([false, 'The printer did not respond']),
+          printTimeout
+        );
         win.webContents.print(
           {
             silent: true,
@@ -158,10 +202,15 @@ function createPrinting({
             color: opts.color,
             duplexMode: opts.duplex,
             printBackground: true,
+            // The paper in the printer (Letter, A4...), as other apps print
+            usePrinterDefaultPageSize: true,
           },
-          (success, failureReason) => resolve([success, failureReason])
-        )
-      );
+          (success, failureReason) => {
+            clearTimeout(timer);
+            resolve([success, failureReason]);
+          }
+        );
+      });
       if (!ok)
         return {
           ok: false,
@@ -172,7 +221,15 @@ function createPrinting({
       return { ok: true };
     } finally {
       if (win && !win.isDestroyed()) win.destroy();
-      await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
+      // (Windows may still hold the file for a moment after the window goes)
+      await fsp
+        .rm(dir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 200,
+        })
+        .catch(() => {});
     }
   }
 
@@ -232,8 +289,18 @@ function createPrinting({
             headers: { 'content-type': 'text/html; charset=utf-8' },
           });
     });
+    // Only the page itself, things written into it (data: URLs) and images
+    // from the web (a Markdown document's pictures) load: no files from the
+    // computer, and no pages or other requests to the network
     ses.webRequest.onBeforeRequest((details, callback) =>
-      callback({ cancel: /^(file|app):/i.test(details.url) })
+      callback({
+        cancel: !(
+          pages.has(details.url) ||
+          (details.resourceType !== 'mainFrame' &&
+            details.url.startsWith('data:')) ||
+          (details.resourceType === 'image' && details.url.startsWith('https:'))
+        ),
+      })
     );
     ses.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
     htmlSession = ses;
@@ -266,11 +333,22 @@ function createPrinting({
         });
         win.webContents.setWindowOpenHandler?.(() => ({ action: 'deny' }));
         win.webContents.on('will-navigate', (e) => e.preventDefault());
-        await win.loadURL(url);
-        const data = await win.webContents.printToPDF({
-          printBackground: true,
-          preferCSSPageSize: true,
-        });
+        const make = async () => {
+          await win.loadURL(url);
+          return win.webContents.printToPDF({
+            printBackground: true,
+            preferCSSPageSize: true,
+          });
+        };
+        const data = await Promise.race([
+          make(),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error('Timed out making the PDF')),
+              HTML_TIMEOUT_MS
+            )
+          ),
+        ]);
         return { ok: true, data: new Uint8Array(data) };
       } finally {
         pages.delete(url);
@@ -288,4 +366,10 @@ function createPrinting({
   return { printers, run, htmlToPdf };
 }
 
-module.exports = { createPrinting, pickPrinter, checkOptions, pdfLoaded };
+module.exports = {
+  createPrinting,
+  pickPrinter,
+  checkOptions,
+  pdfLoaded,
+  systemDefaultPrinter,
+};

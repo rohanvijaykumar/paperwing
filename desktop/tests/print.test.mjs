@@ -13,11 +13,19 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { createPrinting, pickPrinter, pdfLoaded } = require('../print.cjs');
+const {
+  createPrinting,
+  pickPrinter,
+  pdfLoaded,
+  systemDefaultPrinter,
+} = require('../print.cjs');
 
 const PDF = new Uint8Array(Buffer.from('%PDF-1.7\n%test document\n%%EOF\n'));
-const OFFICE = { name: 'office', displayName: 'Office laser', isDefault: true };
-const LABEL = { name: 'label', displayName: 'Label printer', isDefault: false };
+// As Electron lists them: which one is the default isn't said (the OS is
+// asked, see systemDefault)
+const OFFICE = { name: 'office', displayName: 'Office laser' };
+const LABEL = { name: 'label', displayName: 'Label printer' };
+let systemDefault;
 
 let dir;
 let printers;
@@ -85,9 +93,9 @@ const fakeSession = {
       },
       webRequest: {
         onBeforeRequest(listener) {
-          ses.blocked = (url) =>
+          ses.blocked = (url, resourceType = 'mainFrame') =>
             new Promise((resolve) =>
-              listener({ url }, ({ cancel }) => resolve(!!cancel))
+              listener({ url, resourceType }, ({ cancel }) => resolve(!!cancel))
             );
         },
       },
@@ -111,6 +119,8 @@ function service() {
     writeFile: async (file, data) => written.push({ file, data }),
     tempDir: dir,
     waitForPdf: async () => {},
+    defaultPrinter: async () => systemDefault,
+    printTimeout: 200,
   });
 }
 
@@ -132,6 +142,7 @@ beforeEach(() => {
   written = [];
   pdfResult = Buffer.from('%PDF-1.4\n%from html\n%%EOF\n');
   partitions = [];
+  systemDefault = 'office';
 });
 
 describe('choosing the printer', () => {
@@ -139,9 +150,42 @@ describe('choosing the printer', () => {
     const { selected, printers: list } = await service().printers(sender);
     assert.equal(selected, 'office');
     assert.deepEqual(
-      list.map((p) => p.displayName),
-      ['Label printer', 'Office laser']
+      list.map((p) => [p.displayName, p.isDefault]),
+      [
+        ['Label printer', false],
+        ['Office laser', true],
+      ]
     );
+  });
+
+  test('asks the OS which printer is the default', async () => {
+    const answer = (out) => async () => out;
+    assert.equal(
+      await systemDefaultPrinter(
+        'win32',
+        answer(
+          '\r\nHKEY_CURRENT_USER\Software\Microsoft\Windows NT\CurrentVersion\Windows\r\n' +
+            '    Device    REG_SZ    Microsoft Print to PDF,winspool,Ne01:\r\n'
+        )
+      ),
+      'Microsoft Print to PDF'
+    );
+    assert.equal(
+      await systemDefaultPrinter(
+        'darwin',
+        answer('system default destination: Office_Laser\n')
+      ),
+      'Office_Laser'
+    );
+    assert.equal(
+      await systemDefaultPrinter(
+        'linux',
+        answer('no system default destination\n')
+      ),
+      null
+    );
+    // The command failed or isn't there
+    assert.equal(await systemDefaultPrinter('linux', answer('')), null);
   });
 
   test('remembers the last printer that printed', async () => {
@@ -169,12 +213,13 @@ describe('choosing the printer', () => {
     assert.equal((await service().printers(sender)).selected, 'office');
   });
 
-  test('without a default, the first printer', () => {
-    assert.equal(
-      pickPrinter([{ ...LABEL }, { ...OFFICE, isDefault: false }]),
-      'label'
-    );
-    assert.equal(pickPrinter([], 'label'), null);
+  test('without a default, the first printer', async () => {
+    assert.equal(pickPrinter([LABEL, OFFICE], null, null), 'label');
+    assert.equal(pickPrinter([LABEL, OFFICE], null, 'gone'), 'label');
+    assert.equal(pickPrinter([LABEL, OFFICE], null, 'office'), 'office');
+    assert.equal(pickPrinter([], 'label', 'office'), null);
+    systemDefault = null;
+    assert.equal((await service().printers(sender)).selected, 'label');
   });
 
   test('a printer that is missing now is not printed to', async () => {
@@ -220,6 +265,7 @@ describe('printing', () => {
         color: false,
         duplexMode: 'longEdge',
         printBackground: true,
+        usePrinterDefaultPageSize: true,
       },
     ]);
     // Nothing left behind
@@ -229,6 +275,19 @@ describe('printing', () => {
       readdirSync(dir).filter((f) => f.startsWith('paperwing-print-')),
       []
     );
+  });
+
+  test('a printer that never answers is given up on, and printing goes on', async () => {
+    printResult = { ok: true, delay: 60000 };
+    const p = service();
+    const result = await p.run(sender, null, PDF, toPrinter('office'));
+    assert.equal(result.ok, false);
+    assert.match(result.message, /did not respond/);
+    assert.ok(windows[0].destroyed);
+    printResult = { ok: true };
+    assert.deepEqual(await p.run(sender, null, PDF, toPrinter('office')), {
+      ok: true,
+    });
   });
 
   test('rejects invalid options without printing', async () => {
@@ -339,7 +398,7 @@ describe('making a web page into a PDF (Markdown to PDF)', () => {
     assert.equal((await partitions[0].serve(win.url)).status, 404);
   });
 
-  test('on a session of its own that cannot load local files', async () => {
+  test('on a session of its own: only the page, data and web images load', async () => {
     const p = service();
     await p.htmlToPdf(HTML);
     await p.htmlToPdf(HTML);
@@ -348,8 +407,22 @@ describe('making a web page into a PDF (Markdown to PDF)', () => {
     assert.notEqual(ses.name, '');
     assert.ok(!ses.name.startsWith('persist:'), 'kept in memory only');
     assert.equal(await ses.blocked('file:///etc/passwd'), true);
+    assert.equal(await ses.blocked('file:///etc/passwd', 'image'), true);
     assert.equal(await ses.blocked('app://paperwing/app.html'), true);
-    assert.equal(await ses.blocked('https://example.com/a.png'), false);
+    assert.equal(
+      await ses.blocked('https://example.com/a.png', 'image'),
+      false
+    );
+    assert.equal(
+      await ses.blocked('data:image/png;base64,AA==', 'image'),
+      false
+    );
+    // No pages, frames or requests to the network or the local network
+    assert.equal(await ses.blocked('https://example.com/'), true);
+    assert.equal(await ses.blocked('http://192.168.1.1/', 'subFrame'), true);
+    assert.equal(await ses.blocked('http://localhost:8080/api', 'xhr'), true);
+    assert.equal(await ses.blocked('http://example.com/a.png', 'image'), true);
+    assert.equal(await ses.blocked('data:text/html,hi'), true);
     let allowed;
     ses.permission(null, 'media', (ok) => (allowed = ok));
     assert.equal(allowed, false);

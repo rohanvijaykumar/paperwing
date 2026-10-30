@@ -6,16 +6,34 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+### Added
+
+- **Fill in forms.** Text fields and checkboxes can be filled in from a Form fields panel beside the
+  document, then saved and reopened; the fields stay fields (nothing is flattened). Text in any
+  script works, including Cyrillic, Chinese and Hindi. Read-only fields and protected documents stay
+  locked; radio buttons, choice lists and signature fields can't be filled in here yet. Reported by
+  [@austinwilkerson](https://github.com/austinwilkerson) in
+  [#26](https://github.com/rohanvijaykumar/paperwing/issues/26).
+- **A print dialog with a preview**, the same on Windows, macOS and Linux: the pages that will
+  print, the printer (your default one is chosen first), copies, color, two-sided, and Save as PDF.
+  The real PDF goes to the printer, on the printer's own paper size, so text stays text. Printing
+  in Fill a form, Fill & Sign and Add Stamps prints what you filled in, signed or stamped there.
+  Thanks to [@austinwilkerson](https://github.com/austinwilkerson), whose
+  [#24](https://github.com/rohanvijaykumar/paperwing/pull/24) showed the way.
+- Documents with scripts (calculations, pop-ups, actions when opened) say so with a notice.
+  Paperwing doesn't run those scripts, for your safety, so their pop-ups don't appear
+  ([#27](https://github.com/rohanvijaykumar/paperwing/issues/27), reported by
+  [@austinwilkerson](https://github.com/austinwilkerson)).
+
 ### Fixed
 
-- Saved form values and checkbox marks show in the viewer, and text fields and checkboxes can be
-  filled in, saved, and reopened. Documents that contain scripts show a notice; those scripts are
-  not run. Desktop printing shows a page preview and sends the real PDF on Windows, macOS, and
-  Linux. Thanks to [@austinwilkerson](https://github.com/austinwilkerson) for
-  [#24](https://github.com/rohanvijaykumar/paperwing/pull/24),
-  [#25](https://github.com/rohanvijaykumar/paperwing/pull/25),
-  [#26](https://github.com/rohanvijaykumar/paperwing/issues/26), and
-  [#27](https://github.com/rohanvijaykumar/paperwing/issues/27).
+- Saved form values and checkbox marks didn't show in the viewer. Thanks to
+  [@austinwilkerson](https://github.com/austinwilkerson)
+  ([#25](https://github.com/rohanvijaykumar/paperwing/pull/25)).
+- Printing from the desktop app sent nothing to the printer (found on Windows in
+  [#24](https://github.com/rohanvijaykumar/paperwing/pull/24)).
+- Markdown to PDF's Export PDF opened a print dialog that couldn't preview in the desktop app. The
+  PDF now opens as a document, ready to save or print.
 
 ## [1.2.3] — 2026-10-28
 

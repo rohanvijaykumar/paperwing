@@ -26,7 +26,7 @@
 import { applyTheme, isThemePref, onThemeChange, setThemePref } from './theme';
 import { initApps } from './apps';
 import { initFrames, onViewerDownload, onViewerPrint } from './frames';
-import { shellOrigin } from './origins';
+import { SHELL_ORIGIN, shellOrigin } from './origins';
 import { initTooltips } from './tooltip';
 import { initLabels } from './labels';
 
@@ -99,12 +99,33 @@ if (shell) {
     markSaved();
   });
 
-  // print() here, or in a viewer the tool embeds, would open the browser's
-  // print dialog (in the desktop app one that can't preview): the workspace
-  // prints its open document instead, with its own print dialog
-  const printDocument = () => toShell({ type: 'acro:print-document' });
-  window.print = printDocument;
-  onViewerPrint(printDocument);
+  // In the desktop app, print() would open Chromium's print dialog, which
+  // can't preview or print there: Paperwing's print dialog is used instead.
+  // A viewer the tool embeds (Fill a form, Fill & Sign, Add Stamps) prints
+  // the document it shows, with what was filled in or added; print() in the
+  // tool page itself, the workspace's open document. In a browser, its own
+  // print dialog works, so it's left alone.
+  if (shell === SHELL_ORIGIN) {
+    window.print = () => toShell({ type: 'acro:print-document' });
+    onViewerPrint((win) => void printViewerDocument(win));
+  }
+  async function printViewerDocument(win: Window) {
+    const pdf = (
+      win as unknown as {
+        PDFViewerApplication?: {
+          pdfDocument?: {
+            saveDocument?: () => Promise<Uint8Array>;
+            getData?: () => Promise<Uint8Array>;
+          };
+        };
+      }
+    ).PDFViewerApplication?.pdfDocument;
+    // With what was filled in or added, else as it was opened
+    const data = await (pdf?.saveDocument?.() ?? Promise.reject())
+      .catch(() => pdf?.getData?.())
+      .catch((): undefined => undefined);
+    toShell({ type: 'acro:print-document', data, name: docName });
+  }
 
   // Unsaved work in a full-page tool (the document area): the workspace asks
   // before closing it. Edit a PDF says so itself (its Export button);

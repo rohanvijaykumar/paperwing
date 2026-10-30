@@ -233,8 +233,7 @@ Paperwing is built on **[BentoPDF](https://github.com/alam00000/bentopdf)** by
 [Alam](https://github.com/alam00000) and contributors. BentoPDF provides every one of the 100+ tools
 and all of the PDF processing, including its integration of PDFium, PDF.js, pdf-lib, qpdf, LibreOffice
 and more. Paperwing adds the desktop application and the Acrobat-style interface on top (see
-[How Paperwing works](#how-paperwing-works)). People who have worked on Paperwing are listed in
-[CONTRIBUTORS.md](CONTRIBUTORS.md).
+[How Paperwing works](#how-paperwing-works)).
 
 If Paperwing is useful to you, please consider
 **[sponsoring BentoPDF's author](https://github.com/sponsors/alam00000)** ❤️
