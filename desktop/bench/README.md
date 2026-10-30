@@ -19,6 +19,7 @@ they run.
 | `network.mjs <pdf…>`                                                     | Every request that leaves the machine                                                                                                                                                                                 |
 | `screens.mjs <out-dir> <pdf…>`                                           | Screenshots of the main screens                                                                                                                                                                                       |
 | `make-fixture.mjs <out> [pages]` / `make-scan-fixture.mjs <out> [pages]` | Heavy test PDFs (text and vector / scanned pages)                                                                                                                                                                     |
+| `make-form-fixture.mjs <out-dir>`                                        | Test forms: every kind of field (blank and filled in), and one with scripts                                                                                                                                           |
 
 Set `BENCH_TMP` to keep profiles and Chromium's temp files off the system drive.
 Timings vary with what else the machine is doing: compare medians over several
