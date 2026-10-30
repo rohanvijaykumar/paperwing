@@ -1770,7 +1770,7 @@ window.addEventListener('message', async (e: MessageEvent) => {
         typeof e.data.name === 'string' && e.data.name
           ? e.data.name
           : (owner?.name ?? 'Document.pdf');
-      void showPrintDialog(desktop as PrintBridge, data, name, toast);
+      openPrintDialog(name, 1, data);
     } else void printActiveDoc();
   } else if (
     e.data?.type === 'acro:html-to-pdf' &&
@@ -3599,21 +3599,45 @@ $('#save-btn').addEventListener('click', () => {
   const t = activeDoc();
   if (t) void saveDoc(t);
 });
-// Desktop app: the document the viewer's print dialog prepares (pages,
-// annotations) goes to Paperwing's, which prints it through the desktop
-// shell (the viewer's own way prints nothing there)
-if (desktop?.printers && desktop.printPages) {
-  const bridge = desktop as PrintBridge;
-  viewer.printTo = (tabId, pdf) => {
-    const tab = tabs.find((t) => t.id === tabId);
-    void showPrintDialog(bridge, pdf, tab?.name ?? 'Document.pdf', toast);
-  };
+/** Desktop app: Paperwing's print dialog (print.ts), for `pdf` as it is
+ *  now (comments and form values included); prints through the desktop
+ *  shell (the viewer's own way prints nothing there) */
+const canPrint = !!(desktop?.printers && desktop.printPages);
+function openPrintDialog(
+  name: string,
+  current: number,
+  pdf: ArrayBuffer | Uint8Array
+) {
+  if (document.querySelector('.dlg-backdrop')) return;
+  void showPrintDialog(
+    desktop as PrintBridge,
+    {
+      name,
+      current,
+      source: (comments) => viewer.printReady(pdf, comments),
+    },
+    toast
+  );
 }
+// (The viewer's own print, if anything starts it, comes here too)
+if (canPrint)
+  viewer.printTo = (tabId, pdf) =>
+    openPrintDialog(
+      tabs.find((t) => t.id === tabId)?.name ?? 'Document.pdf',
+      1,
+      pdf
+    );
 async function printActiveDoc(): Promise<void> {
   const t = activeDoc();
   if (!t) return;
   await settleForms([t]);
-  viewer.command(t.id, 'document:print');
+  if (!canPrint) {
+    // In a browser: the viewer's print, with the browser's print dialog
+    viewer.command(t.id, 'document:print');
+    return;
+  }
+  const pdf = await viewer.exportBytes(t.id);
+  if (pdf) openPrintDialog(t.name, t.page.current || 1, pdf);
 }
 $('#print-btn').addEventListener('click', printActiveDoc);
 $('#download-btn').addEventListener('click', async () => {

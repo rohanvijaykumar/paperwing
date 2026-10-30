@@ -1888,7 +1888,7 @@ body.is-dragging.is-dropping-pages #drop-overlay {
 
 /* Print (desktop app, src/acro/print.ts) */
 .dlg.dlg-print {
-  width: min(820px, calc(100vw - 32px));
+  width: min(920px, calc(100vw - 32px));
 }
 .pd-layout {
   display: flex;
@@ -1932,10 +1932,90 @@ body.is-dragging.is-dropping-pages #drop-overlay {
   background: none;
 }
 .pd-settings {
-  flex: 0 0 260px;
+  flex: 0 0 330px;
+  /* The settings scroll; the dialog keeps its size as options appear */
+  max-height: min(600px, calc(100vh - 210px));
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.pd-group h3 {
+  margin: 16px 0 2px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pd-group:first-child h3 {
+  margin-top: 0;
 }
 .dlg-print .pref-row {
   align-items: center;
+  padding: 5px 0;
+}
+.pd-pages {
+  display: grid;
+  gap: 8px;
+  padding: 6px 0;
+}
+.pd-radio,
+.pd-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.pd-check {
+  padding: 6px 0;
+}
+.pd-radio input,
+.pd-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.pd-range-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dlg-print input.pd-range {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.pd-seg {
+  display: flex;
+  margin: 6px 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.pd-seg-btn {
+  flex: 1;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pd-seg-btn + .pd-seg-btn {
+  border-left: 1px solid var(--border-strong);
+}
+.pd-seg-btn:hover {
+  background: var(--hover-soft);
+}
+.pd-seg-btn.is-on {
+  background: var(--accent);
+  color: #fff;
+}
+.pd-seg-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 .dlg-print .pref-select {
   font: inherit;

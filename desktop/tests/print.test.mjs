@@ -265,6 +265,7 @@ describe('printing', () => {
         color: false,
         duplexMode: 'longEdge',
         printBackground: true,
+        collate: true,
         usePrinterDefaultPageSize: true,
       },
     ]);
@@ -275,6 +276,48 @@ describe('printing', () => {
       readdirSync(dir).filter((f) => f.startsWith('paperwing-print-')),
       []
     );
+  });
+
+  test('sheets laid out for a paper print at that size, edge to edge', async () => {
+    const p = service();
+    // A4 portrait
+    await p.run(
+      sender,
+      null,
+      PDF,
+      toPrinter('office', { paper: { width: 595.28, height: 841.89 } })
+    );
+    // Letter, landscape sheets
+    await p.run(
+      sender,
+      null,
+      PDF,
+      toPrinter('office', {
+        paper: { width: 612, height: 792 },
+        landscape: true,
+      })
+    );
+    const [a4, letter] = prints();
+    assert.deepEqual(a4.pageSize, { width: 210002, height: 297000 });
+    assert.equal(a4.landscape, false);
+    assert.deepEqual(a4.margins, { marginType: 'none' });
+    assert.equal(a4.usePrinterDefaultPageSize, undefined);
+    assert.deepEqual(letter.pageSize, { width: 215900, height: 279400 });
+    assert.equal(letter.landscape, true);
+  });
+
+  test('a paper size that makes no sense is refused', async () => {
+    const p = service();
+    for (const paper of [
+      { width: 0, height: 792 },
+      { width: 612 },
+      { width: 612, height: 100000 },
+      'A4',
+    ]) {
+      const r = await p.run(sender, null, PDF, toPrinter('office', { paper }));
+      assert.equal(r.error, 'invalid', JSON.stringify(paper));
+    }
+    assert.equal(prints().length, 0);
   });
 
   test('a printer that never answers is given up on, and printing goes on', async () => {
