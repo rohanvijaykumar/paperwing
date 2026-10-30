@@ -14,11 +14,14 @@ All notable changes to Paperwing are documented here. Paperwing follows
   locked; radio buttons, choice lists and signature fields can't be filled in here yet. Reported by
   [@austinwilkerson](https://github.com/austinwilkerson) in
   [#26](https://github.com/rohanvijaykumar/paperwing/issues/26).
-- **A print dialog with a preview**, the same on Windows, macOS and Linux: the pages that will
-  print, the printer (your default one is chosen first), copies, color, two-sided, and Save as PDF.
-  The real PDF goes to the printer, on the printer's own paper size, so text stays text. Printing
-  in Fill a form, Fill & Sign and Add Stamps prints what you filled in, signed or stamped there.
-  Thanks to [@austinwilkerson](https://github.com/austinwilkerson), whose
+- **A print dialog like Acrobat's**, the same on Windows, macOS and Linux, with a preview of exactly
+  what will print: the printer (your default one is chosen first), copies, color or black and white,
+  two-sided; all pages, the current page or a range like `1-3, 5`, odd or even pages, reversed; the
+  paper size and orientation; fit to the paper, actual size, shrink oversized pages or a custom
+  scale; several pages to a sheet; booklets; and whether comments print. Text stays text, and comments
+  and filled-in forms print as they show. Printing in Fill a form, Fill & Sign and Add Stamps prints
+  what you filled in, signed or stamped there. Thanks to
+  [@austinwilkerson](https://github.com/austinwilkerson), whose
   [#24](https://github.com/rohanvijaykumar/paperwing/pull/24) showed the way.
 - Documents with scripts (calculations, pop-ups, actions when opened) say so with a notice.
   Paperwing doesn't run those scripts, for your safety, so their pop-ups don't appear
