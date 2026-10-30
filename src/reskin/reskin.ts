@@ -214,6 +214,7 @@ if (shell) {
     if (data?.type === 'acro:load-files' && Array.isArray(data.files)) {
       const files = data.files.filter((f: unknown) => f instanceof File);
       loadFiles(files);
+      shellFiles = files;
       docName = files[0]?.name ?? '';
       docIn = true;
       docAt = performance.now();
@@ -268,6 +269,46 @@ if (shell) {
     ) {
       e.preventDefault();
     }
+  });
+
+  // A tool that goes back to its upload screen after a result (Edit a PDF
+  // after Export; PDF to JPG and others start over after their "done"
+  // message): with the workspace's document that screen is hidden, in the
+  // side panel as in the document area, so the tool would show a blank page. The document goes back in instead (a few times at most, in
+  // case a tool keeps refusing it)
+  let shellFiles: File[] = [];
+  let reloads = 0;
+  let reloadsSince = 0;
+  const showsNothing = () => {
+    if (!document.body || document.querySelector('#loader-modal:not(.hidden)'))
+      return false;
+    if (document.body.innerText.replace(/\s+/g, '').length > 2) return false;
+    return ![
+      ...document.querySelectorAll(
+        'canvas, img, iframe, embed, input:not([type="file"]), select, textarea, button'
+      ),
+    ].some((el) => el.getClientRects().length);
+  };
+  let checkTimer = 0;
+  const checkBlank = () => {
+    clearTimeout(checkTimer);
+    checkTimer = window.setTimeout(() => {
+      const root = document.documentElement;
+      if (!docIn || !shellFiles.length) return;
+      if (!root.classList.contains('rs-has-doc') || !showsNothing()) return;
+      if (performance.now() - reloadsSince > 10000) {
+        reloads = 0;
+        reloadsSince = performance.now();
+      }
+      if (reloads++ >= 3) return;
+      loadFiles(shellFiles);
+    }, 400);
+  };
+  new MutationObserver(checkBlank).observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ['class', 'hidden', 'style'],
   });
 
   const announceReady = () => toShell({ type: 'acro:ready' });

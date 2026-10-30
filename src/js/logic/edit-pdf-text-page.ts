@@ -598,6 +598,9 @@ async function launchEditor(file: File) {
         };
       setupFallbackFonts(appModule, PdfEngine.fallbackFonts);
       appModule.setOnSaved((kb) => {
+        // In Paperwing the result opens in a new tab (the workspace says
+        // so) and the editor stays open with the edits
+        if (document.documentElement.classList.contains('rs-embedded')) return;
         showAlert(
           t('common.success'),
           t('tools:editPdfText.saved', { size: kb }),

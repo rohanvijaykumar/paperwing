@@ -28,8 +28,20 @@ All notable changes to Paperwing are documented here. Paperwing follows
   ([#27](https://github.com/rohanvijaykumar/paperwing/issues/27), reported by
   [@austinwilkerson](https://github.com/austinwilkerson)).
 
+### Changed
+
+- Every tool looks like the rest of Paperwing, in light and dark: the same fields, buttons, panels,
+  headings, notes and upload boxes throughout. Scan & OCR's Advanced settings were dark in the light
+  theme and set apart from the rest; they now open like the other tools' settings.
+- The tools say Paperwing where they said BentoPDF (titles, messages, the files some tools save).
+  BentoPDF is still credited in About, the README and NOTICE.md.
+- Booklet printing explains how to print both sides on a printer that prints one side.
+
 ### Fixed
 
+- After Export in Edit a PDF, going back to the document's tab showed a blank page once its
+  "saved" message was closed. The editor now stays open with your edits, and any tool that would
+  go back to an empty upload screen gets the document again instead.
 - Saved form values and checkbox marks didn't show in the viewer. Thanks to
   [@austinwilkerson](https://github.com/austinwilkerson)
   ([#25](https://github.com/rohanvijaykumar/paperwing/pull/25)).
