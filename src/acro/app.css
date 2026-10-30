@@ -1517,11 +1517,20 @@ body.is-dragging .drop-inner {
   background: var(--backdrop);
 }
 .dlg {
+  display: flex;
+  flex-direction: column;
   width: min(460px, calc(100vw - 32px));
+  /* As tall as its content, up to the window: only then does it scroll */
+  max-height: calc(100vh - 48px);
+  /* (its rounded corners clip a scrollbar) */
+  overflow: hidden;
   border-radius: 10px;
   background: var(--surface);
   box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
   user-select: text;
+}
+.dlg > * {
+  flex: none;
 }
 .dlg-head {
   display: flex;
@@ -1531,6 +1540,11 @@ body.is-dragging .drop-inner {
 }
 .dlg-body {
   padding: 0 20px 20px;
+}
+.dlg > .dlg-body {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 .dlg-body p {
   margin: 0 0 10px;
@@ -1825,11 +1839,12 @@ body.is-dragging.is-dropping-pages #drop-overlay {
   border-top: 1px solid var(--border);
 }
 
-/* Preferences & shortcuts */
+/* Preferences & shortcuts: when they scroll, the scrollbar stops short of
+   the rounded corner */
 .dlg-body.prefs,
 .dlg-body.shortcuts {
-  max-height: min(70vh, 640px);
-  overflow-y: auto;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
 }
 .pref-group {
   margin: 14px 0 6px;
@@ -1851,6 +1866,7 @@ body.is-dragging.is-dropping-pages #drop-overlay {
   cursor: pointer;
 }
 .pref-row input[type='checkbox'] {
+  flex: none;
   order: 2;
   width: 18px;
   height: 18px;

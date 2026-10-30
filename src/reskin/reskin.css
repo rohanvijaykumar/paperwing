@@ -984,13 +984,27 @@ html .page-thumbnail-wrapper .selected {
 }
 
 /* --- Dialogs (loader, alert, password, page preview) --------------- */
+/* Like the workspace's dialogs: the same dimmed backdrop, corners and
+   shadow */
+html
+  :is(
+    #loader-modal,
+    #alert-modal,
+    [id$='-modal'],
+    .modal
+  )[class~='fixed'][class~='inset-0'] {
+  background-color: var(--ap-scrim);
+}
 html #loader-modal > div,
 html #alert-modal > div,
 html :is([id$='-modal'], .modal) > [class~='bg-gray-800'] {
   border: 0;
-  border-radius: 8px;
-  box-shadow: var(--rs-dialog-shadow);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
   background: var(--rs-surface);
+}
+html #alert-modal > div {
+  padding: 20px;
 }
 html #loader-modal > div {
   min-width: 260px;
@@ -1154,11 +1168,31 @@ html
   :is(i, svg, .font-semibold) {
   color: var(--rs-accent);
 }
-/* Status lines (JSON tools): the grey note, not a blue block */
-html #tool-uploader [class~='bg-blue-900'] {
+/* Status lines (Table of contents, JSON tools…): the theme's note, with a
+   faint red or green for errors and success, not solid coloured blocks */
+html #tool-uploader :is([class~='bg-blue-900'], [class~='bg-blue-600/30']) {
   border: 1px solid var(--rs-border);
   background: var(--color-gray-900);
   color: var(--rs-text-2);
+}
+html #tool-uploader :is([class~='bg-red-900'], [class~='bg-red-600/30']) {
+  border: 1px solid color-mix(in srgb, var(--ap-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--ap-danger) 9%, transparent);
+  color: var(--rs-text);
+}
+html #tool-uploader :is([class~='bg-green-900'], [class~='bg-green-600/30']) {
+  border: 1px solid color-mix(in srgb, var(--ap-success) 45%, transparent);
+  background: color-mix(in srgb, var(--ap-success) 9%, transparent);
+  color: var(--rs-text);
+}
+html
+  #tool-uploader
+  :is([class~='bg-yellow-900'], [class~='bg-yellow-600/30']):not(
+    [class*='bg-yellow-900/']
+  ) {
+  border: 1px solid color-mix(in srgb, var(--ap-warning) 45%, transparent);
+  background: color-mix(in srgb, var(--ap-warning) 9%, transparent);
+  color: var(--rs-text);
 }
 /* Spaced capitals (Rotate's "Batch actions", table headings): the
    workspace's group heading, small and muted, at the left */
@@ -1299,16 +1333,24 @@ html.rs-embedded div.min-h-screen:has(> #tool-uploader):not(#uploader) {
 }
 
 /* The sticky primary button covers what scrolls under it: a rectangle of
-   panel colour around it (border-image, which isn't rounded), the spread
-   shadow filling the pill's corners, and a fade above */
+   panel colour around it (border-image, which isn't rounded; below it only
+   the gap to the panel's edge), the spread shadow filling the pill's
+   corners, and a fade above */
 html.rs-embedded #process-btn,
 html.rs-embedded #tool-uploader > .btn-gradient {
   border: 0 solid transparent;
   border-image: linear-gradient(var(--rs-surface), var(--rs-surface)) 1 / 12px
-    24px 40px / 12px 24px 40px;
+    24px / 12px 24px;
   box-shadow:
     0 0 0 12px var(--rs-surface),
     0 -14px 14px 6px var(--rs-surface);
+}
+/* What follows it (a status or error line) shows over that band */
+html.rs-embedded
+  :is(#process-btn, #tool-uploader > .btn-gradient)
+  ~ :not(.fixed, .absolute, [id$='-modal'], script) {
+  position: relative;
+  z-index: 6;
 }
 html.rs-embedded #process-btn:focus-visible,
 html.rs-embedded #tool-uploader > .btn-gradient:focus-visible {

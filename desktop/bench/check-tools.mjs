@@ -50,6 +50,19 @@ page.on('console', (m) => {
     note('blocked', m.text());
 });
 page.on('pageerror', (e) => note('errors', 'uncaught: ' + e.message));
+// The workspace itself crashing or reloading spoils every tool after it:
+// say so, and when
+page.on('error', (e) =>
+  console.log(`WORKSPACE CRASHED (after ${current?.name}): ${e.message}`)
+);
+page.on('framenavigated', (f) => {
+  if (f === page.mainFrame() && current)
+    console.log(`WORKSPACE RELOADED (during ${current.name}): ${f.url()}`);
+});
+page.on('console', (m) => {
+  if (!(m.location()?.url ?? '').startsWith('app://tools') && m.type() === 'error')
+    console.log(`workspace error (during ${current?.name}): ${m.text().slice(0, 300)}`);
+});
 page.on('requestfailed', (r) => {
   if (/^(app|data|blob):/.test(r.url())) return;
   note('network', `${r.failure()?.errorText} ${r.url()}`);
@@ -311,6 +324,27 @@ for (const t of tools) {
           .catch(() => []);
       }
       current.status = got ? 'result returned' : 'no result';
+      // What the tool says (status and error lines) must be readable, not
+      // under the sticky main button or anything else
+      const covered = await frame
+        .evaluate(() => {
+          const out = [];
+          const says = document.querySelectorAll(
+            '[id*="status"], [id*="error"], [role="alert"], .alert'
+          );
+          for (const el of says) {
+            if (!el.getClientRects().length || !el.textContent.trim()) continue;
+            if (el.closest('#alert-modal, [id$="-modal"]')) continue;
+            el.scrollIntoView({ block: 'nearest' });
+            const r = el.getBoundingClientRect();
+            const hit = document.elementFromPoint(r.left + 12, r.top + 8);
+            if (hit && !el.contains(hit))
+              out.push(el.textContent.trim().slice(0, 60));
+          }
+          return out;
+        })
+        .catch(() => []);
+      if (covered.length) current.status += `, COVERED: ${covered[0]}`;
       if (got) {
         // Once its result is out, after its "done" message: a tool that
         // starts over must not leave a blank page behind
