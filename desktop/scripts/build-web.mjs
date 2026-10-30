@@ -10,12 +10,13 @@ import {
   cpSync,
   existsSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { engineInfo } from './engine-info.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -134,6 +135,31 @@ walk(dist);
 console.log(
   `Removed ${removed} pre-compressed copies (${(saved / 1048576).toFixed(1)} MB)`
 );
+
+// Paperwing's name in the interface strings where BentoPDF's shows
+// (reskin/brand.mjs; its pages and code are done during the build)
+const { rebrandStrings } = await import(
+  pathToFileURL(resolve(root, 'reskin', 'brand.mjs')).href
+);
+let branded = 0;
+const brandStrings = (dir) => {
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) brandStrings(p);
+    else if (name.endsWith('.json')) {
+      const text = readFileSync(p, 'utf8');
+      if (!text.includes('BentoPDF')) continue;
+      writeFileSync(
+        p,
+        JSON.stringify(rebrandStrings(JSON.parse(text)), null, 2)
+      );
+      branded++;
+    }
+  }
+};
+if (existsSync(resolve(dist, 'locales')))
+  brandStrings(resolve(dist, 'locales'));
+console.log(`Paperwing's name in ${branded} interface string files`);
 
 // The bundled engines
 for (const { url, copy } of Object.values(ENGINES)) {
