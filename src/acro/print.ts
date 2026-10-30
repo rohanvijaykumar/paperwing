@@ -298,6 +298,11 @@ export async function showPrintDialog(
       'div',
       { class: 'pd-sub' },
       row('Booklet subset', bookletSubset),
+      el(
+        'p',
+        { class: 'pd-hint' },
+        'No two-sided printer? Print the fronts, put the stack back in, then print the backs.'
+      ),
       row('Binding', binding)
     );
     function showHandling() {
