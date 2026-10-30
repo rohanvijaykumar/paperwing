@@ -1915,6 +1915,9 @@ body.is-dragging.is-dropping-pages #drop-overlay {
   background: #fff;
   box-shadow: var(--card-shadow);
 }
+.pd-sheet.is-mono .pd-page {
+  filter: grayscale(1);
+}
 .pd-nav {
   display: flex;
   align-items: center;

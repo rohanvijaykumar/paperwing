@@ -103,6 +103,10 @@ export async function showPrintDialog(
       { class: 'pd-sheet', role: 'img', 'aria-label': 'Preview' },
       canvas
     );
+    // The preview shows what will come out: grey for black and white
+    color.addEventListener('change', () =>
+      sheet.classList.toggle('is-mono', color.value === 'mono')
+    );
     const count = el(
       'span',
       { class: 'pd-count', 'aria-live': 'polite' },

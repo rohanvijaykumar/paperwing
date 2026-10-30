@@ -225,6 +225,20 @@ describe('print preview', () => {
     expect(preview.closed).toBe(1);
   });
 
+  it('black and white shows the preview in grey, color in color', async () => {
+    const { button, field } = await open(bridge([OFFICE], 'office'));
+    const sheet = document.querySelector('.pd-sheet')!;
+    const color = field<HTMLSelectElement>('Color');
+    expect(sheet.classList.contains('is-mono')).toBe(false);
+    color.value = 'mono';
+    color.dispatchEvent(new Event('change'));
+    expect(sheet.classList.contains('is-mono')).toBe(true);
+    color.value = 'color';
+    color.dispatchEvent(new Event('change'));
+    expect(sheet.classList.contains('is-mono')).toBe(false);
+    button('Cancel').click();
+  });
+
   it('a one-page document: no page buttons', async () => {
     preview.pages = 1;
     const { button } = await open(bridge([OFFICE], 'office'));
