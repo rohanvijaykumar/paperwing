@@ -39,6 +39,10 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ### Fixed
 
+- A tool's messages under its main button (Table of Contents' "no bookmarks" error, for one) were
+  partly hidden behind it.
+- Preferences scrolled although everything in it fitted, and long dialogs' scroll bars squared off
+  their rounded corners. Dialogs now grow to fit the window and only scroll when it's too small.
 - After Export in Edit a PDF, going back to the document's tab showed a blank page once its
   "saved" message was closed. The editor now stays open with your edits, and any tool that would
   go back to an empty upload screen gets the document again instead.
