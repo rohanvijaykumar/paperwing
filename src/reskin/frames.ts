@@ -98,9 +98,9 @@ export function onViewerDownload(fn: (blob: Blob, name: string) => void) {
 }
 
 /** What print() in an embedded viewer does instead (set by reskin.ts) */
-let viewerPrint: (() => void) | null = null;
+let viewerPrint: ((win: Window) => void) | null = null;
 
-export function onViewerPrint(fn: () => void) {
+export function onViewerPrint(fn: (win: Window) => void) {
   viewerPrint = fn;
 }
 
@@ -111,7 +111,7 @@ export function onViewerPrint(fn: () => void) {
  * the viewer is themed (also once it has loaded).
  */
 function routeViewerPrint(win: Window | null) {
-  if (win && viewerPrint) win.print = viewerPrint;
+  if (win && viewerPrint) win.print = () => viewerPrint?.(win);
 }
 
 interface PdfjsDownloads {

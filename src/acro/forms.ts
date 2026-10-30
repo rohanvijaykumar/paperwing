@@ -6,6 +6,7 @@
  * Fields stay fields: nothing is flattened.
  */
 import {
+  PDFBool,
   PDFCheckBox,
   PDFDocument,
   PDFFont,
@@ -119,6 +120,23 @@ export async function setFieldValues(
   bytes: ArrayBuffer | Uint8Array,
   values: FieldValues
 ): Promise<ArrayBuffer> {
+  try {
+    return await fill(bytes, values, true);
+  } catch (err) {
+    // The font pdf-lib draws fields with only has Latin letters: text in
+    // other scripts (Cyrillic, Greek, Chinese, Hindi...) can't be drawn
+    // here. The value is stored without a drawing instead, and viewers are
+    // asked to draw it themselves, as Acrobat, browsers and Paperwing do.
+    if (!/cannot encode/i.test(String((err as Error)?.message))) throw err;
+    return fill(bytes, values, false);
+  }
+}
+
+async function fill(
+  bytes: ArrayBuffer | Uint8Array,
+  values: FieldValues,
+  draw: boolean
+): Promise<ArrayBuffer> {
   const doc = await PDFDocument.load(bytes, {
     updateMetadata: false,
     ignoreEncryption: true,
@@ -141,12 +159,23 @@ export async function setFieldValues(
       throw new Error(`${name} can't take that value`);
     }
   }
-  if (autoSized.length) {
+  if (draw && autoSized.length) {
     const font = form.getDefaultFont();
     autoSized.forEach((f) => drawAutoSized(f, font));
   }
+  if (!draw) {
+    // Without this, the field's drawing of its old value would still show
+    for (const name of Object.keys(values)) {
+      const field = form.getField(name);
+      if (field instanceof PDFTextField)
+        field.acroField
+          .getWidgets()
+          .forEach((w) => w.dict.delete(PDFName.of('AP')));
+    }
+    form.acroForm.dict.set(PDFName.of('NeedAppearances'), PDFBool.True);
+  }
   // Appearances are redrawn for the changed fields, so the page shows them
-  const out = await doc.save();
+  const out = await doc.save({ updateFieldAppearances: draw });
   return out.buffer.slice(
     out.byteOffset,
     out.byteOffset + out.byteLength

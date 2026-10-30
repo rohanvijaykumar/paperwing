@@ -135,6 +135,18 @@ describe('Markdown to PDF inside Paperwing (desktop app)', () => {
   });
 });
 
+describe('Markdown to PDF in Paperwing in a browser', () => {
+  it('Export PDF prints the page: the browser print dialog works there', async () => {
+    host.origin = window.location.origin;
+    simulateShell();
+    const { exportButton } = await openEditor();
+    exportButton.click();
+    expect(nativePrint).toHaveBeenCalledTimes(1);
+    expect(sent('acro:html-to-pdf')).toHaveLength(0);
+    expect(sent('acro:download')).toHaveLength(0);
+  });
+});
+
 describe('Markdown to PDF on its own page', () => {
   it('Export PDF still prints the page (Save as PDF in the print dialog)', async () => {
     host.origin = null;
@@ -147,8 +159,8 @@ describe('Markdown to PDF on its own page', () => {
 });
 
 describe('print() in a tool page Paperwing hosts', () => {
-  it('asks the workspace to print its document instead', async () => {
-    host.origin = window.location.origin;
+  it('in the desktop app, asks the workspace to print instead', async () => {
+    host.origin = SHELL_ORIGIN;
     simulateShell();
     await import('../reskin/reskin');
     expect(window.print).not.toBe(nativePrint);
@@ -156,8 +168,17 @@ describe('print() in a tool page Paperwing hosts', () => {
     expect(nativePrint).not.toHaveBeenCalled();
     expect(posted).toContainEqual({
       message: { type: 'acro:print-document' },
-      origin: window.location.origin,
+      origin: SHELL_ORIGIN,
     });
+  });
+
+  it('in a browser, keeps the browser print() (its dialog works there)', async () => {
+    host.origin = window.location.origin;
+    simulateShell();
+    await import('../reskin/reskin');
+    window.print();
+    expect(nativePrint).toHaveBeenCalledTimes(1);
+    expect(sent('acro:print-document')).toHaveLength(0);
   });
 
   it('a standalone tool page keeps the browser print()', async () => {
