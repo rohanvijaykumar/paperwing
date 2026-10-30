@@ -22,6 +22,10 @@ export type PrintRequest =
       copies: number;
       color: boolean;
       duplex: 'simplex' | 'longEdge' | 'shortEdge';
+      /** The paper the sheets were laid out for, in points (portrait) */
+      paper?: { width: number; height: number };
+      /** Every sheet is landscape */
+      landscape?: boolean;
     }
   | { destination: 'pdf'; name: string };
 

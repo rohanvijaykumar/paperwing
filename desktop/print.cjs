@@ -73,7 +73,14 @@ async function systemDefaultPrinter(platform = process.platform, exec = run) {
 function checkOptions(options) {
   if (!options || typeof options !== 'object')
     throw new TypeError('Missing print options');
-  const { printer, copies = 1, color = true, duplex = 'simplex' } = options;
+  const {
+    printer,
+    copies = 1,
+    color = true,
+    duplex = 'simplex',
+    paper = null,
+    landscape = false,
+  } = options;
   if (typeof printer !== 'string' || !printer)
     throw new TypeError('No printer chosen');
   if (!Number.isInteger(copies) || copies < 1 || copies > MAX_COPIES)
@@ -81,8 +88,20 @@ function checkOptions(options) {
   if (typeof color !== 'boolean') throw new TypeError('Invalid color option');
   if (!DUPLEX_MODES.includes(duplex))
     throw new TypeError('Invalid two-sided option');
-  return { printer, copies, color, duplex };
+  // The paper the page laid its sheets out for, in points (1 in to 200 in)
+  const points = (v) => typeof v === 'number' && v >= 72 && v <= 14400;
+  if (paper !== null && !(points(paper?.width) && points(paper?.height)))
+    throw new TypeError('Invalid paper size');
+  if (typeof landscape !== 'boolean')
+    throw new TypeError('Invalid orientation');
+  return { printer, copies, color, duplex, paper, landscape };
 }
+
+/** Points (portrait) to Electron's page size, in microns */
+const microns = ({ width, height }) => ({
+  width: Math.round((Math.min(width, height) / 72) * 25400),
+  height: Math.round((Math.max(width, height) / 72) * 25400),
+});
 
 const isPdf = (data) =>
   data instanceof Uint8Array &&
@@ -202,8 +221,17 @@ function createPrinting({
             color: opts.color,
             duplexMode: opts.duplex,
             printBackground: true,
-            // The paper in the printer (Letter, A4...), as other apps print
-            usePrinterDefaultPageSize: true,
+            collate: true,
+            ...(opts.paper
+              ? {
+                  // The sheets were laid out for this paper (print-layout.ts):
+                  // print them as they are, edge to edge, not scaled again
+                  pageSize: microns(opts.paper),
+                  landscape: opts.landscape,
+                  margins: { marginType: 'none' },
+                }
+              : // Otherwise the paper in the printer (Letter, A4...)
+                { usePrinterDefaultPageSize: true }),
           },
           (success, failureReason) => {
             clearTimeout(timer);

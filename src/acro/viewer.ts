@@ -4,6 +4,7 @@
  * Acrobat-style chrome (quick toolbar, right rail) drives it via commands.
  */
 import type { EmbedPdfContainer, PluginRegistry } from 'bentopdf-viewer';
+import { printableComments, withoutComments } from './print-layout';
 import { editorFontFallback } from '../js/config/editor-fonts.js';
 import notoSansUrl from './fonts/NotoSans-Regular.ttf?url';
 
@@ -822,6 +823,41 @@ export class Viewer {
     const id = this.docIds.get(tabId);
     if (!id) return null;
     return this.cap('export').forDocument(id).saveAsCopy().toPromise();
+  }
+
+  /**
+   * `pdf` ready to be laid out for printing (print-layout.ts): comments,
+   * stamps and form fields become part of the pages, as they print (PDFium
+   * flattens them, on a copy of its own; the open document isn't touched).
+   * Without `comments`, only the form fields stay ("Document" in Acrobat's
+   * Comments & Forms; "Document and markups" keeps them all).
+   */
+  async printReady(
+    pdf: ArrayBuffer | Uint8Array,
+    comments: boolean
+  ): Promise<Uint8Array> {
+    let input: Uint8Array = new Uint8Array(pdf).slice();
+    input = comments
+      ? await printableComments(input)
+      : await withoutComments(input);
+    // (the engine may take over the buffer it's given)
+    const content = input.slice().buffer;
+    const engine = (this.registry as any)?.getEngine?.();
+    if (!engine) throw new Error('The PDF engine is not ready');
+    const doc = await engine
+      .openDocumentBuffer({
+        id: `print-${crypto.randomUUID()}`,
+        content,
+      })
+      .toPromise();
+    try {
+      // FPDFPage_Flatten's FLAT_PRINT: what prints, not what shows
+      for (const page of doc.pages)
+        await engine.flattenPage(doc, page, { flag: 1 }).toPromise();
+      return new Uint8Array(await engine.saveAsCopy(doc).toPromise());
+    } finally {
+      engine.closeDocument(doc);
+    }
   }
 }
 
