@@ -156,6 +156,46 @@ describe('form fields', () => {
     expect(shrunk.da).toMatch(/ 0 Tf/);
   });
 
+  it('fills in text in any script (Cyrillic, Chinese, Hindi), for viewers to draw', async () => {
+    // pdf-lib's font only has Latin letters, so it can't draw these
+    for (const name of ['Иван Петров', '李明', 'राहुल']) {
+      const out = await setFieldValues(await formPdf(), {
+        'applicant.name': name,
+        agree: true,
+      });
+      const doc = await PDFDocument.load(out);
+      const form = doc.getForm();
+      expect(form.getTextField('applicant.name').getText()).toBe(name);
+      expect(form.getCheckBox('agree').isChecked()).toBe(true);
+      // Its drawing of the old (empty) value is gone, and viewers are asked
+      // to draw the new one
+      const widget = form
+        .getTextField('applicant.name')
+        .acroField.getWidgets()[0];
+      expect(widget.dict.has(PDFName.of('AP'))).toBe(false);
+      expect(
+        String(form.acroForm.dict.lookup(PDFName.of('NeedAppearances')))
+      ).toBe('true');
+      // And it reads back like any other value
+      const { form: info } = await inspectPdf(out);
+      expect(info?.fields.find((f) => f.name === 'applicant.name')?.value).toBe(
+        name
+      );
+    }
+  });
+
+  it('still draws Latin text itself (accents included)', async () => {
+    const out = await setFieldValues(await formPdf(), {
+      'applicant.name': 'José Müller',
+    });
+    const form = (await PDFDocument.load(out)).getForm();
+    const widget = form
+      .getTextField('applicant.name')
+      .acroField.getWidgets()[0];
+    expect(widget.dict.has(PDFName.of('AP'))).toBe(true);
+    expect(form.acroForm.dict.has(PDFName.of('NeedAppearances'))).toBe(false);
+  });
+
   it('has no form panel for a document without fields', async () => {
     const doc = await PDFDocument.create();
     doc.addPage();

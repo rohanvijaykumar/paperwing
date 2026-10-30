@@ -1195,6 +1195,13 @@ function renderDiskBar(): void {
 /** The latest inspection of each tab (an older one finishing late is
  *  ignored) */
 const inspections = new WeakMap<Tab, number>();
+/** Larger documents aren't inspected: reading one takes seconds (pdf-lib,
+ *  on this thread), and big scans rarely have forms. Their saved form
+ *  values still show; only the form panel and the script notice are left
+ *  out. */
+const INSPECT_MAX_BYTES = 40 * 1024 * 1024;
+/** Files whose "has form fields" notice was shown this session */
+const formToastShown = new Set<string>();
 
 /** Reads what the shown version of a document holds beside its pages: form
  *  fields to fill in, and scripts Paperwing doesn't run */
@@ -1207,7 +1214,17 @@ async function inspectDoc(
   inspections.set(tab, seq);
   let info: Awaited<ReturnType<typeof inspectPdf>>;
   try {
-    info = await inspectPdf(await bytes);
+    const data = await bytes;
+    // Not while the document is still being opened and drawn
+    await new Promise((resolve) =>
+      'requestIdleCallback' in window
+        ? requestIdleCallback(resolve, { timeout: 2000 })
+        : setTimeout(resolve, 300)
+    );
+    info =
+      data.byteLength > INSPECT_MAX_BYTES
+        ? { form: null, scripted: false }
+        : await inspectPdf(data);
   } catch (err) {
     console.warn(`Couldn't read the form of ${tab.name}`, err);
     info = { form: null, scripted: false };
@@ -1221,11 +1238,20 @@ async function inspectDoc(
     renderScriptBar();
     renderFormPanel();
   }
-  if (opened && !tab.formOpen && tab.form?.fields.some((f) => !f.readOnly))
+  // Once per file a session: not again each time it's opened or restored
+  const key = tab.path ?? tab.name;
+  if (
+    opened &&
+    !tab.formOpen &&
+    !formToastShown.has(key) &&
+    tab.form?.fields.some((f) => !f.readOnly)
+  ) {
+    formToastShown.add(key);
     toast(`${tab.name} has form fields you can fill in`, {
       label: 'Fill in',
       onClick: () => toggleFormPanel(tab, true),
     });
+  }
 }
 
 /** The notice over a document with scripts (document JavaScript, actions
@@ -1285,7 +1311,7 @@ function renderFormPanel(): void {
   const form = tab?.form;
   const show = !!form && !!tab?.formOpen && !tab.loading && !tab.blank;
   $('#doc-stage').classList.toggle('has-form-panel', show);
-  let panel = document.getElementById('form-panel');
+  const panel = document.getElementById('form-panel');
   if (!show) {
     panel?.remove();
     return;
@@ -1400,6 +1426,17 @@ function renderFormPanel(): void {
 
 /** Form writes waiting their turn, per tab */
 const formWrites = new WeakMap<Tab, Promise<void>>();
+
+/** What's typed into the form panel is written into the document when the
+ *  field is left. Before a document is saved, printed or closed, leave the
+ *  field being filled in and wait for the writes, or Ctrl+S right after
+ *  typing would save the document without it. */
+async function settleForms(list: Tab[]): Promise<void> {
+  const field = document.activeElement;
+  if (field instanceof HTMLElement && field.closest('#form-panel'))
+    field.blur();
+  await Promise.all(list.map((t) => formWrites.get(t)));
+}
 
 /** Writes form values into the document (see forms.ts), one change after
  *  another. The tab reopens on the result, unsaved, and Ctrl+Z takes it
@@ -1723,7 +1760,18 @@ window.addEventListener('message', async (e: MessageEvent) => {
   } else if (e.data?.type === 'acro:dirty') {
     ft.dirty = !!e.data.dirty;
   } else if (e.data?.type === 'acro:print-document') {
-    if (!document.querySelector('.dlg-backdrop')) printActiveDoc();
+    if (document.querySelector('.dlg-backdrop')) return;
+    // A viewer inside the tool sends the document it shows (what was filled
+    // in or signed there); otherwise the workspace's open document prints
+    const data = e.data.data;
+    if (data instanceof Uint8Array && desktop?.printers && desktop.printPages) {
+      const owner = tabs.find((t) => t.id === ft.owner);
+      const name =
+        typeof e.data.name === 'string' && e.data.name
+          ? e.data.name
+          : (owner?.name ?? 'Document.pdf');
+      void showPrintDialog(desktop as PrintBridge, data, name, toast);
+    } else void printActiveDoc();
   } else if (
     e.data?.type === 'acro:html-to-pdf' &&
     typeof e.data.html === 'string'
@@ -3452,12 +3500,14 @@ viewer.onPage((tabId, info) => {
 /* Save / print / download / find -------------------------------------- */
 
 async function docBlob(tab: Tab): Promise<Blob | null> {
+  await settleForms([tab]);
   const bytes = await viewer.exportBytes(tab.id);
   return bytes ? new Blob([bytes], { type: 'application/pdf' }) : null;
 }
 
 /** Save a document; resolves true if it was written somewhere */
 async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
+  await settleForms([tab]);
   // Saving over a file another app has saved since: ask first
   if (!saveAs && (tab.path || tab.handle)) {
     const choice = await confirmOverwrite(tab);
@@ -3559,9 +3609,11 @@ if (desktop?.printers && desktop.printPages) {
     void showPrintDialog(bridge, pdf, tab?.name ?? 'Document.pdf', toast);
   };
 }
-function printActiveDoc() {
+async function printActiveDoc(): Promise<void> {
   const t = activeDoc();
-  if (t) viewer.command(t.id, 'document:print');
+  if (!t) return;
+  await settleForms([t]);
+  viewer.command(t.id, 'document:print');
 }
 $('#print-btn').addEventListener('click', printActiveDoc);
 $('#download-btn').addEventListener('click', async () => {
@@ -3964,7 +4016,7 @@ $('#menu-btn').addEventListener('click', (e) => {
       shortcut: sc('print'),
       icon: icon('print', 16),
       disabled: !doc,
-      onClick: () => doc && viewer.command(doc.id, 'document:print'),
+      onClick: () => void printActiveDoc(),
     },
     {
       label: 'Document properties',
@@ -4389,6 +4441,7 @@ function confirmUnsaved(docs: Tab[]): Promise<UnsavedChoice> {
 /** Ask about unsaved documents (saving them if wanted); false = cancelled */
 /** Unsaved work in `list` (all tabs by default): ask once, and save if asked */
 async function settleUnsaved(list: Tab[] = tabs): Promise<boolean> {
+  await settleForms(list);
   for (const t of list.filter((t) => t.fullTool?.dirty))
     if (!(await mayDiscardTool(t))) return false;
   const dirty = list.filter(isDirty);
@@ -5023,7 +5076,7 @@ function runShortcut(id: string): boolean {
     case 'saveAs':
       return needDoc((d) => void saveDoc(d, true));
     case 'print':
-      return cmd('document:print');
+      return needDoc(() => void printActiveDoc());
     case 'close':
       if (activeId === 'home') return false;
       void requestCloseTab(activeId);

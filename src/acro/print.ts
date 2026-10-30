@@ -120,10 +120,12 @@ export async function showPrintDialog(
     const prevBtn = navBtn('Previous page', 'chevronLeft');
     const nextBtn = navBtn('Next page', 'chevronRight');
 
-    const closeBtn = el(
-      'button',
-      { type: 'button', class: 'tb-btn', title: 'Close', 'aria-label': 'Close' }
-    );
+    const closeBtn = el('button', {
+      type: 'button',
+      class: 'tb-btn',
+      title: 'Close',
+      'aria-label': 'Close',
+    });
     closeBtn.append(icon('close'));
     closeBtn.addEventListener('click', () => {
       if (!cancelBtn.disabled) finish('cancelled');

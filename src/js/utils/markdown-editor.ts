@@ -1036,14 +1036,6 @@ export class MarkdownEditor {
       font-family: monospace;
       font-size: 0.9em;
     }
-    /* On paper (as markdown-editor.css prints the preview) */
-    @page { size: A4; margin: 16mm; }
-    html, body { background: white; }
-    body { max-width: none; margin: 0; padding: 0; overflow-wrap: break-word; }
-    body > :first-child { margin-top: 0; }
-    pre, pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
-    h1, h2, h3, h4, h5, h6 { break-after: avoid; }
-    pre, table, .mermaid-diagram { break-inside: avoid; }
   </style>
 </head>
 <body>

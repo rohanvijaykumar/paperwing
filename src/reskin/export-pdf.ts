@@ -6,11 +6,11 @@
  * made into a PDF here and handed to the workspace (acro:download), where it
  * opens in a new tab and is printed from there.
  *
- * Desktop app: the workspace has the desktop shell lay the page out with
- * Chromium's print engine (desktop/print.cjs), so text stays text. In a
- * browser nothing but print() can do that: the page is drawn with
- * html2canvas and the drawings become the pages, so their text can't be
- * selected or searched.
+ * Desktop app only: the workspace has the desktop shell lay the page out
+ * with Chromium's print engine (desktop/print.cjs), so text stays text. If
+ * that fails, the page is drawn with html2canvas and the drawings become
+ * the pages (their text can't be selected). In a browser, the tool's own
+ * print() is left alone: the browser's print dialog works there.
  */
 import { SHELL_ORIGIN, shellOrigin } from './origins';
 
@@ -30,21 +30,34 @@ const BLOCKS =
 
 let exporting = false;
 
+/** The page on paper (as markdown-editor.css prints the tool's preview) */
+const PRINT_CSS = `<style>
+  @page { size: A4; margin: 16mm; }
+  html, body { background: white; }
+  body { max-width: none; margin: 0; padding: 0; overflow-wrap: break-word; }
+  body > :first-child { margin-top: 0; }
+  pre, pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
+  h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+  pre, table, .mermaid-diagram { break-inside: avoid; }
+</style>`;
+
 /**
  * Makes `html` (a complete HTML document, styled for print) into a PDF and
  * sends it to the workspace as `name`. Returns false, doing nothing, when
- * the page isn't hosted by Paperwing.
+ * the page isn't in Paperwing's desktop app.
  */
-export function exportPdfToShell(html: string, name: string): boolean {
+export function exportPdfToShell(page: string, name: string): boolean {
   const shell = shellOrigin();
-  if (!shell) return false;
+  if (shell !== SHELL_ORIGIN) return false;
   if (exporting) return true;
   exporting = true;
+  const html = page.includes('</head>')
+    ? page.replace('</head>', `${PRINT_CSS}</head>`)
+    : PRINT_CSS + page;
   void (async () => {
     try {
       const data =
-        (shell === SHELL_ORIGIN ? await fromDesktop(shell, html) : null) ??
-        (await fromBrowser(html));
+        (await fromDesktop(shell, html)) ?? (await fromBrowser(html));
       const blob = new Blob([data as BlobPart], { type: 'application/pdf' });
       window.parent.postMessage({ type: 'acro:download', blob, name }, shell);
     } catch (err) {
