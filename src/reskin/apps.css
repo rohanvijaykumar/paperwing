@@ -1050,18 +1050,21 @@ html[data-page='bookmark'] #bookmarks-section h3 {
   font-size: 16px;
 }
 /* The gradient "secondary" buttons become Spectrum secondary pills */
-html[data-page='bookmark'] [class*='bg-gradient-to-b'][class*='from-gray-100'] {
+html[data-page='bookmark'] [class*='bg-gradient-to-b'][class*='from-gray-100'],
+html.rs-embedded[data-page='bookmark'] :is(#undo-btn, #redo-btn) {
   background: transparent;
-  border: 2px solid var(--rs-text-2);
+  border: 2px solid var(--rs-border-strong);
   border-radius: 16px;
   color: var(--rs-text);
-  font-weight: 700;
+  font-weight: 600;
   box-shadow: none;
 }
 html[data-page='bookmark']
-  [class*='bg-gradient-to-b'][class*='from-gray-100']:hover {
+  [class*='bg-gradient-to-b'][class*='from-gray-100']:hover,
+html.rs-embedded[data-page='bookmark']
+  :is(#undo-btn, #redo-btn):hover:not(:disabled) {
   background: var(--rs-surface-hover);
-  border-color: var(--rs-text);
+  border-color: var(--rs-text-3);
 }
 html[data-page='bookmark'] #import-dropdown [class*='bg-gradient-to-b'] {
   background: transparent;
@@ -1901,27 +1904,46 @@ html.rs-embedded.rs-has-doc[data-page='add-stamps'] #fileList,
 html.rs-embedded[data-page='edit-metadata'] #tool-options > h2,
 html.rs-embedded[data-page='view-metadata'] #tool-options > h2,
 /* The XFA note (a BentoPDF/Firefox pointer) */
-html.rs-embedded[data-page='form-filler'] #tool-uploader > div.bg-blue-900\/20 {
+html.rs-embedded[data-page='form-filler'] #tool-uploader > div.bg-blue-900\/20,
+/* Prepare a form's editor repeats the tool's name and subtitle */
+html.rs-embedded[data-page='form-creator'] #tool-container > h2[data-i18n$='.name'],
+html.rs-embedded[data-page='form-creator'] #tool-container > h2[data-i18n$='.name'] + p,
+/* Setting up CoherentPDF: the app ships it */
+html.rs-embedded [data-i18n$='.cpdfNote'] {
   display: none !important;
 }
 
-/* Bookmarks: Delete all is a quiet danger button; Save stands out */
-html.rs-embedded[data-page='bookmark'] #delete-all-btn {
+/* Actions secondary to the tool's own (one blue button per tool): the
+   outline pill. Bookmarks' Delete all stays red; Prepare a form's Add page,
+   Add page labels' Add rule, Bookmarks' Add to page, Rotate's Apply to all,
+   Page dimensions' Export to CSV, Organize pages' Download selected */
+html.rs-embedded[data-page='bookmark'] :is(#delete-all-btn, #add-top-level-btn),
+html.rs-embedded[data-page='form-creator'] #addPageBtn,
+html.rs-embedded[data-page='add-page-labels'] #add-rule-btn,
+html.rs-embedded[data-page='rotate-custom'] #batch-apply,
+html.rs-embedded[data-page='page-dimensions'] #export-csv-btn,
+html.rs-embedded[data-page='pdf-booklet'] #preview-btn,
+html.rs-embedded[data-page='pdf-multi-tool'] #bulk-download-btn {
+  min-height: 32px;
+  border: 2px solid var(--rs-border-strong);
+  border-radius: 16px;
   background: transparent;
-  border: 1px solid var(--rs-border-strong);
+  box-shadow: none;
+  color: var(--rs-text);
+  font-weight: 600;
+}
+html.rs-embedded[data-page='bookmark'] #delete-all-btn {
   color: var(--rs-brand);
 }
-html.rs-embedded[data-page='bookmark'] #delete-all-btn:hover {
-  background: var(--rs-surface-hover);
-}
-
-/* Prepare a form: Add page is secondary to saving the form */
-html.rs-embedded[data-page='form-creator'] #addPageBtn {
-  background: transparent;
-  border: 1px solid var(--rs-border-strong);
-  color: var(--rs-text);
-}
-html.rs-embedded[data-page='form-creator'] #addPageBtn:hover {
+html.rs-embedded[data-page='bookmark']
+  :is(#delete-all-btn, #add-top-level-btn):hover,
+html.rs-embedded[data-page='form-creator'] #addPageBtn:hover,
+html.rs-embedded[data-page='add-page-labels'] #add-rule-btn:hover,
+html.rs-embedded[data-page='rotate-custom'] #batch-apply:hover,
+html.rs-embedded[data-page='page-dimensions'] #export-csv-btn:hover,
+html.rs-embedded[data-page='pdf-booklet'] #preview-btn:hover:not(:disabled),
+html.rs-embedded[data-page='pdf-multi-tool'] #bulk-download-btn:hover {
+  border-color: var(--rs-text-3);
   background: var(--rs-surface-hover);
 }
 
@@ -1931,14 +1953,6 @@ html.rs-embedded[data-page='pdf-multi-tool']
   :is(#bulk-download-btn, #export-pdf-btn)
   > span.hidden {
   display: inline;
-}
-html.rs-embedded[data-page='pdf-multi-tool'] #bulk-download-btn {
-  background: transparent;
-  border: 1px solid var(--rs-border-strong);
-  color: var(--rs-text);
-}
-html.rs-embedded[data-page='pdf-multi-tool'] #bulk-download-btn:hover {
-  background: var(--rs-surface-hover);
 }
 
 /* Annotate & draw: the viewer fills the document area above Save */
@@ -1965,4 +1979,49 @@ html.rs-panel[data-page='page-dimensions']
 }
 html.rs-panel[data-page='page-dimensions'] :is(th, td) {
   padding-inline: 8px;
+}
+
+/* Prepare a form: the editor sits in the workspace, not on a card */
+html.rs-embedded[data-page='form-creator'] #tool-container {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Page dimensions: "Uniform" / "Mixed sizes" in the text colour, like the
+   other figures */
+html.rs-embedded[data-page='page-dimensions']
+  :is(.text-green-400, .text-yellow-400) {
+  color: var(--rs-text);
+}
+
+/* PDF booklet: Generate preview and Create booklet side by side, as pills
+   that fit their labels */
+html.rs-embedded[data-page='pdf-booklet'] :is(#preview-btn, #download-btn) {
+  min-height: 36px;
+  padding-block: 6px;
+  border-radius: 18px;
+  white-space: nowrap;
+}
+
+/* Duplicate & organize: the page buttons are quiet round icon buttons
+   (delete in red), not filled green and red discs */
+html.rs-embedded :is(.duplicate-btn, .delete-btn)[class*='rounded-full'] {
+  border: 1px solid var(--rs-border-strong);
+  background: var(--rs-surface);
+  color: var(--rs-text-2);
+}
+html.rs-embedded .delete-btn[class*='rounded-full'] {
+  color: var(--rs-brand);
+}
+html.rs-embedded :is(.duplicate-btn, .delete-btn)[class*='rounded-full']:hover {
+  background: var(--rs-surface-hover);
+}
+
+/* View metadata: long values wrap between words where they can */
+html[data-page='view-metadata'] .break-all {
+  word-break: normal;
+  overflow-wrap: anywhere;
 }

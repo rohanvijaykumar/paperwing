@@ -8,6 +8,9 @@
  *   - for tools with a main action button (#process-btn): pressing it, and
  *     whether a result comes back to the workspace (acro:download)
  *   - a screenshot of the tool, for reviewing toolbars and layout
+ *   - BentoPDF's name, or its website's content (self-hosting, sponsors,
+ *     Discord…), anywhere in what the tool shows: Paperwing's tools carry
+ *     Paperwing's name (reskin/brand.mjs; check-branding.mjs checks the build)
  *
  *   node bench/check-tools.mjs <out-dir> [name filter…]
  *
@@ -26,6 +29,10 @@ const SAMPLE = new URL(
   '../../docs/screenshots/samples/Service Agreement - Northbeam.pdf',
   import.meta.url
 );
+
+/** What a tool page shouldn't say: BentoPDF's website, not Paperwing */
+const OFF_BRAND =
+  /\bBentoPDF\b|self-host|discord|sponsor|on GitHub|commercial licen[cs]e/i;
 
 const app = await launch();
 const { page } = app;
@@ -195,6 +202,7 @@ for (const t of tools) {
     network: [],
     online: [],
     dialogs: [],
+    offBrand: [],
   };
   report.push(current);
   try {
@@ -249,11 +257,21 @@ for (const t of tools) {
     await page.screenshot({
       path: join(outDir, `${t.name.replace(/[^\w-]+/g, '_')}.png`),
       clip: clip ?? undefined,
+      // (otherwise the page is resized while it's taken: Crop's cropper and
+      // the PDF viewers would show mid-relayout)
+      captureBeyondViewport: false,
     });
     if (!frame) {
       current.status = shown ? 'no tool frame' : 'viewer action';
       continue;
     }
+    // What it shows (the page's title is the window's when it's open)
+    const shows = await frame
+      .evaluate(() => [document.title, document.body.innerText])
+      .catch(() => []);
+    for (const line of shows.join('\n').split('\n'))
+      if (OFF_BRAND.test(line) && !/©|all rights reserved/i.test(line))
+        current.offBrand.push(line.trim().slice(0, 200));
     // Main action
     const action = await frame
       .evaluate(() => {
@@ -293,15 +311,41 @@ for (const t of tools) {
           .catch(() => []);
       }
       current.status = got ? 'result returned' : 'no result';
+      if (got) {
+        // Once its result is out, after its "done" message: a tool that
+        // starts over must not leave a blank page behind
+        await frame
+          .evaluate(() =>
+            document
+              .querySelector('#alert-modal:not(.hidden) #alert-ok')
+              ?.click()
+          )
+          .catch(() => {});
+        await sleep(2000);
+        const blank = await frame
+          .evaluate(
+            () =>
+              document.body.innerText.replace(/\s+/g, '').length <= 2 &&
+              ![
+                ...document.querySelectorAll(
+                  'canvas, img, iframe, embed, input:not([type="file"]), select, textarea, button'
+                ),
+              ].some((el) => el.getClientRects().length)
+          )
+          .catch(() => false);
+        if (blank) current.status += ', then BLANK';
+      }
     } else {
       current.status = `action ${action}`;
     }
   } catch (e) {
     current.status = 'error: ' + e.message.slice(0, 200);
   } finally {
+    for (const d of current.dialogs)
+      if (OFF_BRAND.test(d)) current.offBrand.push(d.slice(0, 200));
     current.online = [...new Set(current.online)];
     console.log(
-      `${t.name.padEnd(28)} ${current.status}${current.shownMs ? ` (${current.shownMs} ms)` : ''}${current.errors.length ? ` errors:${current.errors.length}` : ''}${current.blocked.length ? ' BLOCKED' : ''}${current.online.length ? ` online:${current.online.length}` : ''}`
+      `${t.name.padEnd(28)} ${current.status}${current.shownMs ? ` (${current.shownMs} ms)` : ''}${current.errors.length ? ` errors:${current.errors.length}` : ''}${current.blocked.length ? ' BLOCKED' : ''}${current.online.length ? ` online:${current.online.length}` : ''}${current.offBrand.length ? ` OFF-BRAND: ${current.offBrand[0]}` : ''}`
     );
   }
 }
