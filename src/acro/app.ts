@@ -5041,9 +5041,9 @@ async function loadPending(tab: Tab) {
 
 /* Read mode & full screen -------------------------------------------- */
 
-function setReadMode(on: boolean) {
+function setReadMode(on: boolean, announce = on) {
   document.body.classList.toggle('is-reading', on);
-  if (on)
+  if (announce)
     toast(`Read mode — press Esc or ${shortcutLabel('readMode')} to exit`);
   if (!on && document.fullscreenElement) void document.exitFullscreen();
 }
@@ -5053,8 +5053,9 @@ async function toggleFullScreen() {
     await document.exitFullscreen();
     setReadMode(false);
   } else {
-    setReadMode(true);
+    setReadMode(true, false);
     await document.documentElement.requestFullscreen().catch(() => {});
+    toast(`Full screen — press Esc or ${shortcutLabel('fullScreen')} to exit`);
   }
 }
 document.addEventListener('fullscreenchange', () => {
