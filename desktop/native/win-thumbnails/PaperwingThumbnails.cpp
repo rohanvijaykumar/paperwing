@@ -35,6 +35,14 @@ static const ULONGLONG kMaxBytes = 512ull * 1024 * 1024;
 typedef void* FPDF_DOCUMENT;
 typedef void* FPDF_PAGE;
 typedef void* FPDF_BITMAP;
+typedef void* FPDF_FORMHANDLE;
+
+// FPDF_FORMFILLINFO, version 1, with no callbacks: PDFium checks each one
+// before calling it, and a thumbnail needs none (no scripts, no focus)
+struct FormFillInfo {
+  int version = 1;
+  void* callbacks[32] = {};
+};
 
 static const int kBitmapBGRA = 4;  // FPDFBitmap_BGRA
 static const int kRenderAnnotations = 0x01;  // FPDF_ANNOT
@@ -52,7 +60,16 @@ static struct {
   void(__stdcall* BitmapDestroy)(FPDF_BITMAP);
   void(__stdcall* ClosePage)(FPDF_PAGE);
   void(__stdcall* CloseDocument)(FPDF_DOCUMENT);
+  // Form fields: FPDF_RenderPageBitmap leaves them out (FPDF_ANNOT draws
+  // every other annotation); they're drawn by FPDF_FFLDraw, as in viewers
+  FPDF_FORMHANDLE(__stdcall* InitFormFill)(FPDF_DOCUMENT, FormFillInfo*);
+  void(__stdcall* ExitFormFill)(FPDF_FORMHANDLE);
+  void(__stdcall* AfterLoadPage)(FPDF_PAGE, FPDF_FORMHANDLE);
+  void(__stdcall* BeforeClosePage)(FPDF_PAGE, FPDF_FORMHANDLE);
+  void(__stdcall* DrawForms)(FPDF_FORMHANDLE, FPDF_BITMAP, FPDF_PAGE, int, int, int, int, int, int);
 } pdfium;
+
+static bool g_pdfiumForms = false;
 
 // PDFium isn't thread-safe; Explorer may call several providers at once
 static SRWLOCK g_pdfiumLock = SRWLOCK_INIT;
@@ -92,6 +109,12 @@ static bool EnsurePdfium() {
             Bind(dll, pdfium.ClosePage, "FPDF_ClosePage") &&
             Bind(dll, pdfium.CloseDocument, "FPDF_CloseDocument");
   if (!ok) return false;
+  // (without them, thumbnails still show everything but the fields)
+  g_pdfiumForms = Bind(dll, pdfium.InitFormFill, "FPDFDOC_InitFormFillEnvironment") &&
+                  Bind(dll, pdfium.ExitFormFill, "FPDFDOC_ExitFormFillEnvironment") &&
+                  Bind(dll, pdfium.AfterLoadPage, "FORM_OnAfterLoadPage") &&
+                  Bind(dll, pdfium.BeforeClosePage, "FORM_OnBeforeClosePage") &&
+                  Bind(dll, pdfium.DrawForms, "FPDF_FFLDraw");
   // pdfium.dll stays loaded for the life of the process
   pdfium.InitLibrary();
   g_pdfiumReady = true;
@@ -175,16 +198,21 @@ class ThumbnailProvider final : public IInitializeWithStream,
     FPDF_DOCUMENT doc = pdfium.LoadMemDocument64(data_.data(), data_.size(), nullptr);
     if (!doc) return E_FAIL;
     HRESULT hr = E_FAIL;
+    FormFillInfo formInfo;
+    FPDF_FORMHANDLE form = g_pdfiumForms ? pdfium.InitFormFill(doc, &formInfo) : nullptr;
     FPDF_PAGE page = pdfium.GetPageCount(doc) > 0 ? pdfium.LoadPage(doc, 0) : nullptr;
     if (page) {
-      hr = RenderPage(page, cx, out);
+      if (form) pdfium.AfterLoadPage(page, form);
+      hr = RenderPage(page, form, cx, out);
+      if (form) pdfium.BeforeClosePage(page, form);
       pdfium.ClosePage(page);
     }
+    if (form) pdfium.ExitFormFill(form);
     pdfium.CloseDocument(doc);
     return hr;
   }
 
-  static HRESULT RenderPage(FPDF_PAGE page, UINT cx, HBITMAP* out) {
+  static HRESULT RenderPage(FPDF_PAGE page, FPDF_FORMHANDLE form, UINT cx, HBITMAP* out) {
     double w = pdfium.GetPageWidthF(page);
     double h = pdfium.GetPageHeightF(page);
     if (!(w > 0 && h > 0)) return E_FAIL;
@@ -211,6 +239,7 @@ class ThumbnailProvider final : public IInitializeWithStream,
     }
     pdfium.BitmapFillRect(bitmap, 0, 0, bw, bh, 0xFFFFFFFF);
     pdfium.RenderPageBitmap(bitmap, page, 0, 0, bw, bh, 0, kRenderAnnotations);
+    if (form) pdfium.DrawForms(form, bitmap, page, 0, 0, bw, bh, 0, kRenderAnnotations);
     pdfium.BitmapDestroy(bitmap);
     *out = dib;
     return S_OK;

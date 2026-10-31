@@ -1,10 +1,11 @@
 // Test for PaperwingThumbnails.dll: loads it the way Explorer does (through
 // its class factory, with a file stream) and checks the thumbnail it draws.
 //
-//   test-thumbnail.exe <PaperwingThumbnails.dll> <good.pdf> <protected.pdf> <out.bmp>
+//   test-thumbnail.exe <PaperwingThumbnails.dll> <good.pdf> <protected.pdf> <out.bmp> [form.pdf]
 //
-// Exit code 0 when a good PDF gives a non-blank thumbnail and a protected or
-// broken file fails cleanly.
+// Exit code 0 when a good PDF gives a non-blank thumbnail, a protected or
+// broken file fails cleanly, and form fields show (form.pdf has nothing but
+// a form field, so its thumbnail is blank without them).
 
 #include <windows.h>
 #include <shlwapi.h>
@@ -92,7 +93,7 @@ static bool SaveBmp(HBITMAP bitmap, const wchar_t* path, int* width, int* height
 
 int wmain(int argc, wchar_t** argv) {
   if (argc < 5) {
-    fwprintf(stderr, L"usage: test-thumbnail <dll> <good.pdf> <protected.pdf> <out.bmp>\n");
+    fwprintf(stderr, L"usage: test-thumbnail <dll> <good.pdf> <protected.pdf> <out.bmp> [form.pdf]\n");
     return 2;
   }
   CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -139,6 +140,19 @@ int wmain(int argc, wchar_t** argv) {
     bool ok = FAILED(r.hr) && !r.bitmap;
     wprintf(L"%s broken file: hr=0x%08lx\n", ok ? L"ok  " : L"FAIL", static_cast<unsigned long>(r.hr));
     if (!ok) failures++;
+  }
+
+  // 4. Form fields show (PDFium draws them separately from the page)
+  if (argc > 5) {
+    Result r = ThumbnailOfFile(getClassObject, argv[5], 256);
+    int w = 0, h = 0;
+    double inked = 0;
+    bool saved = SUCCEEDED(r.hr) && r.bitmap && SaveBmp(r.bitmap, argv[4], &w, &h, &inked);
+    bool ok = saved && inked > 0.1;
+    wprintf(L"%s form.pdf: hr=0x%08lx inked=%.2f%%\n", ok ? L"ok  " : L"FAIL",
+            static_cast<unsigned long>(r.hr), inked * 100);
+    if (!ok) failures++;
+    if (r.bitmap) DeleteObject(r.bitmap);
   }
 
   wprintf(failures ? L"%d check(s) failed\n" : L"all checks passed\n", failures);

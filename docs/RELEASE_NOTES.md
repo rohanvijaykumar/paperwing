@@ -38,6 +38,7 @@ Fill in forms right on the page, form scripts that run, and a print dialog like 
 
 ### Fixed
 
+- **File Explorer's previews of forms** show their fields and what was filled in (Windows).
 - **Dropping PDFs from File Explorer** opens them. Thanks to [@Lehnemann](https://github.com/Lehnemann) for reporting it ([#30](https://github.com/rohanvijaykumar/paperwing/issues/30)).
 - **Shortcuts follow your keyboard layout:** on Colemak, Dvorak, AZERTY or QWERTZ, Ctrl+Z is the key
   marked Z. Thanks to [@Lehnemann](https://github.com/Lehnemann) ([#29](https://github.com/rohanvijaykumar/paperwing/issues/29)).
