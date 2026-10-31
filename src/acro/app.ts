@@ -37,8 +37,9 @@ import {
 } from './viewer';
 import { Thumbnails, thumbUrl } from './thumbnails';
 import { desktop, isMac, key, toFile } from './desktop';
-import { inspectPdf, type FormInfo } from './forms';
+import { inspectPdf, unformat, type FormInfo } from './forms';
 import { FormLayer, FormSession, type FormChange } from './form-layer';
+import { FormScripts } from './form-scripts';
 import { fillable, type FieldState, type LiveField } from './form-model';
 import { showPrintDialog, type PrintBridge } from './print';
 import {
@@ -542,6 +543,9 @@ interface Tab {
   editsRedo?: ('viewer' | 'form')[];
   /** The form fields panel is open */
   formOpen?: boolean;
+  /** Its scripts, running (form-scripts.ts); or they couldn't be run */
+  scripts?: FormScripts;
+  scriptsFailed?: boolean;
   /** The document has scripts Paperwing doesn't run; the notice about
    *  them was dismissed */
   scripted?: boolean;
@@ -784,6 +788,7 @@ function closeTab(id: string) {
   void flushView(tab); // reads the viewer, so before it closes the document
   cancelRecoveryCopy(tab);
   if (formLayer.current?.tabId === tab.id) formLayer.show(null);
+  stopScripts(tab);
   viewer.close(tab.id);
   if (tab.recoveryId) void desktop?.recovery?.delete(tab.recoveryId);
   if (activeId === id) {
@@ -1221,8 +1226,9 @@ async function inspectDoc(
   const seq = (inspections.get(tab) ?? 0) + 1;
   inspections.set(tab, seq);
   let info: Awaited<ReturnType<typeof inspectPdf>>;
+  let data: ArrayBuffer | null = null;
   try {
-    const data = await bytes;
+    data = await bytes;
     // Not while the document is still being opened and drawn
     await new Promise((resolve) =>
       'requestIdleCallback' in window
@@ -1241,25 +1247,28 @@ async function inspectDoc(
   tab.form = info.form;
   tab.scripted = info.scripted;
   // The fields as the open document holds them (PDFium reads them, also
-  // when pdf-lib can't: encrypted documents)
-  if (tab.form) {
+  // when pdf-lib can't: encrypted documents), and its scripts, which may
+  // be all it has (a message when it opens)
+  stopScripts(tab);
+  const runScripts = tab.scripted && getPrefs().runScripts;
+  if (tab.form || runScripts) {
     if (!tab.formSession) {
       const session = new FormSession(viewer, tab.id);
       session.onChange((change) => onFormChange(tab, change));
       tab.formSession = session;
     }
     try {
-      await tab.formSession.load(tab.form);
+      await tab.formSession.load(tab.form ?? null);
     } catch (err) {
       console.warn(`Couldn't read the fields of ${tab.name}`, err);
     }
     if (inspections.get(tab) !== seq || !tabs.includes(tab)) return;
     if (!tab.formSession.fields.length) tab.form = null;
+    if (runScripts && data) await startScripts(tab, data, seq);
+    if (inspections.get(tab) !== seq || !tabs.includes(tab)) return;
   }
-  if (!tab.form) {
-    tab.formOpen = false;
-    tab.formSession = undefined;
-  }
+  if (!tab.form) tab.formOpen = false;
+  if (!tab.form && !tab.formSession?.scripts) tab.formSession = undefined;
   if (activeId === tab.id) {
     renderRightRail(tab);
     renderScriptBar();
@@ -1317,19 +1326,22 @@ function syncFormLayer(tab: Tab | undefined, rebuilt = false) {
     );
 }
 
-/** A field was filled in (on the page, in the panel, or by undo/redo) */
-let formUndoing = false;
+/** A field was filled in: by the person (on the page or in the panel), by
+ *  undo/redo, or by the document's scripts */
 function onFormChange(tab: Tab, change: FormChange) {
-  if (!formUndoing) {
-    tab.formUndo = [...(tab.formUndo ?? []), change].slice(-200);
-    tab.formRedo = [];
-    tab.edits = [...(tab.edits ?? []), 'form' as const].slice(-400);
-    tab.editsRedo = [];
+  // Formatting when the document opened isn't a change to it
+  if (change.origin !== 'open') {
+    if (change.origin === 'user') {
+      tab.formUndo = [...(tab.formUndo ?? []), change].slice(-200);
+      tab.formRedo = [];
+      tab.edits = [...(tab.edits ?? []), 'form' as const].slice(-400);
+      tab.editsRedo = [];
+    }
+    const wasDirty = isDirty(tab);
+    tab.version++;
+    if (!wasDirty) renderTabs();
+    scheduleRecoveryCopy(tab);
   }
-  const wasDirty = isDirty(tab);
-  tab.version++;
-  if (!wasDirty) renderTabs();
-  scheduleRecoveryCopy(tab);
   if (activeId === tab.id) renderFormPanel();
 }
 
@@ -1337,29 +1349,117 @@ function onFormChange(tab: Tab, change: FormChange) {
 async function stepForm(tab: Tab, action: 'undo' | 'redo'): Promise<boolean> {
   const from = action === 'undo' ? tab.formUndo : tab.formRedo;
   const change = from?.pop();
-  if (!change || !tab.formSession) return false;
-  formUndoing = true;
+  const session = tab.formSession;
+  if (!change || !session) return false;
+  const value = action === 'undo' ? change.before : change.after;
+  const to = action === 'undo' ? 'formRedo' : 'formUndo';
+  if (session.scripts) {
+    // Through the scripts, so what they worked out from it follows
+    session.fill(change.name, value, 'undo');
+    tab[to] = [...(tab[to] ?? []), change];
+    return true;
+  }
+  const ok = await session.set(change.name, value, 'undo');
+  if (ok) tab[to] = [...(tab[to] ?? []), change];
+  return ok;
+}
+
+/* Form scripts ----------------------------------------------------------- */
+
+/** Starts the scripts of the document shown in `tab` (its bytes as shown) */
+async function startScripts(tab: Tab, bytes: ArrayBuffer, seq: number) {
+  const session = tab.formSession;
+  if (!session) return;
+  tab.scriptsFailed = false;
   try {
-    const ok = await tab.formSession.set(
-      change.name,
-      action === 'undo' ? change.before : change.after
+    const scripts = await FormScripts.start(
+      bytes,
+      session,
+      {
+        alert: (message) => void showScriptMessage(tab, message),
+        print: () => {
+          if (activeId === tab.id) void printActiveDoc();
+        },
+      },
+      viewer.pageSizes(tab.id)
     );
-    if (ok) {
-      const to = action === 'undo' ? 'formRedo' : 'formUndo';
-      tab[to] = [...(tab[to] ?? []), change];
+    // (closed, or another version shown, meanwhile)
+    if (inspections.get(tab) !== seq || !tabs.includes(tab)) {
+      scripts?.stop();
+      return;
     }
-    return ok;
-  } finally {
-    formUndoing = false;
+    if (scripts) {
+      tab.scripts = scripts;
+      session.scripts = scripts;
+    }
+  } catch (err) {
+    console.warn(`Couldn't run the scripts of ${tab.name}`, err);
+    tab.scriptsFailed = true;
   }
 }
+
+function stopScripts(tab: Tab) {
+  tab.scripts?.stop();
+  tab.scripts = undefined;
+  if (tab.formSession) tab.formSession.scripts = undefined;
+}
+
+/** Scripts turned on or off in Preferences: the document is read again */
+async function restartScripts(tab: Tab) {
+  if (!tab.scripted || tab.loading || tab.blank) return;
+  const bytes = await viewer.exportBytes(tab.id).catch((): null => null);
+  if (!bytes || !tabs.includes(tab)) return;
+  await inspectDoc(tab, bytes);
+  if (activeId === tab.id) renderScriptBar();
+}
+
+/** app.alert() in a document's script: shown as the app's own dialog */
+const scriptMessages = new WeakMap<Tab, Promise<unknown>>();
+/** Messages waiting or showing, per tab */
+const scriptMessagesShown = new WeakMap<Tab, Set<string>>();
+function showScriptMessage(tab: Tab, message: string) {
+  if (!message.trim()) return;
+  // The same message again while it's still showing: once is enough
+  // (pdf.js runs a document's "when opened" script twice)
+  const shown = scriptMessagesShown.get(tab) ?? new Set<string>();
+  scriptMessagesShown.set(tab, shown);
+  if (shown.has(message)) return;
+  shown.add(message);
+  // One after another, as Acrobat shows them
+  const next = (scriptMessages.get(tab) ?? Promise.resolve())
+    .then(() =>
+      askDialog(
+        tab.name,
+        message,
+        [{ label: 'OK', value: true, kind: 'primary' }],
+        true
+      )
+    )
+    .finally(() => shown.delete(message));
+  scriptMessages.set(
+    tab,
+    next.catch(() => {})
+  );
+  return next;
+}
+
+/** Saving a document whose scripts show fields formatted: their values as
+ *  typed go in (forms.ts, unformat) */
+viewer.exportFilter = (tabId, bytes) => {
+  const raws = tabs.find((t) => t.id === tabId)?.scripts?.formatted();
+  return raws?.size ? unformat(bytes, raws) : Promise.resolve(bytes);
+};
 
 /** The notice over a document with scripts (document JavaScript, actions
  *  when it opens, field or page actions): none of them run here */
 function renderScriptBar(): void {
   const tab = activeTab();
   const show =
-    !!tab?.scripted && !tab.scriptDismissed && !tab.loading && !tab.blank;
+    !!tab?.scripted &&
+    !tab.scripts &&
+    !tab.scriptDismissed &&
+    !tab.loading &&
+    !tab.blank;
   let bar = document.getElementById('script-bar');
   if (!show) {
     bar?.remove();
@@ -1369,6 +1469,8 @@ function renderScriptBar(): void {
     bar = h('div', { id: 'script-bar', role: 'status' });
     $('#doc-stage').append(bar);
   }
+  // Scripts are off in Preferences, or couldn't be run
+  const off = !getPrefs().runScripts;
   bar.replaceChildren(
     h(
       'span',
@@ -1377,8 +1479,27 @@ function renderScriptBar(): void {
         title:
           'Calculations, checks, pop-ups or other actions its author added will not happen.',
       },
-      'This document has scripted instructions that Paperwing does not run.'
+      off
+        ? 'This document has scripts, and form scripts are turned off.'
+        : "This document's scripts couldn't be run."
     ),
+    // (replaceChildren would show a false as text)
+    ...(off
+      ? [
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'accent-btn db-reload',
+              onClick: () => {
+                setPrefs({ runScripts: true });
+                for (const t of tabs) void restartScripts(t);
+              },
+            },
+            'Turn on'
+          ),
+        ]
+      : []),
     iconBtn(
       'close',
       'Dismiss',
@@ -1504,9 +1625,8 @@ function panelRow(
         `p. ${first.pageIndex + 1}`
       )
     : null;
-  const set = (value: FieldState): void => {
-    void session.set(f.name, value);
-  };
+  // (through the document's scripts, as on the page)
+  const set = (value: FieldState): void => session.fill(f.name, value);
   const label = (forId: string) => h('label', { for: forId }, f.label, note);
 
   if (f.kind === 'checkbox') {
@@ -5019,6 +5139,16 @@ function showPreferences() {
         'Looks for new versions on GitHub when Paperwing starts and every two hours. Nothing else is sent.',
         prefs.checkUpdates,
         (v) => setPrefs({ checkUpdates: v })
+      ),
+      h('div', { class: 'pref-group' }, 'Forms'),
+      toggle(
+        'Run form scripts',
+        "Totals, formatting, checks and messages a form's author added. They run sandboxed: they can't reach your files or the internet.",
+        prefs.runScripts,
+        (v) => {
+          setPrefs({ runScripts: v });
+          for (const t of tabs) void restartScripts(t);
+        }
       ),
       h('div', { class: 'pref-group' }, 'Advanced'),
       h(
