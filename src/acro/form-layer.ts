@@ -1325,24 +1325,25 @@ function placeOf(
  * box as large as the page at the current zoom; which page it is follows
  * from where it sits in the document, by the viewer's layout.
  */
-function findPages(
-  root: ShadowRoot,
-  layout: { scale: number; pages: Map<number, { x: number; y: number }> }
-): { page: HTMLElement; index: number }[] {
-  const out: { page: HTMLElement; index: number }[] = [];
-  // The unrotated page: a positioned box (sized in px) holding the page
-  // image first, inside the box that's rotated
-  const boxes = [...root.querySelectorAll<HTMLElement>('div')].filter(
+/**
+ * The viewer's pages: each the unrotated page, a positioned box (sized in
+ * px) holding the page image first, inside the box that's rotated. Nothing
+ * that changes with the mode counts (Hand takes the boxes' touch-action
+ * away, for one), so the fields stay on their pages in every mode.
+ */
+export function pageBoxes(scope: ParentNode): HTMLElement[] {
+  return [...scope.querySelectorAll<HTMLElement>('div')].filter(
     (d) =>
       d.style.position === 'relative' &&
-      d.style.touchAction === 'none' &&
       /px$/.test(d.style.width) &&
-      d.firstElementChild instanceof HTMLImageElement
+      d.firstElementChild instanceof HTMLImageElement &&
+      !!contentOf(d)
   );
-  if (!boxes.length) return out;
-  const scale = layout.scale;
-  // The document's content area: everything is placed from its top left
-  let content: HTMLElement | null = boxes[0].parentElement;
+}
+
+/** The document's content area: everything is placed from its top left */
+function contentOf(box: HTMLElement): HTMLElement | null {
+  let content = box.parentElement;
   while (
     content &&
     !(
@@ -1351,8 +1352,18 @@ function findPages(
     )
   )
     content = content.parentElement;
-  if (!content) return out;
-  const origin = content.getBoundingClientRect();
+  return content;
+}
+
+function findPages(
+  root: ShadowRoot,
+  layout: { scale: number; pages: Map<number, { x: number; y: number }> }
+): { page: HTMLElement; index: number }[] {
+  const out: { page: HTMLElement; index: number }[] = [];
+  const boxes = pageBoxes(root);
+  if (!boxes.length) return out;
+  const scale = layout.scale;
+  const origin = contentOf(boxes[0])!.getBoundingClientRect();
   for (const box of boxes) {
     const outer = box.parentElement?.parentElement ?? box;
     const r = outer.getBoundingClientRect();

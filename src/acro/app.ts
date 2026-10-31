@@ -1391,9 +1391,11 @@ function syncFormLayer(tab: Tab | undefined, rebuilt = false) {
       : null;
   if (rebuilt && show) formLayer.show(null);
   formLayer.show(show);
+  // Fields take clicks with Select and Hand (as in Acrobat, whose Hand
+  // fills in forms), not while zooming to a rectangle or drawing comments
   if (show && tab)
     formLayer.setInteractive(
-      !tab.activeAnnot && viewer.mode(tab.id) === 'select'
+      !tab.activeAnnot && viewer.mode(tab.id) !== 'marquee'
     );
 }
 
