@@ -5759,19 +5759,24 @@ window.addEventListener('drop', async (e) => {
   document.body.classList.remove('is-dragging');
   // Dropped onto the page thumbnails: inserted there instead
   if (droppedOnPages.has(e)) return;
+  // Everything is read before the first await: once the drop event is over,
+  // the browser empties what was dropped (a real drop from Explorer arrives
+  // with no files after it)
+  const files = Array.from(e.dataTransfer!.files);
+  const pdfs = files.filter(isPdf);
   const items = Array.from(e.dataTransfer!.items);
   const getHandle = (
     it: DataTransferItem
   ): Promise<FileSystemHandle | null> | undefined =>
     (it as any).getAsFileSystemHandle?.();
-  const handles = await Promise.all(
-    items.map(
-      (it): Promise<FileSystemHandle | null> | null =>
-        getHandle(it)?.catch((): null => null) ?? null
-    )
-  );
-  const files = Array.from(e.dataTransfer!.files);
-  const pdfs = files.filter(isPdf);
+  const handles = desktop
+    ? []
+    : await Promise.all(
+        items.map(
+          (it): Promise<FileSystemHandle | null> | null =>
+            getHandle(it)?.catch((): null => null) ?? null
+        )
+      );
   let into = activeTab()?.blank ? activeTab() : undefined;
   for (const f of pdfs) {
     if (desktop) {

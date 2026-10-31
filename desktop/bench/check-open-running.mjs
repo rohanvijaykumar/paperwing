@@ -2,7 +2,8 @@
  * Opening PDFs from the OS while Paperwing is already running (a second
  * launch with the file, as Explorer and "Open with" do). Each file must come
  * to the front in its own tab, including files with the same name in
- * different folders and files that are already open.
+ * different folders and files that are already open. Also files dragged
+ * in from Explorer.
  *   node bench/check-open-running.mjs
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -36,9 +37,9 @@ async function pdf(dir, name, label) {
   return file;
 }
 const files = [
-  await pdf('Acme Corp/Product Manager', 'Rohan_Resume.pdf', 'Acme'),
-  await pdf('Globex/Product Manager', 'Rohan_Resume.pdf', 'Globex'),
-  await pdf('Initech/Associate PM', 'Rohan Resume (final).pdf', 'Initech'),
+  await pdf('Acme Corp/Product Manager', 'Resume.pdf', 'Acme'),
+  await pdf('Globex/Product Manager', 'Resume.pdf', 'Globex'),
+  await pdf('Initech/Associate PM', 'Resume (final).pdf', 'Initech'),
   await pdf('Umbrella', 'Cover letter.pdf', 'Umbrella'),
 ];
 
@@ -255,6 +256,42 @@ check(
   s.count === files.length + more.length,
   'three files opened at once all open',
   `${s.count} tab(s)`
+);
+
+// Dragged in from Explorer: a real drop through Chromium, whose files are
+// gone once the drop event is over (#30: they were read too late)
+const cdp = await page.target().createCDPSession();
+async function drop(paths) {
+  const at = await page.evaluate(() => ({
+    x: Math.round(innerWidth / 2),
+    y: Math.round(innerHeight / 2),
+  }));
+  const data = { items: [], files: paths, dragOperationsMask: 1 };
+  for (const type of ['dragEnter', 'dragOver', 'drop'])
+    await cdp.send('Input.dispatchDragEvent', { type, ...at, data });
+}
+const dropped = [
+  await pdf('Dropped', 'dropped.pdf', 'Dropped'),
+  await pdf('Dropped', 'second.pdf', 'Second'),
+  await pdf('Dropped', 'third.pdf', 'Third'),
+];
+await page.evaluate(() => document.getElementById('home-btn').click());
+await sleep(500);
+let count = (await state()).count;
+await drop([dropped[0]]);
+s = await front(dropped[0]);
+check(
+  s.ok && s.count === count + 1 && !(await dirty()),
+  'a PDF dropped on Home opens, as the file on disk (nothing unsaved)',
+  show(s)
+);
+count = s.count;
+await drop(dropped.slice(1));
+s = await front(dropped[2]);
+check(
+  s.ok && s.count === count + 2,
+  'two PDFs dropped onto an open document open in their own tabs',
+  show(s)
 );
 
 await app.close();
