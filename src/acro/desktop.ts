@@ -93,9 +93,12 @@ export interface DesktopBridge {
     delete(id: string): Promise<void>;
   };
   writeFile(path: string, data: Uint8Array): Promise<boolean>;
+  /** Save As, starting in the folder of `near` (the document's own file)
+   *  or else the last folder used */
   saveAs(
     name: string,
-    data: Uint8Array
+    data: Uint8Array,
+    near?: string
   ): Promise<{ path: string; name: string } | null>;
   /** Printers to print to, and the one to preselect (the last one used,
    *  else the system default) */
