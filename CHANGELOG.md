@@ -13,7 +13,8 @@ All notable changes to Paperwing are documented here. Paperwing follows
   Text in any script works, including Cyrillic, Chinese and Hindi. Fields show as the document
   draws them, and stay fields when saved (nothing is flattened). A Form fields panel lists the same
   fields, and Highlight fields tints them on the page; required fields are outlined. Read-only
-  fields stay locked; signature fields lead to Fill & Sign. Ctrl+Z takes back a change. Reported by
+  fields stay locked; signature fields lead to Fill & Sign. Ctrl+Z takes back a change. Old
+  Adobe XFA forms, which only Acrobat can fill in, say so. Reported by
   [@austinwilkerson](https://github.com/austinwilkerson) in
   [#26](https://github.com/rohanvijaykumar/paperwing/issues/26).
 - **A print dialog like Acrobat's**, the same on Windows, macOS and Linux, with a preview of exactly

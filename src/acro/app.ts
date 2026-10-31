@@ -1237,11 +1237,11 @@ async function inspectDoc(
     );
     info =
       data.byteLength > INSPECT_MAX_BYTES
-        ? { form: null, scripted: false }
+        ? { form: null, scripted: false, xfa: false }
         : await inspectPdf(data);
   } catch (err) {
     console.warn(`Couldn't read the form of ${tab.name}`, err);
-    info = { form: null, scripted: false };
+    info = { form: null, scripted: false, xfa: false };
   }
   if (inspections.get(tab) !== seq || !tabs.includes(tab)) return;
   tab.form = info.form;
@@ -1277,6 +1277,12 @@ async function inspectDoc(
   }
   // Once per file a session: not again each time it's opened or restored
   const key = tab.path ?? tab.name;
+  if (opened && info.xfa && !formToastShown.has(key)) {
+    formToastShown.add(key);
+    toast(
+      `${tab.name} is an Adobe XFA form: only Adobe Acrobat can fill it in`
+    );
+  }
   if (
     opened &&
     !tab.formOpen &&
