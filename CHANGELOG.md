@@ -8,10 +8,12 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ### Added
 
-- **Fill in forms.** Text fields and checkboxes can be filled in from a Form fields panel beside the
-  document, then saved and reopened; the fields stay fields (nothing is flattened). Text in any
-  script works, including Cyrillic, Chinese and Hindi. Read-only fields and protected documents stay
-  locked; radio buttons, choice lists and signature fields can't be filled in here yet. Reported by
+- **Fill in forms right on the page**, as in Chrome or Acrobat: click a field and type, tick
+  checkboxes, choose radio buttons, pick from dropdowns and lists, and Tab from field to field.
+  Text in any script works, including Cyrillic, Chinese and Hindi. Fields show as the document
+  draws them, and stay fields when saved (nothing is flattened). A Form fields panel lists the same
+  fields, and Highlight fields tints them on the page; required fields are outlined. Read-only
+  fields stay locked; signature fields lead to Fill & Sign. Ctrl+Z takes back a change. Reported by
   [@austinwilkerson](https://github.com/austinwilkerson) in
   [#26](https://github.com/rohanvijaykumar/paperwing/issues/26).
 - **A print dialog like Acrobat's**, the same on Windows, macOS and Linux, with a preview of exactly

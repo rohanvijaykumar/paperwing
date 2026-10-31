@@ -1153,6 +1153,40 @@ body.is-dragging .drop-inner {
   background: var(--hover-soft);
   color: var(--text);
 }
+/* A radio group's or a signature's name, like a field's label */
+#form-panel .fp-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 600;
+}
+#form-panel .fp-radios {
+  flex-basis: 100%;
+}
+#form-panel .fp-radios .fp-field {
+  padding: 3px 0;
+}
+#form-panel .fp-radios label {
+  font-weight: 400;
+}
+#form-panel .fp-select {
+  flex-basis: 100%;
+  width: 100%;
+}
+#form-panel .fp-sign {
+  flex-basis: 100%;
+  justify-content: center;
+}
+/* "Highlight fields on the page": a setting, set apart from the fields */
+#form-panel .fp-option {
+  margin-bottom: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+#form-panel .fp-option label {
+  font-weight: 400;
+}
 #doc-stage.has-full-tool #script-bar,
 #doc-stage.has-full-tool #form-panel {
   display: none;
