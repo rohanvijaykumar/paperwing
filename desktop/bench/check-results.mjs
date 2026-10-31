@@ -122,7 +122,7 @@ check(
     'Compress…',
     'Combine with other files…',
     'Star',
-    'Remove from Recent',
+    'Remove from recent',
   ].every((x) => items.includes(x)),
   `right-click menu: ${items.join(' | ')}`
 );

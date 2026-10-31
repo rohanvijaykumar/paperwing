@@ -517,7 +517,12 @@ check(
 await drop(page, CONTRACT);
 await page.evaluate(() =>
   [...document.querySelectorAll('#left-panel .lp-tool')]
-    .find((x) => x.textContent.trim() === 'Prepare a form')
+    // (the shown tab's panel: other tabs keep theirs, hidden)
+    .find(
+      (x) =>
+        x.textContent.trim() === 'Prepare a form' &&
+        x.getClientRects().length > 0
+    )
     .click()
 );
 await until(

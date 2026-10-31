@@ -1,8 +1,9 @@
 /**
  * The form of an open document, as PDFium holds it: its fields (grouped
  * from their widgets), what each one is set to, and what PDFium must be
- * told to set it to something else. Shared by the fields on the page
- * (form-layer.ts) and the Form fields panel (app.ts).
+ * told to set it to something else. The form layer (form-layer.ts) keeps
+ * these up to date with the fields on the page, for the Form fields panel
+ * (app.ts) and for PDFium's copy of the document.
  */
 import type { FormValue, PageWidget } from './viewer';
 import type { FieldMeta } from './forms';
@@ -147,10 +148,13 @@ export function stateOf(f: Pick<LiveField, 'kind' | 'widgets'>): FieldState {
  *  (nothing if it's set to that already, or can't be) */
 export function stepsTo(
   f: LiveField,
-  want: FieldState
+  want: FieldState,
+  /** Also a read-only field (its scripts work it out) */
+  readOnlyToo = false
 ): { widget: PageWidget; value: FormValue }[] {
   const first = f.widgets[0];
-  if (!first || !fillable(f) || want === f.value) return [];
+  const settable = fillable(f) || (readOnlyToo && f.readOnly);
+  if (!first || !settable || want === f.value) return [];
   switch (f.kind) {
     case 'text':
       return typeof want === 'string'

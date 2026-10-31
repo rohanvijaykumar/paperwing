@@ -1,10 +1,14 @@
 /**
- * Filling in a form in the real desktop app, as a person would: clicking
- * fields on the page and typing (in any script), Tab to the next field,
- * ticking a checkbox, choosing a radio button and options. Then checks what
- * the document holds (saved as a copy and read back), that the tab counts
- * as changed, that Ctrl+Z takes the last change back, that read-only fields
- * can't be typed in, and that the Form fields panel shows the same values.
+ * Filling in a form in the real desktop app, as a person would, with the
+ * mouse and keyboard only: clicking fields on the page and typing (in any
+ * script), Tab to the next field (onto the next page), ticking a checkbox,
+ * choosing a radio button, picking from a dropdown and a list, and the same
+ * in the Form fields panel. Checks that the page and the panel always show
+ * the same, that nothing is drawn again while filling in (no flicker), that
+ * what's filled in is in the document (saved as a copy and read back), that
+ * the tab counts as changed and Ctrl+Z takes the last change back. Then a
+ * form with scripts: its message, a total worked out (into a read-only
+ * field), a value refused, and scripts turned off.
  *
  *   node bench/check-forms.mjs
  *
@@ -29,7 +33,6 @@ execFileSync(process.execPath, [
   ),
   dir,
 ]);
-const FORM = join(dir, 'Form - blank.pdf');
 
 let failures = 0;
 const check = (ok, label) => {
@@ -40,151 +43,250 @@ const check = (ok, label) => {
 const app = await launch();
 const { page } = app;
 await page.setViewport({ width: 1440, height: 900 });
-page.on('dialog', (d) => d.dismiss().catch(() => {}));
+let nativeDialogs = 0;
+page.on('dialog', (d) => {
+  nativeDialogs++;
+  d.dismiss().catch(() => {});
+});
 
-// Open the form
-await page.evaluate((b64) => {
-  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-  const dt = new DataTransfer();
-  dt.items.add(
-    new File([bytes], 'Form - blank.pdf', { type: 'application/pdf' })
-  );
-  window.dispatchEvent(
-    new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })
-  );
-}, readFileSync(FORM).toString('base64'));
-
-/** Runs in the page: the viewer's shadow root */
-const fields = () =>
-  page.evaluate(() => {
-    const root = document.querySelector('embedpdf-container')?.shadowRoot;
-    return root
-      ? [...root.querySelectorAll('.pwf-layer .pwf-field')].map((c) => ({
-          label: c.getAttribute('aria-label'),
-          cls: c.className,
-        }))
-      : [];
-  });
-const shown = await page
-  .waitForFunction(
-    () =>
-      (document
-        .querySelector('embedpdf-container')
-        ?.shadowRoot?.querySelectorAll('.pwf-layer .pwf-field').length ?? 0) >
-      10,
-    { timeout: 30000 }
-  )
-  .then(() => true)
-  .catch(() => false);
-check(shown, 'the fields on page 1 are ready to fill in');
-const list = await fields();
-check(
-  !list.some((f) => f.label === 'reference'),
-  "a read-only field can't be typed in (it gets no control)"
-);
-
-/** The middle of a field's control, on screen */
-const centre = (label, nth = 0) =>
+const open = (name) =>
   page.evaluate(
-    (label, nth) => {
-      const root = document.querySelector('embedpdf-container').shadowRoot;
-      const c = [...root.querySelectorAll('.pwf-layer .pwf-field')].filter(
-        (x) => x.getAttribute('aria-label') === label
-      )[nth];
+    (b64, name) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const dt = new DataTransfer();
+      dt.items.add(new File([bytes], name, { type: 'application/pdf' }));
+      window.dispatchEvent(
+        new DragEvent('drop', {
+          dataTransfer: dt,
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+    },
+    readFileSync(join(dir, name)).toString('base64'),
+    name
+  );
+
+/** In the page: the field (pdf.js's control) named `name` */
+const FIELD = `(name, nth) => [...document.querySelector('embedpdf-container').shadowRoot
+  .querySelectorAll('.pwf-layer [data-element-id]')].filter((x) => x.getAttribute('name') === name)[nth ?? 0]`;
+
+/** The middle of a field on screen (scrolled into view) */
+const centre = (name, nth = 0) =>
+  page.evaluate(
+    async (src, name, nth) => {
+      const c = eval(src)(name, nth);
       if (!c) return null;
       c.scrollIntoView({ block: 'center' });
+      await new Promise((r) => setTimeout(r, 300));
       const r = c.getBoundingClientRect();
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     },
-    label,
+    FIELD,
+    name,
     nth
   );
-const click = async (label, nth = 0) => {
-  const at = await centre(label, nth);
-  if (!at) throw new Error(`no field ${label}`);
+const click = async (name, nth = 0) => {
+  const at = await centre(name, nth);
+  if (!at) throw new Error(`no field ${name}`);
+  await page.mouse.click(at.x, at.y);
   await sleep(150);
-  const again = await centre(label, nth);
-  await page.mouse.click(again.x, again.y);
+};
+/** What a field on the page shows */
+const onPage = (name, nth = 0) =>
+  page.evaluate(
+    (src, name, nth) => {
+      const c = eval(src)(name, nth);
+      if (!c) return null;
+      if (c.type === 'checkbox' || c.type === 'radio') return c.checked;
+      if (c instanceof HTMLSelectElement)
+        return c.selectedIndex < 0 ? null : c.options[c.selectedIndex].text;
+      return c.value;
+    },
+    FIELD,
+    name,
+    nth
+  );
+const press = async (key, mods = []) => {
+  for (const m of mods) await page.keyboard.down(m);
+  await page.keyboard.press(key);
+  for (const m of mods.reverse()) await page.keyboard.up(m);
 };
 
-// Type into a field on the page, then Tab to the next and type there
-await click('full_name');
-await sleep(200);
-await page.keyboard.type('Привет 世界 Rohan');
-await page.keyboard.press('Tab');
-await sleep(200);
-await page.keyboard.type('rohan@example.com');
-await page.keyboard.press('Tab'); // commits the email
-await sleep(400);
-await page.screenshot({
-  path: join(out, 'forms-typed.png'),
-  captureBeyondViewport: false,
-});
-
-// Tick, choose, pick
-await click('interest_events');
-await sleep(300);
-await click('plan', 2); // Team
-await sleep(300);
-const choose = (label, value) =>
-  page.evaluate(
-    (label, value) => {
-      const root = document.querySelector('embedpdf-container').shadowRoot;
-      const sel = [...root.querySelectorAll('.pwf-layer select')].find(
-        (x) => x.getAttribute('aria-label') === label
-      );
-      if (!sel) return false;
-      sel.value = value;
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-      return true;
-    },
-    label,
-    value
-  );
-check(await choose('country', 'Japan'), 'the dropdown has its options');
-await sleep(400);
-check(await choose('languages', 'Hindi'), 'the list has its options');
-await sleep(1200);
+/** Counts the page drawings replaced from now on (flicker) */
+const watchDrawing = () =>
+  page.evaluate(() => {
+    const root = document.querySelector('embedpdf-container').shadowRoot;
+    window.__redraws = 0;
+    window.__drawWatch?.disconnect();
+    window.__drawWatch = new MutationObserver((records) => {
+      for (const r of records) {
+        if (r.target.closest?.('.pwf-layer')) continue;
+        // A page's drawing replaced (not a tile drawn as it scrolls in)
+        if (
+          r.type === 'attributes' &&
+          r.target instanceof HTMLImageElement &&
+          r.oldValue
+        )
+          ((window.__redrawn ??= []).push(r.target.style.cssText.slice(0, 60)),
+            window.__redraws++);
+      }
+    });
+    window.__drawWatch.observe(root, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['src'],
+      attributeOldValue: true,
+    });
+  });
+const redraws = () => page.evaluate(() => window.__redraws);
 
 /** What the document holds now: saved as a copy and read with pdf-lib */
 const holds = async () => {
   const b64 = await page.evaluate(async () => {
-    const reg = await document.querySelector('embedpdf-container').registry;
-    const id = reg
-      .getPlugin('document-manager')
-      .provides()
-      .getActiveDocumentId();
-    const buf = await reg
-      .getPlugin('export')
-      .provides()
-      .forDocument(id)
-      .saveAsCopy()
-      .toPromise();
+    const v = window.__acro.viewer;
+    const u = new Uint8Array(await v.exportBytes(v.current));
     let s = '';
-    const u = new Uint8Array(buf);
     for (let i = 0; i < u.length; i += 0x8000)
       s += String.fromCharCode(...u.subarray(i, i + 0x8000));
     return btoa(s);
   });
   const doc = await PDFDocument.load(Buffer.from(b64, 'base64'));
   const form = doc.getForm();
+  const get = (fn) => {
+    try {
+      return fn();
+    } catch {
+      return undefined;
+    }
+  };
   return {
-    name: form.getTextField('full_name').getText(),
-    email: form.getTextField('email').getText(),
-    events: form.getCheckBox('interest_events').isChecked(),
-    newsletter: form.getCheckBox('interest_newsletter').isChecked(),
-    plan: form.getRadioGroup('plan').getSelected(),
-    country: form.getDropdown('country').getSelected()[0],
-    languages: form.getOptionList('languages').getSelected()[0],
-    reference: form.getTextField('reference').getText(),
+    form,
+    name: get(() => form.getTextField('full_name').getText()),
+    email: get(() => form.getTextField('email').getText()),
+    dob: get(() => form.getTextField('date_of_birth').getText()),
+    events: get(() => form.getCheckBox('interest_events').isChecked()),
+    newsletter: get(() => form.getCheckBox('interest_newsletter').isChecked()),
+    updates: get(() =>
+      form.getCheckBox('interest_product_updates').isChecked()
+    ),
+    plan: get(() => form.getRadioGroup('plan').getSelected()),
+    country: get(() => form.getDropdown('country').getSelected()[0]),
+    languages: get(() => form.getOptionList('languages').getSelected()[0]),
+    reference: get(() => form.getTextField('reference').getText()),
   };
 };
-const v = await holds();
-check(v.name === 'Привет 世界 Rohan', `text in any script goes in (${v.name})`);
+
+// ---- A form without scripts --------------------------------------------
+await open('Form - blank.pdf');
+const shown = await page
+  .waitForFunction(
+    () =>
+      (document
+        .querySelector('embedpdf-container')
+        ?.shadowRoot?.querySelectorAll('.pwf-layer [data-element-id]').length ??
+        0) > 10,
+    { timeout: 30000 }
+  )
+  .then(() => true)
+  .catch(() => false);
+check(shown, 'the fields on page 1 are ready to fill in');
+await sleep(1500);
+
+const look = await page.evaluate((src) => {
+  const f = eval(src);
+  const radio = f('plan', 0);
+  const ref = f('reference');
+  const option = f('country')?.options[1];
+  const root = document.querySelector('embedpdf-container').shadowRoot;
+  const pageImg =
+    root.querySelector('.pwf-layer')?.parentElement?.firstElementChild;
+  return {
+    radioRound: radio && getComputedStyle(radio).borderRadius === '50%',
+    refLocked: !!ref && (ref.disabled || ref.hidden),
+    refDrawn: !!ref?.closest('section')?.querySelector('canvas[width]'),
+    optionColor: option && getComputedStyle(option).color,
+    pageImg: pageImg?.tagName,
+  };
+}, FIELD);
+check(look.radioRound, 'radio buttons are round');
+check(look.refLocked, "a read-only field can't be typed in");
+check(look.refDrawn, "a read-only field shows the document's drawing of it");
 check(
-  v.email === 'rohan@example.com',
-  `Tab went to the next field (${v.email})`
+  look.optionColor && !/rgba\(0, 0, 0, 0\)|transparent/.test(look.optionColor),
+  `a dropdown's options show their text (${look.optionColor})`
 );
+
+await watchDrawing();
+// Type into a field on the page, then Tab to the next and type there
+await click('full_name');
+await page.keyboard.type('Привет 世界 Rohan');
+await press('Tab');
+await page.keyboard.type('rohan@example.com');
+await press('Tab');
+await sleep(300);
+check(
+  (await onPage('full_name')) === 'Привет 世界 Rohan' &&
+    (await onPage('email')) === 'rohan@example.com',
+  'typing and Tab fill in the fields on the page'
+);
+await page.screenshot({
+  path: join(out, 'forms-typed.png'),
+  captureBeyondViewport: false,
+});
+
+// Tick, choose, pick (with the mouse; the dropdown with the keyboard,
+// as its list is the system's)
+await click('interest_events');
+await click('plan', 2); // Team
+const scroller = () =>
+  page.evaluate(() => {
+    const root = document.querySelector('embedpdf-container').shadowRoot;
+    const s = [...root.querySelectorAll('div')].find(
+      (d) =>
+        d.scrollHeight > d.clientHeight + 50 &&
+        /auto|scroll/.test(getComputedStyle(d).overflowY)
+    );
+    return s?.scrollTop ?? -1;
+  });
+await page.evaluate((src) => eval(src)('country').focus(), FIELD);
+await page.keyboard.type('Jap');
+await sleep(300);
+check((await onPage('country')) === 'Japan', 'a dropdown option is picked');
+// A list: click its option
+const optionAt = await page.evaluate(async (src) => {
+  const list = eval(src)('languages');
+  list.scrollIntoView({ block: 'center' });
+  await new Promise((r) => setTimeout(r, 300));
+  const o = [...list.options].find((x) => x.text === 'Hindi');
+  const r = o.getBoundingClientRect();
+  return { x: r.x + Math.min(30, r.width / 2), y: r.y + r.height / 2 };
+}, FIELD);
+const before = await scroller();
+await page.mouse.click(optionAt.x, optionAt.y);
+await sleep(400);
+const after = await scroller();
+check(
+  (await onPage('languages')) === 'Hindi',
+  'a list option is picked by clicking it'
+);
+check(
+  before === after,
+  `picking from a list doesn't scroll the page (${before} -> ${after})`
+);
+check(
+  (await redraws()) === 0,
+  `nothing is drawn again while filling in (${await redraws()} redraws ${await page.evaluate(() => JSON.stringify(window.__redrawn ?? []))})`
+);
+
+await sleep(800);
+const v = await holds();
+check(
+  v.name === 'Привет 世界 Rohan',
+  `text in any script is in the document (${v.name})`
+);
+check(v.email === 'rohan@example.com', `so is the next field's (${v.email})`);
 check(
   v.events === true && v.newsletter === false,
   'a checkbox ticks (only that one)'
@@ -193,99 +295,191 @@ check(v.plan === 'Team', `a radio button is chosen (${v.plan})`);
 check(v.country === 'Japan', `a dropdown option is chosen (${v.country})`);
 check(v.languages === 'Hindi', `a list option is chosen (${v.languages})`);
 check(v.reference === 'REF-2026-0042', 'the read-only field is as it was');
-
 const dirty = await page.evaluate(
   () => !!document.querySelector('#tabs .tab.is-active.is-dirty')
 );
 check(dirty, 'the document counts as changed (unsaved)');
 
-// Ctrl+Z with the focus on the document: the last change goes back (the
-// list from German to Hindi)
-check(await choose('languages', 'German'), 'a list option is chosen again');
-await sleep(1200);
+// Ctrl+Z with the focus on the document: the last change goes back
+const german = await page.evaluate(async (src) => {
+  const list = eval(src)('languages');
+  const o = [...list.options].find((x) => x.text === 'German');
+  const r = o.getBoundingClientRect();
+  return { x: r.x + Math.min(30, r.width / 2), y: r.y + r.height / 2 };
+}, FIELD);
+await page.mouse.click(german.x, german.y);
+await sleep(300);
 await page.mouse.click(700, 120);
-await page.keyboard.down('Control');
-await page.keyboard.press('z');
-await page.keyboard.up('Control');
-await sleep(1500);
-const undone = await holds();
+await press('z', ['Control']);
+await sleep(1200);
 check(
-  undone.languages === 'Hindi' && undone.country === 'Japan',
-  `Ctrl+Z takes back the last change only (${undone.languages})`
+  (await onPage('languages')) === 'Hindi' &&
+    (await onPage('country')) === 'Japan',
+  `Ctrl+Z takes back the last change only (${await onPage('languages')})`
+);
+// Typing is one change: Ctrl+Z takes back all that was typed
+await click('date_of_birth');
+await page.keyboard.type('01/02/2003');
+await page.mouse.click(700, 120);
+await press('z', ['Control']);
+await sleep(600);
+check(
+  (await onPage('date_of_birth')) === '',
+  `Ctrl+Z takes back what was typed, at once (${await onPage('date_of_birth')})`
 );
 
-// The panel shows the same values, and filling in there shows on the page
+// The panel shows the same values, always; filling in there shows on the page
 await page.evaluate(() =>
   document.querySelector('.rr-btn[aria-label="Form fields"]')?.click()
 );
 await sleep(800);
-const panel = await page.evaluate(() => {
-  const name = document.querySelector('#form-panel [data-field="full_name"]');
-  const team = document.querySelector(
-    '#form-panel [data-field="plan"][data-index="2"]'
-  );
-  return { name: name?.value, team: team?.checked };
-});
+const compare = () =>
+  page.evaluate((src) => {
+    const f = eval(src);
+    const panel = (name, i) => {
+      const c = [
+        ...document.querySelectorAll(`#form-panel [data-field="${name}"]`),
+      ];
+      const x =
+        i === undefined ? c[0] : c.find((e) => e.dataset.index === String(i));
+      if (!x) return null;
+      if (x.type === 'checkbox' || x.type === 'radio') return x.checked;
+      if (x instanceof HTMLSelectElement)
+        return x.selectedIndex <= 0 ? null : x.options[x.selectedIndex].text;
+      return x.value;
+    };
+    const page = (name, nth) => {
+      const c = f(name, nth);
+      if (!c) return null;
+      if (c.type === 'checkbox' || c.type === 'radio') return c.checked;
+      if (c instanceof HTMLSelectElement)
+        return c.selectedIndex < 0 ? null : c.options[c.selectedIndex].text;
+      return c.value;
+    };
+    const diffs = [];
+    for (const n of [
+      'full_name',
+      'email',
+      'date_of_birth',
+      'name_other_script',
+      'interest_newsletter',
+      'interest_product_updates',
+      'interest_events',
+      'country',
+      'languages',
+    ])
+      if (panel(n) !== page(n) && !(panel(n) === '' && page(n) === null))
+        diffs.push(`${n}: ${panel(n)} vs ${page(n)}`);
+    for (const i of [0, 1, 2])
+      if (panel('plan', i) !== page('plan', i))
+        diffs.push(`plan ${i}: ${panel('plan', i)} vs ${page('plan', i)}`);
+    return diffs;
+  }, FIELD);
+let diffs = await compare();
 check(
-  panel.name === 'Привет 世界 Rohan' && panel.team === true,
-  'the Form fields panel shows the values'
+  !diffs.length,
+  `the panel shows what the page shows (${diffs.join('; ')})`
 );
-await page.evaluate(() => {
-  const dob = document.querySelector(
-    '#form-panel [data-field="date_of_birth"]'
-  );
-  dob.value = '30/10/2026';
-  dob.dispatchEvent(new Event('change', { bubbles: true }));
-});
-await sleep(1200);
-check((await holds()).name && (await holds()).email, 'values stay put');
-const dob = await page.evaluate(async () => {
-  const reg = await document.querySelector('embedpdf-container').registry;
-  const dm = reg.getPlugin('document-manager').provides();
-  const doc = dm.getActiveDocument();
-  const annos = await reg
-    .getEngine()
-    .getPageAnnotations(doc, doc.pages[0])
-    .toPromise();
-  return annos.find((a) => a.field?.name === 'date_of_birth')?.field.value;
-});
-check(dob === '30/10/2026', `filling in the panel fills in the page (${dob})`);
+// In the panel: tick, choose, type (with the mouse and keyboard)
+const panelClick = async (sel) => {
+  const at = await page.evaluate((sel) => {
+    const e = document.querySelector(sel);
+    e?.scrollIntoView({ block: 'center' });
+    const r = e?.getBoundingClientRect();
+    return r && { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  }, sel);
+  if (!at) throw new Error(`no ${sel}`);
+  await page.mouse.click(at.x, at.y);
+  await sleep(250);
+};
+await panelClick('#form-panel [data-field="interest_product_updates"]');
+await panelClick('#form-panel [data-field="plan"][data-index="0"]');
+await panelClick('#form-panel [data-field="date_of_birth"]');
+await page.keyboard.type('30/10/2026');
+await press('Tab');
+await sleep(500);
+diffs = await compare();
+check(
+  !diffs.length,
+  `filling in the panel shows on the page (${diffs.join('; ')})`
+);
+// And on the page: the panel follows
+await click('interest_product_updates');
+await click('plan', 1);
+await sleep(300);
+diffs = await compare();
+check(
+  !diffs.length,
+  `filling in the page shows in the panel (${diffs.join('; ')})`
+);
+await sleep(800);
+const w = await holds();
+check(
+  w.dob === '30/10/2026' && w.updates === false && w.plan === 'Personal',
+  `and both are in the document (${w.dob}, ${w.updates}, ${w.plan})`
+);
 await page.screenshot({
   path: join(out, 'forms-panel.png'),
   captureBeyondViewport: false,
 });
 
 // Tab from the last field on page 1 goes on to page 2's first
-await page.evaluate(() => {
-  const root = document.querySelector('embedpdf-container').shadowRoot;
-  [...root.querySelectorAll('.pwf-layer select')]
-    .find((x) => x.getAttribute('aria-label') === 'languages')
-    ?.focus();
-});
-await page.keyboard.press('Tab');
+await page.evaluate((src) => eval(src)('languages').focus(), FIELD);
+await press('Tab');
 const onTo = await page
   .waitForFunction(
     () =>
       document
         .querySelector('embedpdf-container')
-        .shadowRoot.activeElement?.getAttribute('aria-label') === 'comments',
+        .shadowRoot.activeElement?.getAttribute('name') === 'comments',
     { timeout: 8000 }
   )
   .then(() => true)
   .catch(() => false);
 check(onTo, "Tab goes on to the next page's fields");
 
-/** A field's control's box on screen */
-const box = (label) =>
-  page.evaluate((label) => {
-    const root = document.querySelector('embedpdf-container').shadowRoot;
-    const c = [...root.querySelectorAll('.pwf-layer .pwf-field')].find(
-      (x) => x.getAttribute('aria-label') === label
-    );
-    c?.scrollIntoView({ block: 'center' });
-    const r = c?.getBoundingClientRect();
-    return r && { w: r.width, h: r.height };
-  }, label);
+// A list to pick several from: Ctrl+click two options
+const optionOf = (list, text) =>
+  page.evaluate(
+    async (src, list, text) => {
+      const l = eval(src)(list);
+      l.scrollIntoView({ block: 'center' });
+      await new Promise((r) => setTimeout(r, 300));
+      const o = [...l.options].find((x) => x.text === text);
+      const r = o.getBoundingClientRect();
+      return { x: r.x + Math.min(30, r.width / 2), y: r.y + r.height / 2 };
+    },
+    FIELD,
+    list,
+    text
+  );
+const olives = await optionOf('toppings', 'Olives');
+await page.mouse.click(olives.x, olives.y);
+const onions = await optionOf('toppings', 'Onions');
+await page.keyboard.down('Control');
+await page.mouse.click(onions.x, onions.y);
+await page.keyboard.up('Control');
+await sleep(800);
+const toppings = (await holds()).form.getOptionList('toppings').getSelected();
+check(
+  toppings.length === 2 &&
+    toppings.includes('Olives') &&
+    toppings.includes('Onions'),
+  `several options picked from a list are all in the document (${toppings.join(', ')})`
+);
+
+/** A field's box on screen */
+const box = (name) =>
+  page.evaluate(
+    (src, name) => {
+      const c = eval(src)(name);
+      c?.scrollIntoView({ block: 'center' });
+      const r = c?.getBoundingClientRect();
+      return r && { w: r.width, h: r.height };
+    },
+    FIELD,
+    name
+  );
 
 // Turning the pages: the fields turn with them
 const flat = await box('full_name');
@@ -315,46 +509,30 @@ await page.evaluate(() => {
   v.setTool(v.current, 'freeText');
 });
 await sleep(600);
-const off = await page.evaluate(() =>
-  [
-    ...document
-      .querySelector('embedpdf-container')
-      .shadowRoot.querySelectorAll('.pwf-layer'),
-  ].every((l) => l.classList.contains('is-off'))
+const layersOff = () =>
+  page.evaluate(() =>
+    [
+      ...document
+        .querySelector('embedpdf-container')
+        .shadowRoot.querySelectorAll('.pwf-layer'),
+    ].map((l) => l.classList.contains('is-off'))
+  );
+check(
+  (await layersOff()).every(Boolean),
+  'fields are inactive while an annotation tool is in use'
 );
-check(off, 'fields are inactive while an annotation tool is in use');
 await page.evaluate(() => {
   const v = window.__acro.viewer;
   v.setTool(v.current, null);
 });
 await sleep(600);
-const on = await page.evaluate(() =>
-  [
-    ...document
-      .querySelector('embedpdf-container')
-      .shadowRoot.querySelectorAll('.pwf-layer'),
-  ].some((l) => !l.classList.contains('is-off'))
+check(
+  (await layersOff()).some((x) => !x),
+  'and active again when selecting'
 );
-check(on, 'and active again when selecting');
 
 // ---- A form with scripts ----------------------------------------------
-await page.evaluate(
-  (b64) => {
-    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const dt = new DataTransfer();
-    dt.items.add(
-      new File([bytes], 'Form - with scripts.pdf', { type: 'application/pdf' })
-    );
-    window.dispatchEvent(
-      new DragEvent('drop', {
-        dataTransfer: dt,
-        bubbles: true,
-        cancelable: true,
-      })
-    );
-  },
-  readFileSync(join(dir, 'Form - with scripts.pdf')).toString('base64')
-);
+await open('Form - with scripts.pdf');
 
 /** The message dialog's text, once one shows (and closes it) */
 const message = async (timeout = 15000) => {
@@ -377,73 +555,96 @@ check(
   (await message()) === 'Welcome! This form uses scripts.',
   "its script's message when it opens shows as the app's dialog"
 );
+await sleep(800);
+check(!(await page.$('.dlg[role="alertdialog"]')), 'the message shows once');
 check(
   !(await page.$('#script-bar')),
   'no notice that scripts are not running: they run'
 );
 
+const fieldValue = async (name) => {
+  const doc = (await holds()).form;
+  try {
+    return doc.getTextField(name).getText();
+  } catch {
+    return undefined;
+  }
+};
 await click('quantity');
-await sleep(200);
 await page.keyboard.type('3');
-await page.keyboard.press('Tab');
-await sleep(200);
+await press('Tab');
 await page.keyboard.type('12.50');
-await page.keyboard.press('Tab');
-await sleep(1500);
-const fieldValue = (name) =>
-  page.evaluate(async (name) => {
-    const reg = await document.querySelector('embedpdf-container').registry;
-    const doc = reg
-      .getPlugin('document-manager')
-      .provides()
-      .getActiveDocument();
-    for (const p of doc.pages) {
-      const annos = await reg
-        .getEngine()
-        .getPageAnnotations(doc, p)
-        .toPromise();
-      const w = annos.find((a) => a.field?.name === name);
-      if (w) return w.field.value;
-    }
-    return null;
-  }, name);
+await press('Tab');
+await sleep(500);
 check(
-  (await fieldValue('total')) === '$37.50',
-  `a script works out the total and formats it (${await fieldValue('total')})`
+  (await onPage('total')) === '$37.50',
+  `a script works out the total and formats it (${await onPage('total')})`
 );
-const savedTotal = await (async () => {
-  const b64 = await page.evaluate(async () => {
-    const v = window.__acro.viewer;
-    const u = new Uint8Array(await v.exportBytes(v.current));
-    let s = '';
-    for (let i = 0; i < u.length; i += 0x8000)
-      s += String.fromCharCode(...u.subarray(i, i + 0x8000));
-    return btoa(s);
-  });
-  const doc = await PDFDocument.load(Buffer.from(b64, 'base64'));
-  return doc.getForm().getTextField('total').getText();
-})();
 check(
-  savedTotal === '37.5',
-  `saved, the total keeps its number (${savedTotal})`
+  (await fieldValue('total')) === '37.5',
+  `saved, the read-only total keeps its number (${await fieldValue('total')})`
+);
+// Typed, then clicking the page (not another field): the total follows
+await click('unit_price');
+await press('a', ['Control']);
+await page.keyboard.type('10');
+const away = await centre('agree_terms');
+await page.mouse.click(away.x + 300, away.y + 40);
+await sleep(500);
+check(
+  (await onPage('total')) === '$30.00',
+  `clicking away from a field commits it to the scripts (${await onPage('total')})`
+);
+// The panel goes through the scripts too
+await page.evaluate(() =>
+  document.querySelector('.rr-btn[aria-label="Form fields"]')?.click()
+);
+await sleep(600);
+await panelClick('#form-panel [data-field="quantity"]');
+await press('a', ['Control']);
+await page.keyboard.type('5');
+await press('Tab');
+await sleep(500);
+check(
+  (await onPage('total')) === '$50.00' && (await onPage('quantity')) === '5',
+  `filling in the panel runs the scripts (${await onPage('quantity')}, ${await onPage('total')})`
+);
+
+// A field that takes only numbers: letters are refused as they're typed,
+// and what's typed is the person's change (Ctrl+Z takes it back)
+await click('quantity');
+await press('a', ['Control']);
+await page.keyboard.type('4x');
+await page.mouse.click(away.x + 300, away.y + 40);
+await sleep(500);
+check(
+  (await onPage('quantity')) === '4' && (await onPage('total')) === '$40.00',
+  `a numbers-only field refuses letters (${await onPage('quantity')}, ${await onPage('total')})`
+);
+await press('z', ['Control']);
+await sleep(800);
+check(
+  (await onPage('quantity')) === '5' && (await onPage('total')) === '$50.00',
+  `Ctrl+Z takes back what was typed in a field its scripts check (${await onPage('quantity')}, ${await onPage('total')})`
 );
 
 // A check refusing a value
 await click('quantity');
-await sleep(200);
-await page.keyboard.down('Control');
-await page.keyboard.press('a');
-await page.keyboard.up('Control');
+await press('a', ['Control']);
 await page.keyboard.type('-2');
-await page.keyboard.press('Tab');
+await press('Tab');
 check(
   (await message()) === 'The quantity cannot be negative.',
   "a script's check refuses a value, saying why"
 );
-await sleep(800);
+await sleep(500);
 check(
-  (await fieldValue('quantity')) !== '-2',
-  `the refused value isn't kept (${await fieldValue('quantity')})`
+  (await onPage('quantity')) !== '-2',
+  `the refused value isn't kept (${await onPage('quantity')})`
+);
+check(
+  nativeDialogs === 0,
+  `no browser dialogs, only the app's (${nativeDialogs})`
 );
 
 // Scripts turned off: the notice says so
@@ -466,7 +667,7 @@ const turnedOff = await page.evaluate(() => {
   if (box.checked) box.click();
   return !box.checked;
 });
-await page.keyboard.press('Escape');
+await press('Escape');
 await sleep(2500);
 const notice = await page.evaluate(
   () => document.querySelector('#script-bar')?.textContent ?? ''
@@ -475,6 +676,34 @@ check(
   turnedOff && /turned off/.test(notice),
   `with scripts off, a notice says so (${notice.slice(0, 60)})`
 );
+// and the fields still fill in
+await click('quantity');
+await press('a', ['Control']);
+await page.keyboard.type('7');
+await press('Tab');
+await sleep(300);
+check(
+  (await onPage('quantity')) === '7',
+  'with scripts off, the fields still fill in'
+);
+// (on again, for the next run)
+await page.evaluate(() => {
+  document.querySelector('#menu-btn')?.click();
+});
+await sleep(300);
+await page.evaluate(() =>
+  [...document.querySelectorAll('.menu-item')]
+    .find((m) => m.textContent.trim().startsWith('Preferences'))
+    ?.click()
+);
+await sleep(500);
+await page.evaluate(() => {
+  const row = [...document.querySelectorAll('.pref-row')].find((r) =>
+    r.textContent.includes('Run form scripts')
+  );
+  const box = row?.querySelector('input[type="checkbox"]');
+  if (box && !box.checked) box.click();
+});
 
 await app.close();
 console.log(failures ? `\n${failures} failed` : '\nall passed');
