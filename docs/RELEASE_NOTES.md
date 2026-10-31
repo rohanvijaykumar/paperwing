@@ -9,8 +9,8 @@ Acrobat's.
   pick from dropdowns and lists, and Tab from field to field, onto the next page too. The fields are
   Firefox's own, so they respond at once, and text in any script works (Cyrillic, Chinese, Hindi…).
   Fields fill in with the Hand tool too, as in Acrobat. A Form fields panel lists the same fields,
-  always in step with the page; Ctrl+Z takes back a change. Filled-in forms stay forms when saved. Old Adobe XFA forms, which only Acrobat can fill
-  in, say so. Thanks to [@austinwilkerson](https://github.com/austinwilkerson) for reporting it
+  always in step with the page; Ctrl+Z takes back a change. Filled-in forms stay forms when saved.
+  Old Adobe XFA forms say to fill them in with Fill a form, which can. Thanks to [@austinwilkerson](https://github.com/austinwilkerson) for reporting it
   ([#26](https://github.com/rohanvijaykumar/paperwing/issues/26)).
 - **Form scripts run.** Totals are worked out as you fill in, numbers and dates are formatted,
   entries are checked, and a document's messages show as Paperwing's own dialog. Scripts run
@@ -46,7 +46,7 @@ Acrobat's.
 - **Saved form values show** in the viewer. Thanks to
   [@austinwilkerson](https://github.com/austinwilkerson)
   ([#25](https://github.com/rohanvijaykumar/paperwing/pull/25)).
-- **Printing works** from the desktop app on Windows.
+- **Printing on Windows** sent nothing to the printer; it now prints, through the new print dialog.
 - A tool's own **Close** (Organize pages) no longer shows a website page inside the tool, and Edit a
   PDF no longer goes blank after Export.
 - Messages under a tool's main button are no longer hidden behind it.

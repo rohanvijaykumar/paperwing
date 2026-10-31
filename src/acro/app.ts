@@ -1343,8 +1343,17 @@ async function inspectDoc(
   const key = tab.path ?? tab.name;
   if (opened && info.xfa && !formToastShown.has(key)) {
     formToastShown.add(key);
+    // (the page can't fill one in, Fill a form can: its viewer reads XFA)
+    const filler = signTools()
+      .flatMap((g) => g.tools)
+      .find((t) => t.id === 'form-filler');
     toast(
-      `${tab.name} is an Adobe XFA form: only Adobe Acrobat can fill it in`
+      `${tab.name} is an Adobe XFA form: fill it in with Fill a form`,
+      filler && {
+        label: 'Fill a form',
+        onClick: () => void openToolOnDoc(tab, filler),
+      },
+      8000
     );
   }
   if (

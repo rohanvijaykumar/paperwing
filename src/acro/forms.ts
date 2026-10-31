@@ -67,9 +67,9 @@ export async function inspectPdf(
   return { form, scripted: hasScripts(doc), xfa: xfa && !form };
 }
 
-/** Does it carry an Adobe XFA form. With no regular fields beside it, only
- *  Acrobat can fill it in (browsers, like PDFium, show the page it carries
- *  for other viewers). */
+/** Does it carry an Adobe XFA form. With no regular fields beside it, the
+ *  page can't fill it in (browsers, like PDFium, show the page it carries for
+ *  other viewers); Fill a form, whose viewer reads XFA, can. */
 function hasXfa(doc: PDFDocument): boolean {
   const acro = doc.catalog.getAcroForm();
   return !!acro?.dict.has(PDFName.of('XFA'));

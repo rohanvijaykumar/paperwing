@@ -18,8 +18,8 @@ All notable changes to Paperwing are documented here. Paperwing follows
   fields panel lists the same fields, always in step with the page, and Highlight fields tints
   them; required fields are outlined. Read-only fields stay locked; signature fields lead to
   Fill & Sign. Fields fill in with the Hand tool too, as in Acrobat. Ctrl+Z takes back a change
-  (all you typed in a field at once). Old Adobe XFA forms,
-  which only Acrobat can fill in, say so. Reported by
+  (all you typed in a field at once). Old Adobe XFA forms, which the page can't fill in, say to
+  use Fill a form, which can (with a button that opens it). Reported by
   [@austinwilkerson](https://github.com/austinwilkerson) in
   [#26](https://github.com/rohanvijaykumar/paperwing/issues/26).
 - **A print dialog like Acrobat's**, the same on Windows, macOS and Linux, with a preview of exactly
