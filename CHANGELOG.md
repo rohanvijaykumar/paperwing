@@ -38,6 +38,12 @@ All notable changes to Paperwing are documented here. Paperwing follows
   Stamps) shows its messages the same way, once. Reported by
   [@austinwilkerson](https://github.com/austinwilkerson) in
   [#27](https://github.com/rohanvijaykumar/paperwing/issues/27).
+- **Full screen, as in Acrobat** (Ctrl+L): one page at a time, as big as the screen allows, on
+  black. The arrow keys, Page Up and Down, Space, the mouse wheel or a click turn the page; Esc
+  leaves, back at the zoom you had, on the page you got to. Read mode (Ctrl+H) still hides the
+  toolbars and panels inside the window.
+- **What's new**: after an update, Paperwing offers this version's notes once, and Help ▸ What's
+  new shows them any time (offline too).
 
 ### Changed
 
@@ -52,6 +58,14 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ### Fixed
 
+- PDFs dragged in from File Explorer didn't open: the files were read after the browser had
+  already let go of them. Reported by [@Lehnemann](https://github.com/Lehnemann) in [#30](https://github.com/rohanvijaykumar/paperwing/issues/30).
+- Shortcuts followed the keys' places on a US keyboard, not the keyboard layout: on Colemak,
+  Dvorak, AZERTY or QWERTZ, Ctrl+Z is now the key marked Z. Layouts for other scripts (Russian,
+  Greek, Hebrew...) still use the keys' usual places; a character typed with AltGr (Polish ą,
+  German @) never triggers a shortcut, and neither does typing with an input method (Japanese,
+  Chinese, Korean). Reported by [@Lehnemann](https://github.com/Lehnemann) in [#29](https://github.com/rohanvijaykumar/paperwing/issues/29).
+- Full screen said to press Ctrl+H, read mode's shortcut, to leave it.
 - A tool's own Close or Back (Organize pages' Close, for one) showed BentoPDF's home page inside
   the tool. They now close the tool, as the workspace's Close does.
 - A tool's messages under its main button (Table of Contents' "no bookmarks" error, for one) were
@@ -122,7 +136,7 @@ Fixes from BentoPDF's main branch since 2.8.10 (not yet in a BentoPDF release):
 - Paperwing has a website: [paperwingapp.com](https://paperwingapp.com). **Help ▸ Paperwing website**
   and the About box link to it.
 - Files with the same name are told apart: tabs and Home's Recent list show the folder each one is
-  in (`Rohan_Resume.pdf  Acme Corp` / `Rohan_Resume.pdf  Globex`), and hovering shows the full path.
+  in (`Resume.pdf  Acme Corp` / `Resume.pdf  Globex`), and hovering shows the full path.
 - When another app saves a PDF that's open in Paperwing, a notice says so, with **Reload** to show the
   new version (keeping the page and zoom) or **Dismiss** to keep working on the one you have.
 - Saving asks first if another app saved a newer version of the file since you opened it: replace it,

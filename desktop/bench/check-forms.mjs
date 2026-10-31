@@ -221,14 +221,14 @@ check(
 await watchDrawing();
 // Type into a field on the page, then Tab to the next and type there
 await click('full_name');
-await page.keyboard.type('Привет 世界 Rohan');
+await page.keyboard.type('Привет 世界 Ada');
 await press('Tab');
-await page.keyboard.type('rohan@example.com');
+await page.keyboard.type('ada@example.com');
 await press('Tab');
 await sleep(300);
 check(
-  (await onPage('full_name')) === 'Привет 世界 Rohan' &&
-    (await onPage('email')) === 'rohan@example.com',
+  (await onPage('full_name')) === 'Привет 世界 Ada' &&
+    (await onPage('email')) === 'ada@example.com',
   'typing and Tab fill in the fields on the page'
 );
 await page.screenshot({
@@ -283,10 +283,10 @@ check(
 await sleep(800);
 const v = await holds();
 check(
-  v.name === 'Привет 世界 Rohan',
+  v.name === 'Привет 世界 Ada',
   `text in any script is in the document (${v.name})`
 );
-check(v.email === 'rohan@example.com', `so is the next field's (${v.email})`);
+check(v.email === 'ada@example.com', `so is the next field's (${v.email})`);
 check(
   v.events === true && v.newsletter === false,
   'a checkbox ticks (only that one)'

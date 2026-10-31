@@ -47,8 +47,8 @@ async function pdf(dir, name, pages, label) {
 const pagesOnDisk = async (file) =>
   (await PDFDocument.load(readFileSync(file))).getPageCount();
 
-const A = await pdf('Acme Corp/Product Manager', 'Rohan_Resume.pdf', 1, 'Acme');
-const B = await pdf('Globex/Product Manager', 'Rohan_Resume.pdf', 2, 'Globex');
+const A = await pdf('Acme Corp/Product Manager', 'Resume.pdf', 1, 'Acme');
+const B = await pdf('Globex/Product Manager', 'Resume.pdf', 2, 'Globex');
 const C = await pdf('Initech', 'Cover letter.pdf', 3, 'Initech');
 
 let failed = 0;
@@ -238,7 +238,7 @@ t = await until(async () => {
   return x.length === 2 ? x : null;
 });
 check(
-  !!t && t.map((x) => x.name).join(',') === 'Rohan_Resume.pdf,Rohan_Resume.pdf',
+  !!t && t.map((x) => x.name).join(',') === 'Resume.pdf,Resume.pdf',
   '"Close tabs to the right" closes only the tabs after it',
   JSON.stringify(t?.map((x) => x.hint))
 );
