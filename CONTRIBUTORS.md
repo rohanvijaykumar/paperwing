@@ -19,7 +19,9 @@ shows BentoPDF's contributors. They're credited in BentoPDF's repository and in 
 People whose bug reports led to a fix.
 
 - [@Lehnemann](https://github.com/Lehnemann): Select from the floating bar stayed in Hand mode
-  ([#20](https://github.com/rohanvijaykumar/paperwing/issues/20), 1.2.3)
+  ([#20](https://github.com/rohanvijaykumar/paperwing/issues/20), 1.2.3); PDFs dragged in from File
+  Explorer didn't open ([#30](https://github.com/rohanvijaykumar/paperwing/issues/30), 1.2.4); shortcuts didn't follow the keyboard layout ([#29](https://github.com/rohanvijaykumar/paperwing/issues/29),
+  1.2.4)
 - [@austinwilkerson](https://github.com/austinwilkerson): form fields couldn't be filled in
   ([#26](https://github.com/rohanvijaykumar/paperwing/issues/26), 1.2.4), and form scripts'
   messages didn't appear ([#27](https://github.com/rohanvijaykumar/paperwing/issues/27), 1.2.4)

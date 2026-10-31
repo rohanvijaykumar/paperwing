@@ -31,7 +31,7 @@ Fill in forms right on the page, form scripts that run, and a print dialog like 
 
 ### Better
 
-- **Every tool looks like Paperwing**, in light and dark, and says Paperwing where it said BentoPDF.
+- **Every tool looks like Paperwing**, in light and dark, and carries its name throughout.
 - **Open remembers your folder.** Ctrl+O starts where you last opened or saved a PDF, and Save As
   starts in the document's own folder, as in Acrobat.
 - **Dialogs fit the window** and only scroll when it's too small.
