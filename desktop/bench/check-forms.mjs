@@ -298,7 +298,10 @@ check(
   flat && turned && flat.w > flat.h && turned.h > turned.w,
   `fields turn with the page (${JSON.stringify(flat)} -> ${JSON.stringify(turned)})`
 );
-await page.screenshot({ path: join(out, 'forms-rotated.png'), captureBeyondViewport: false });
+await page.screenshot({
+  path: join(out, 'forms-rotated.png'),
+  captureBeyondViewport: false,
+});
 for (let i = 0; i < 3; i++) {
   await page.evaluate(() =>
     document.querySelector('.rr-btn[aria-label="Rotate view"]')?.click()
@@ -333,6 +336,145 @@ const on = await page.evaluate(() =>
   ].some((l) => !l.classList.contains('is-off'))
 );
 check(on, 'and active again when selecting');
+
+// ---- A form with scripts ----------------------------------------------
+await page.evaluate(
+  (b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(
+      new File([bytes], 'Form - with scripts.pdf', { type: 'application/pdf' })
+    );
+    window.dispatchEvent(
+      new DragEvent('drop', {
+        dataTransfer: dt,
+        bubbles: true,
+        cancelable: true,
+      })
+    );
+  },
+  readFileSync(join(dir, 'Form - with scripts.pdf')).toString('base64')
+);
+
+/** The message dialog's text, once one shows (and closes it) */
+const message = async (timeout = 15000) => {
+  const text = await page
+    .waitForFunction(
+      () =>
+        document.querySelector('.dlg[role="alertdialog"] .dlg-body p')
+          ?.textContent,
+      { timeout }
+    )
+    .then((h) => h.jsonValue())
+    .catch(() => null);
+  await page.evaluate(() =>
+    document.querySelector('.dlg[role="alertdialog"] .accent-btn')?.click()
+  );
+  await sleep(300);
+  return text;
+};
+check(
+  (await message()) === 'Welcome! This form uses scripts.',
+  "its script's message when it opens shows as the app's dialog"
+);
+check(
+  !(await page.$('#script-bar')),
+  'no notice that scripts are not running: they run'
+);
+
+await click('quantity');
+await sleep(200);
+await page.keyboard.type('3');
+await page.keyboard.press('Tab');
+await sleep(200);
+await page.keyboard.type('12.50');
+await page.keyboard.press('Tab');
+await sleep(1500);
+const fieldValue = (name) =>
+  page.evaluate(async (name) => {
+    const reg = await document.querySelector('embedpdf-container').registry;
+    const doc = reg
+      .getPlugin('document-manager')
+      .provides()
+      .getActiveDocument();
+    for (const p of doc.pages) {
+      const annos = await reg
+        .getEngine()
+        .getPageAnnotations(doc, p)
+        .toPromise();
+      const w = annos.find((a) => a.field?.name === name);
+      if (w) return w.field.value;
+    }
+    return null;
+  }, name);
+check(
+  (await fieldValue('total')) === '$37.50',
+  `a script works out the total and formats it (${await fieldValue('total')})`
+);
+const savedTotal = await (async () => {
+  const b64 = await page.evaluate(async () => {
+    const v = window.__acro.viewer;
+    const u = new Uint8Array(await v.exportBytes(v.current));
+    let s = '';
+    for (let i = 0; i < u.length; i += 0x8000)
+      s += String.fromCharCode(...u.subarray(i, i + 0x8000));
+    return btoa(s);
+  });
+  const doc = await PDFDocument.load(Buffer.from(b64, 'base64'));
+  return doc.getForm().getTextField('total').getText();
+})();
+check(
+  savedTotal === '37.5',
+  `saved, the total keeps its number (${savedTotal})`
+);
+
+// A check refusing a value
+await click('quantity');
+await sleep(200);
+await page.keyboard.down('Control');
+await page.keyboard.press('a');
+await page.keyboard.up('Control');
+await page.keyboard.type('-2');
+await page.keyboard.press('Tab');
+check(
+  (await message()) === 'The quantity cannot be negative.',
+  "a script's check refuses a value, saying why"
+);
+await sleep(800);
+check(
+  (await fieldValue('quantity')) !== '-2',
+  `the refused value isn't kept (${await fieldValue('quantity')})`
+);
+
+// Scripts turned off: the notice says so
+await page.evaluate(() => {
+  document.querySelector('#menu-btn')?.click();
+});
+await sleep(300);
+await page.evaluate(() =>
+  [...document.querySelectorAll('.menu-item')]
+    .find((m) => m.textContent.trim().startsWith('Preferences'))
+    ?.click()
+);
+await sleep(500);
+const turnedOff = await page.evaluate(() => {
+  const row = [...document.querySelectorAll('.pref-row')].find((r) =>
+    r.textContent.includes('Run form scripts')
+  );
+  const box = row?.querySelector('input[type="checkbox"]');
+  if (!box) return false;
+  if (box.checked) box.click();
+  return !box.checked;
+});
+await page.keyboard.press('Escape');
+await sleep(2500);
+const notice = await page.evaluate(
+  () => document.querySelector('#script-bar')?.textContent ?? ''
+);
+check(
+  turnedOff && /turned off/.test(notice),
+  `with scripts off, a notice says so (${notice.slice(0, 60)})`
+);
 
 await app.close();
 console.log(failures ? `\n${failures} failed` : '\nall passed');

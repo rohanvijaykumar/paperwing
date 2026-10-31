@@ -17,10 +17,27 @@ import {
   type LiveField,
 } from './form-model';
 
+/** Who changed a field: the person filling in, Ctrl+Z/Ctrl+Shift+Z, the
+ *  document's scripts as a consequence (a total worked out), or its
+ *  scripts formatting the fields when it opened */
+export type ChangeOrigin = 'user' | 'undo' | 'script' | 'open';
+
 export interface FormChange {
   name: string;
   before: FieldState;
   after: FieldState;
+  origin: ChangeOrigin;
+}
+
+/** The document's scripts (form-scripts.ts), which a person's changes go
+ *  through: they check, format and work out other fields from them */
+export interface ScriptedForm {
+  fill(field: LiveField, want: FieldState, origin: 'user' | 'undo'): void;
+  /** A text field's value before formatting ("1234.5" for "$1,234.50") */
+  raw(name: string): string | undefined;
+  focus(field: LiveField, index: number): void;
+  blur(field: LiveField, index: number): void;
+  press(field: LiveField, index: number): void;
 }
 
 /** A document's form while it's open: its fields as PDFium holds them, and
@@ -31,6 +48,8 @@ export class FormSession {
   private meta = new Map<string, FieldMeta>();
   private queue: Promise<unknown> = Promise.resolve();
   private listeners = new Set<(change: FormChange) => void>();
+  /** Its scripts, when they run */
+  scripts?: ScriptedForm;
 
   constructor(
     private viewer: Viewer,
@@ -63,8 +82,31 @@ export class FormSession {
     return this.queue.then(() => {});
   }
 
-  /** Sets a field (after the changes before it). False if it couldn't be. */
-  set(name: string, want: FieldState): Promise<boolean> {
+  /** A person (or undo) fills in a field: through the document's scripts
+   *  when it has them, which may change, format or refuse the value */
+  fill(name: string, want: FieldState, origin: 'user' | 'undo' = 'user') {
+    const f = this.field(name);
+    if (!f) return;
+    if (this.scripts) this.scripts.fill(f, want, origin);
+    else void this.set(name, want, origin);
+  }
+
+  /** What to show while a text field is being typed in: its value before
+   *  the document's scripts formatted it */
+  editText(name: string): string {
+    const raw = this.scripts?.raw(name);
+    if (raw !== undefined) return raw;
+    const v = this.field(name)?.value;
+    return typeof v === 'string' ? v : '';
+  }
+
+  /** Sets a field in the document (after the changes before it). False if
+   *  it couldn't be. */
+  set(
+    name: string,
+    want: FieldState,
+    origin: ChangeOrigin = 'user'
+  ): Promise<boolean> {
     const run = async () => {
       const f = this.field(name);
       if (!f || !this.allowed) return false;
@@ -86,7 +128,7 @@ export class FormSession {
       await this.reload(pages);
       const after = this.field(name)?.value ?? before;
       if (after !== before)
-        this.listeners.forEach((fn) => fn({ name, before, after }));
+        this.listeners.forEach((fn) => fn({ name, before, after, origin }));
       return after === want;
     };
     const next = this.queue.then(run, run);
@@ -128,8 +170,6 @@ export class FormLayer {
     private hooks: {
       /** A signature field was pressed */
       onSignature: (field: LiveField) => void;
-      /** A push button was pressed */
-      onButton?: (field: LiveField) => void;
     }
   ) {}
 
@@ -326,9 +366,10 @@ export class FormLayer {
       return b;
     }
     if (f.kind === 'button') {
-      if (!this.hooks.onButton) return null;
+      // Only a document's scripts make its buttons do anything
+      if (!s.scripts) return null;
       const b = button(f.label, 'pwf-button');
-      b.addEventListener('click', () => this.hooks.onButton?.(f));
+      b.addEventListener('click', () => s.scripts?.press(f, i));
       return b;
     }
     if (!editable) return null;
@@ -338,7 +379,7 @@ export class FormLayer {
       b.addEventListener('click', () => {
         const now = s.field(f.name);
         if (!now) return;
-        void s.set(f.name, f.kind === 'checkbox' ? !now.value : i);
+        s.fill(f.name, f.kind === 'checkbox' ? !now.value : i);
       });
       this.sync(b, f, i);
       return b;
@@ -351,7 +392,8 @@ export class FormLayer {
         sel.size = Math.max(2, Math.min(f.options.length, 8));
       for (const o of f.options) sel.append(new Option(o, o));
       sel.addEventListener('change', () => {
-        void s.set(f.name, sel.selectedIndex).then(() => sel.blur());
+        s.fill(f.name, sel.selectedIndex);
+        if (f.kind === 'list') sel.blur();
       });
       // A list shows itself to be picked from (it can't be picked from
       // through the drawing: its rows don't line up)
@@ -371,21 +413,24 @@ export class FormLayer {
     input.spellcheck = false;
     let original = '';
     input.addEventListener('focus', () => {
-      const now = s.field(f.name);
-      original = typeof now?.value === 'string' ? now.value : '';
+      // Its value as typed ("1234.5"), not as its scripts show it ("$1,234.50")
+      original = s.editText(f.name);
       input.value = original;
+      s.scripts?.focus(f, i);
       this.fitText(input, f);
       input.classList.add('is-editing');
       if (input instanceof HTMLInputElement) input.select();
     });
     input.addEventListener('blur', () => {
       const text = input.value;
+      s.scripts?.blur(f, i);
       if (text === original) {
         input.classList.remove('is-editing');
         return;
       }
+      s.fill(f.name, text);
       // The typed text stays shown until PDFium has drawn it
-      void s.set(f.name, text).finally(() =>
+      void s.settled().then(() =>
         whenDrawn(input).then(() => {
           if (input !== this.viewer.shadow()?.activeElement)
             input.classList.remove('is-editing');

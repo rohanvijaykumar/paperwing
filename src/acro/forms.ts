@@ -2,7 +2,8 @@
  * What pdf-lib reads from a document's form, beside what PDFium shows of it
  * (form-model.ts): the fields' tooltips, character limits, the size their
  * text is drawn at, and what each radio button is called. Filling in is
- * PDFium's (Viewer.setFormValue); nothing here changes the document.
+ * PDFium's (Viewer.setFormValue); here only fields that scripts show
+ * formatted get their typed values back when saved (unformat).
  */
 import {
   PDFButton,
@@ -150,4 +151,38 @@ function readForm(doc: PDFDocument, locked: boolean): FormInfo | null {
       return meta;
     }),
   };
+}
+
+/**
+ * The document as it should be saved: fields its scripts show formatted
+ * keep their values as typed ("1234.5"), drawn as shown ("$1,234.50"), as
+ * Acrobat saves them. (PDFium holds the formatted text, as that's what it
+ * draws; form-scripts.ts) Unchanged if no field is formatted.
+ */
+export async function unformat(
+  bytes: ArrayBuffer,
+  raws: ReadonlyMap<string, string>
+): Promise<ArrayBuffer> {
+  if (!raws.size) return bytes;
+  let doc: PDFDocument;
+  try {
+    doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  } catch {
+    // (encrypted: pdf-lib can't write it; the shown text is kept)
+    return bytes;
+  }
+  const form = doc.getForm();
+  let changed = false;
+  for (const [name, raw] of raws) {
+    const field = form.getFieldMaybe(name);
+    if (!(field instanceof PDFTextField)) continue;
+    field.acroField.dict.set(PDFName.of('V'), PDFHexString.fromText(raw));
+    changed = true;
+  }
+  if (!changed) return bytes;
+  const out = await doc.save({ updateFieldAppearances: false });
+  return out.buffer.slice(
+    out.byteOffset,
+    out.byteOffset + out.byteLength
+  ) as ArrayBuffer;
 }
