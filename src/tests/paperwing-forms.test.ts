@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
+import { PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib';
 import { inspectPdf, type FieldMeta } from '../acro/forms';
 import { buildFields, fillable, pagesOf, stepsTo } from '../acro/form-model';
 import type { PageWidget } from '../acro/viewer';
@@ -273,5 +273,59 @@ describe('saving fields shown formatted by their scripts', () => {
     doc.addPage();
     const bytes = (await doc.save()).slice().buffer;
     expect(await unformat(bytes, new Map())).toBe(bytes);
+  });
+});
+
+describe('Adobe XFA forms', () => {
+  it('are told apart when they have no regular fields', async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage();
+    const form = doc.getForm();
+    form.acroForm.dict.set(PDFName.of('XFA'), PDFString.of('<xdp/>'));
+    const xfaOnly = await inspectPdf(await doc.save());
+    expect(xfaOnly).toMatchObject({ form: null, xfa: true });
+    // With regular fields too, it's filled in as those
+    form
+      .createTextField('name')
+      .addToPage(doc.getPage(0), { x: 10, y: 10, width: 100, height: 20 });
+    const hybrid = await inspectPdf(await doc.save());
+    expect(hybrid.xfa).toBe(false);
+    expect(hybrid.form?.fields.map((f) => f.name)).toEqual(['name']);
+  });
+});
+
+describe('saving a formatted field of a form that also carries XFA', () => {
+  it('keeps the XFA form', async () => {
+    const { unformat } = await import('../acro/forms');
+    const made = await PDFDocument.create();
+    const total = made.getForm().createTextField('total');
+    total.addToPage(made.addPage([300, 200]), {
+      x: 20,
+      y: 100,
+      width: 120,
+      height: 24,
+    });
+    total.setText('$37.50');
+    // XFA added without pdf-lib's form, which would drop it again
+    const doc = await PDFDocument.load(await made.save());
+    doc.catalog
+      .getAcroForm()!
+      .dict.set(PDFName.of('XFA'), PDFString.of('<xdp/>'));
+    const bytes = await doc.save({ updateFieldAppearances: false });
+    const has = async (b: ArrayBuffer | Uint8Array) =>
+      (await PDFDocument.load(b)).catalog
+        .getAcroForm()
+        ?.dict.has(PDFName.of('XFA'));
+    expect(await has(bytes)).toBe(true);
+    const saved = await unformat(
+      bytes.slice().buffer,
+      new Map([['total', '37.5']])
+    );
+    expect(await has(saved)).toBe(true);
+    const text = (await PDFDocument.load(saved)).catalog
+      .getAcroForm()!
+      .getAllFields()[0][0]
+      .dict.lookup(PDFName.of('V'));
+    expect((text as PDFHexString).decodeText()).toBe('37.5');
   });
 });
