@@ -21,7 +21,7 @@ jobs:
     env:
       HUSKY: 0
       BENCH_TMP: ${{ github.workspace }}/../bench-tmp
-      PRINTED: /private/tmp/paperwing-printed.out
+      PRINTED: /private/tmp/paperwing-printed
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -53,16 +53,33 @@ jobs:
         working-directory: desktop
         run: npm run test:print
 
-      # A printer that prints to a file, set as the default (CUPS, as on any Mac)
+      # A network printer on this machine, set as the default: CUPS (as on any
+      # Mac) sends its jobs to 127.0.0.1:9100, the way office printers take
+      # them, and a small listener saves each job to a file
       - name: Set up a virtual printer
         if: ${{ !cancelled() }}
         run: |
-          echo 'FileDevice Yes' | sudo tee -a /etc/cups/cups-files.conf
-          sudo launchctl kickstart -k system/org.cups.cupsd || sudo killall -HUP cupsd || true
-          sleep 3
+          mkdir -p "$PRINTED"
+          nohup python3 -u - "$PRINTED" > "$BENCH_TMP/printer.log" 2>&1 <<'PY' &
+          import os, socket, sys
+          out, n = sys.argv[1], 0
+          s = socket.socket()
+          s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+          s.bind(('127.0.0.1', 9100))
+          s.listen(5)
+          while True:
+              c, _ = s.accept()
+              n += 1
+              with open(os.path.join(out, f'job-{n}.out'), 'wb') as f:
+                  while b := c.recv(65536):
+                      f.write(b)
+              c.close()
+              print('job', n, flush=True)
+          PY
+          sleep 1
           ppd=/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/PrintCore.framework/Versions/A/Resources/Generic.ppd
           if [ -f "$ppd" ]; then model=(-P "$ppd"); else model=(-m "$(lpinfo -m | grep -i -m1 generic | cut -d' ' -f1)"); fi
-          sudo lpadmin -p PaperwingTest -E -v "file://$PRINTED" "${model[@]}"
+          sudo lpadmin -p PaperwingTest -E -v socket://127.0.0.1:9100 "${model[@]}"
           sudo cupsenable PaperwingTest
           sudo cupsaccept PaperwingTest
           sudo lpadmin -d PaperwingTest
@@ -75,16 +92,19 @@ jobs:
           PAPERWING_PRINT_TO: PaperwingTest
         run: node bench/check-print.mjs
 
+      # Two jobs (the printer's paper, then Letter landscape), with pages in them
       - name: What reached the printer
         if: ${{ !cancelled() }}
         run: |
           for i in $(seq 1 60); do [ -z "$(lpstat -o PaperwingTest)" ] && break; sleep 2; done
-          lpstat -W completed -o PaperwingTest
-          done=$(lpstat -W completed -o PaperwingTest | wc -l | tr -d ' ')
-          size=$(sudo stat -f %z "$PRINTED" 2>/dev/null || echo 0)
-          pages=$(sudo grep -ac '^%%Page:' "$PRINTED" || true)
-          echo "jobs completed: $done, last job: $size bytes, $pages page(s)"
-          [ "$done" -ge 2 ] && [ "$size" -gt 1000 ] && [ "$pages" -ge 1 ]
+          lpstat -W completed -o PaperwingTest || true
+          cat "$BENCH_TMP/printer.log" || true
+          ls -l "$PRINTED"
+          jobs=$(ls "$PRINTED" | wc -l | tr -d ' ')
+          size=$(cat "$PRINTED"/* 2>/dev/null | wc -c | tr -d ' ')
+          pages=$(cat "$PRINTED"/* 2>/dev/null | grep -acE '^%%Page:|/Type ?/Page[^s]' || true)
+          echo "jobs: $jobs, $size bytes, $pages page(s)"
+          [ "$jobs" -ge 2 ] && [ "$size" -gt 1000 ] && [ "$pages" -ge 2 ]
 
       - name: Forms bench
         if: ${{ !cancelled() }}
@@ -138,14 +158,10 @@ jobs:
           for i in $(seq 1 60); do curl -sf http://localhost:4173/ > /dev/null && break; sleep 1; done
           PAPERWING_URL=http://localhost:4173 npm run test:e2e --prefix desktop
 
-      - name: Keep what was printed
-        if: ${{ !cancelled() }}
-        run: sudo cp "$PRINTED" "$BENCH_TMP/printed.ps" && sudo chmod a+r "$BENCH_TMP/printed.ps" || true
-
       - name: Upload what was printed
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: macos-printed
-          path: ${{ github.workspace }}/../bench-tmp/printed.ps
+          path: /private/tmp/paperwing-printed
           if-no-files-found: ignore

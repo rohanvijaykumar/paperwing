@@ -18,6 +18,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launch, sleep } from './harness.mjs';
 
+// Shortcuts use ⌘ on macOS, Ctrl elsewhere
+const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
+
 const SAMPLES = new URL('../../docs/screenshots/samples/', import.meta.url);
 const REPORT = 'Halcyon Annual Report 2026.pdf'; // 4 pages
 const CONTRACT = 'Service Agreement - Northbeam.pdf';
@@ -288,9 +291,9 @@ check(
   'the tab shows unsaved changes'
 );
 await sleep(800);
-await page.keyboard.down('Control');
+await page.keyboard.down(MOD);
 await page.keyboard.press('KeyZ');
-await page.keyboard.up('Control');
+await page.keyboard.up(MOD);
 check(
   await until(
     page,
@@ -300,11 +303,11 @@ check(
   `undo: ${await pages(page)} pages`
 );
 await sleep(800);
-await page.keyboard.down('Control');
+await page.keyboard.down(MOD);
 await page.keyboard.down('Shift');
 await page.keyboard.press('KeyZ');
 await page.keyboard.up('Shift');
-await page.keyboard.up('Control');
+await page.keyboard.up(MOD);
 check(
   await until(
     page,
@@ -362,9 +365,9 @@ const s2 = await thumb(2);
 // Page 1 (the selection starts from the current page), then Ctrl+click 2
 await page.mouse.click(s1.x, s1.y);
 await sleep(600);
-await page.keyboard.down('Control');
+await page.keyboard.down(MOD);
 await page.mouse.click(s2.x, s2.y);
-await page.keyboard.up('Control');
+await page.keyboard.up(MOD);
 await sleep(400);
 check(
   (await selected()) === 2,
@@ -397,9 +400,9 @@ check(
   `deleting the selection: ${await pages(page)} page left`
 );
 await sleep(800);
-await page.keyboard.down('Control');
+await page.keyboard.down(MOD);
 await page.keyboard.press('KeyZ');
-await page.keyboard.up('Control');
+await page.keyboard.up(MOD);
 check(
   await until(
     page,

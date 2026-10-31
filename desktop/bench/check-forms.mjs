@@ -15,7 +15,7 @@
  * Pass/fail; screenshots go to $BENCH_TMP/forms-*.png.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { launch, sleep } from './harness.mjs';
 
 const require = createRequire(new URL('../../package.json', import.meta.url));
-const { PDFDocument } = require('pdf-lib');
+const { PDFDocument, PDFName, PDFString } = require('pdf-lib');
 
 const out = process.env.BENCH_TMP || tmpdir();
 const dir = mkdtempSync(join(out, 'pw-forms-'));
@@ -112,6 +112,8 @@ const onPage = (name, nth = 0) =>
     name,
     nth
   );
+// Shortcuts use ⌘ on macOS, Ctrl elsewhere (so does a list's multiple choice)
+const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
 const press = async (key, mods = []) => {
   for (const m of mods) await page.keyboard.down(m);
   await page.keyboard.press(key);
@@ -315,7 +317,7 @@ const german = await page.evaluate(async () => {
 await page.mouse.click(german.x, german.y);
 await sleep(300);
 await page.mouse.click(700, 120);
-await press('z', ['Control']);
+await press('z', [MOD]);
 await sleep(1200);
 check(
   (await onPage('languages')) === 'Hindi' &&
@@ -326,7 +328,7 @@ check(
 await click('date_of_birth');
 await page.keyboard.type('01/02/2003');
 await page.mouse.click(700, 120);
-await press('z', ['Control']);
+await press('z', [MOD]);
 await sleep(600);
 check(
   (await onPage('date_of_birth')) === '',
@@ -460,9 +462,9 @@ const optionOf = (list, text) =>
 const olives = await optionOf('toppings', 'Olives');
 await page.mouse.click(olives.x, olives.y);
 const onions = await optionOf('toppings', 'Onions');
-await page.keyboard.down('Control');
+await page.keyboard.down(MOD);
 await page.mouse.click(onions.x, onions.y);
-await page.keyboard.up('Control');
+await page.keyboard.up(MOD);
 await sleep(800);
 const toppings = (await holds()).form.getOptionList('toppings').getSelected();
 check(
@@ -546,7 +548,7 @@ check(
   `with Hand, the fields stay on the page and take clicks (${modeLayers.length} page(s))`
 );
 await click('email');
-await press('a', ['Control']);
+await press('a', [MOD]);
 await page.keyboard.type('hand@example.com');
 await sleep(300);
 check(
@@ -618,7 +620,7 @@ check(
 );
 // Typed, then clicking the page (not another field): the total follows
 await click('unit_price');
-await press('a', ['Control']);
+await press('a', [MOD]);
 await page.keyboard.type('10');
 const away = await centre('agree_terms');
 await page.mouse.click(away.x + 300, away.y + 40);
@@ -633,7 +635,7 @@ await page.evaluate(() =>
 );
 await sleep(600);
 await panelClick('#form-panel [data-field="quantity"]');
-await press('a', ['Control']);
+await press('a', [MOD]);
 await page.keyboard.type('5');
 await press('Tab');
 await sleep(500);
@@ -645,7 +647,7 @@ check(
 // A field that takes only numbers: letters are refused as they're typed,
 // and what's typed is the person's change (Ctrl+Z takes it back)
 await click('quantity');
-await press('a', ['Control']);
+await press('a', [MOD]);
 await page.keyboard.type('4x');
 await page.mouse.click(away.x + 300, away.y + 40);
 await sleep(500);
@@ -653,7 +655,7 @@ check(
   (await onPage('quantity')) === '4' && (await onPage('total')) === '$40.00',
   `a numbers-only field refuses letters (${await onPage('quantity')}, ${await onPage('total')})`
 );
-await press('z', ['Control']);
+await press('z', [MOD]);
 await sleep(800);
 check(
   (await onPage('quantity')) === '5' && (await onPage('total')) === '$50.00',
@@ -662,7 +664,7 @@ check(
 
 // A check refusing a value
 await click('quantity');
-await press('a', ['Control']);
+await press('a', [MOD]);
 await page.keyboard.type('-2');
 await press('Tab');
 check(
@@ -710,7 +712,7 @@ check(
 );
 // and the fields still fill in
 await click('quantity');
-await press('a', ['Control']);
+await press('a', [MOD]);
 await page.keyboard.type('7');
 await press('Tab');
 await sleep(300);
@@ -773,6 +775,49 @@ check(
   inked > 0.1,
   `Home's preview of a form shows its fields (${(inked * 100).toFixed(1)}% inked)`
 );
+
+// An Adobe XFA form, with no regular fields: the page can't fill it in, so
+// it says to use Fill a form, whose button opens it on the document
+{
+  const xdoc = await PDFDocument.create();
+  xdoc.addPage();
+  xdoc.getForm().acroForm.dict.set(PDFName.of('XFA'), PDFString.of('<xdp/>'));
+  const xfa = join(dir, 'xfa-form.pdf');
+  writeFileSync(xfa, await xdoc.save());
+  await app.openFile(xfa);
+  let note = '';
+  for (let i = 0; i < 20 && !note; i++) {
+    await sleep(300);
+    note = await page.evaluate(
+      () =>
+        [...document.querySelectorAll('.toast')]
+          .map((t) => t.textContent)
+          .find((t) => t.includes('XFA')) ?? ''
+    );
+  }
+  check(
+    /xfa-form\.pdf is an Adobe XFA form: fill it in with Fill a form/.test(
+      note
+    ),
+    'an XFA form says to fill it in with Fill a form',
+    note
+  );
+  await page.evaluate(() =>
+    [...document.querySelectorAll('.toast button')]
+      .find((b) => b.textContent === 'Fill a form')
+      ?.click()
+  );
+  let opened = false;
+  for (let i = 0; i < 30 && !opened; i++) {
+    await sleep(300);
+    opened = await page.evaluate(() =>
+      [...document.querySelectorAll('iframe')].some((f) =>
+        /form-filler/.test(f.src)
+      )
+    );
+  }
+  check(opened, 'and its button opens Fill a form');
+}
 
 await app.close();
 console.log(failures ? `\n${failures} failed` : '\nall passed');

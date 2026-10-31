@@ -111,7 +111,8 @@ app.whenReady().then(async () => {
         ],
       ]) {
         const t1 = Date.now();
-        const r = await printing.printPdf(win.webContents, data, {
+        const r = await printing.run(win.webContents, win, data, {
+          destination: 'printer',
           printer: target,
           copies: 1,
           color: true,
