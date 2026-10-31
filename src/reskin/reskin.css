@@ -1281,7 +1281,9 @@ html #tool-uploader li[class~='bg-gray-700'][class*='rounded'] .font-medium {
 /* Some tools use their own ids for the back link and title: hide those too */
 html.rs-embedded [id^='back-to-tools'],
 html[data-page='bookmark'].rs-embedded #back-btn,
-html.rs-embedded :is(button, a):has(> [data-i18n='tools.backToTools']) {
+html.rs-embedded :is(button, a):has(> [data-i18n='tools.backToTools']),
+/* (the workspace has its own Close) */
+html.rs-embedded #close-tool-btn {
   display: none !important;
 }
 html.rs-embedded h1[data-i18n^='tools:'],

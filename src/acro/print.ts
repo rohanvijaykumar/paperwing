@@ -629,8 +629,11 @@ export async function showPrintDialog(
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      // (a message over the dialog takes its own Escape)
+      const all = document.querySelectorAll('.dlg-backdrop');
+      if (all[all.length - 1] !== backdrop) return;
       e.preventDefault();
-      e.stopPropagation();
+      e.stopImmediatePropagation();
       if (!cancelBtn.disabled) finish('cancelled');
     };
     document.addEventListener('keydown', onKey, true);

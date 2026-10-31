@@ -2,12 +2,13 @@
  * Test PDFs for filling in forms:
  *   node bench/make-form-fixture.mjs <out-dir>
  * - Form - blank.pdf: every kind of field (text, multi-line, number, date,
- *   comb, checkboxes, radio buttons, a dropdown, a list, a read-only and a
- *   required field), over two pages
+ *   comb, checkboxes, radio buttons, a dropdown, a list, a list to pick
+ *   several from, a read-only and a required field), over two pages
  * - Form - filled in.pdf: the same, already filled in (saved values must
  *   show)
  * - Form - with scripts.pdf: a pop-up when it opens, a total worked out by
- *   a script and shown as money, and a check refusing negative quantities
+ *   a script and shown as money (into a read-only field), a quantity that
+ *   takes only numbers, and a check refusing negative quantities
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -142,9 +143,15 @@ async function makeForm({ filled = false, scripts = false } = {}) {
   label(page2, 'I agree to the terms', 72, 483);
   label(page2, 'Signature (type your name)', 50, 450);
   const sign = text(page2, 'signature_name', 50, 424, 250);
+  label(page2, 'Toppings (list, pick several with Ctrl)', 50, 395);
+  const toppings = form.createOptionList('toppings');
+  toppings.addOptions(['Cheese', 'Olives', 'Peppers', 'Mushrooms', 'Onions']);
+  toppings.enableMultiselect();
+  toppings.addToPage(page2, { x: 50, y: 305, width: 200, height: 84, font });
 
   if (filled) {
     name.setText('Alex Morgan');
+    toppings.select(['Cheese', 'Peppers']);
     email.setText('alex@example.com');
     dob.setText('14/03/1990');
     zip.setText('40211');
@@ -181,6 +188,8 @@ async function makeForm({ filled = false, scripts = false } = {}) {
       PDFName.of('AA'),
       pdf.context.obj({ C: calc, F: money })
     );
+    // Worked out, not typed (as on most forms)
+    total.enableReadOnly();
     // No negative quantities
     const check = pdf.context.obj({
       S: PDFName.of('JavaScript'),
@@ -188,7 +197,15 @@ async function makeForm({ filled = false, scripts = false } = {}) {
         'if (Number(event.value) < 0) { app.alert("The quantity cannot be negative."); event.rc = false; }'
       ),
     });
-    qty.acroField.dict.set(PDFName.of('AA'), pdf.context.obj({ V: check }));
+    // Only numbers can be typed (as on most forms), checked as they're typed
+    const digits = pdf.context.obj({
+      S: PDFName.of('JavaScript'),
+      JS: PDFString.of('AFNumber_Keystroke(0, 0, 0, 0, "", true);'),
+    });
+    qty.acroField.dict.set(
+      PDFName.of('AA'),
+      pdf.context.obj({ V: check, K: digits })
+    );
     const acro = form.acroForm.dict;
     acro.set(PDFName.of('CO'), pdf.context.obj([total.acroField.ref]));
     pdf.catalog.set(

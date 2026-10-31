@@ -12,12 +12,19 @@
  *     Discord…), anywhere in what the tool shows: Paperwing's tools carry
  *     Paperwing's name (reskin/brand.mjs; check-branding.mjs checks the build)
  *
+ *   - messages: the app's own dialogs that came up, and any browser
+ *     dialog (alert, confirm), which Paperwing never shows
+ *
  *   node bench/check-tools.mjs <out-dir> [name filter…]
+ *
+ * PW_SAMPLE=<file.pdf> runs every tool on that document instead (a form
+ * with scripts, say: its messages must come up once, as the app's).
  *
  * Writes <out-dir>/report.json and <out-dir>/<tool>.png.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { launch } from './harness.mjs';
 
 const [outDir, ...filters] = process.argv.slice(2);
@@ -25,10 +32,13 @@ if (!outDir)
   throw new Error('usage: node bench/check-tools.mjs <out-dir> [filter…]');
 mkdirSync(outDir, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const SAMPLE = new URL(
-  '../../docs/screenshots/samples/Service Agreement - Northbeam.pdf',
-  import.meta.url
-);
+const SAMPLE = process.env.PW_SAMPLE
+  ? pathToFileURL(process.env.PW_SAMPLE)
+  : new URL(
+      '../../docs/screenshots/samples/Service Agreement - Northbeam.pdf',
+      import.meta.url
+    );
+const SAMPLE_NAME = decodeURIComponent(SAMPLE.pathname.split('/').pop());
 
 /** What a tool page shouldn't say: BentoPDF's website, not Paperwing */
 const OFF_BRAND =
@@ -60,8 +70,13 @@ page.on('framenavigated', (f) => {
     console.log(`WORKSPACE RELOADED (during ${current.name}): ${f.url()}`);
 });
 page.on('console', (m) => {
-  if (!(m.location()?.url ?? '').startsWith('app://tools') && m.type() === 'error')
-    console.log(`workspace error (during ${current?.name}): ${m.text().slice(0, 300)}`);
+  if (
+    !(m.location()?.url ?? '').startsWith('app://tools') &&
+    m.type() === 'error'
+  )
+    console.log(
+      `workspace error (during ${current?.name}): ${m.text().slice(0, 300)}`
+    );
 });
 page.on('requestfailed', (r) => {
   if (/^(app|data|blob):/.test(r.url())) return;
@@ -80,9 +95,21 @@ page.on('dialog', (d) => {
   d.dismiss().catch(() => {});
 });
 
-// The results the workspace receives
+// The results the workspace receives, and the app's messages shown
 await page.evaluate(() => {
   window.__results = [];
+  window.__messages = [];
+  new MutationObserver((records) => {
+    for (const r of records)
+      for (const n of r.addedNodes) {
+        const d =
+          n instanceof Element &&
+          (n.matches('.dlg[role="alertdialog"]')
+            ? n
+            : n.querySelector?.('.dlg[role="alertdialog"]'));
+        if (d) window.__messages.push(d.textContent.slice(0, 120));
+      }
+  }).observe(document.body, { childList: true, subtree: true });
   window.addEventListener('message', (e) => {
     // Only the tool frames (as the workspace itself checks)
     if (e.origin !== 'app://tools') return;
@@ -96,22 +123,26 @@ await page.evaluate(() => {
 
 async function openSample() {
   const b64 = readFileSync(SAMPLE).toString('base64');
-  await page.evaluate((b64) => {
-    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const dt = new DataTransfer();
-    dt.items.add(
-      new File([bytes], 'Service Agreement - Northbeam.pdf', {
-        type: 'application/pdf',
-      })
-    );
-    window.dispatchEvent(
-      new DragEvent('drop', {
-        dataTransfer: dt,
-        bubbles: true,
-        cancelable: true,
-      })
-    );
-  }, b64);
+  await page.evaluate(
+    (b64, name) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const dt = new DataTransfer();
+      dt.items.add(
+        new File([bytes], name, {
+          type: 'application/pdf',
+        })
+      );
+      window.dispatchEvent(
+        new DragEvent('drop', {
+          dataTransfer: dt,
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+    },
+    b64,
+    SAMPLE_NAME
+  );
   await page.waitForFunction(
     () =>
       document.querySelector('#view-doc.is-active') &&
@@ -226,6 +257,7 @@ for (const t of tools) {
       const all = document.querySelector('#gb-tabs [data-panel="all"]');
       if (!all?.classList.contains('is-active')) all?.click();
       window.__results.length = 0;
+      window.__messages.length = 0;
     });
     await sleep(200);
     await toolList(); // expands the sections again
@@ -375,11 +407,21 @@ for (const t of tools) {
   } catch (e) {
     current.status = 'error: ' + e.message.slice(0, 200);
   } finally {
+    current.messages = await page
+      .evaluate(() => {
+        // (closed, so the next tool starts clear)
+        for (const b of document.querySelectorAll(
+          '.dlg[role="alertdialog"] .accent-btn'
+        ))
+          b.click();
+        return [...window.__messages];
+      })
+      .catch(() => []);
     for (const d of current.dialogs)
       if (OFF_BRAND.test(d)) current.offBrand.push(d.slice(0, 200));
     current.online = [...new Set(current.online)];
     console.log(
-      `${t.name.padEnd(28)} ${current.status}${current.shownMs ? ` (${current.shownMs} ms)` : ''}${current.errors.length ? ` errors:${current.errors.length}` : ''}${current.blocked.length ? ' BLOCKED' : ''}${current.online.length ? ` online:${current.online.length}` : ''}${current.offBrand.length ? ` OFF-BRAND: ${current.offBrand[0]}` : ''}`
+      `${t.name.padEnd(28)} ${current.status}${current.shownMs ? ` (${current.shownMs} ms)` : ''}${current.errors.length ? ` errors:${current.errors.length}` : ''}${current.blocked.length ? ' BLOCKED' : ''}${current.online.length ? ` online:${current.online.length}` : ''}${current.offBrand.length ? ` OFF-BRAND: ${current.offBrand[0]}` : ''}${current.dialogs.length ? ` BROWSER DIALOG: ${current.dialogs[0].slice(0, 80)}` : ''}${current.messages.length ? ` messages:${current.messages.length}` : ''}`
     );
   }
 }

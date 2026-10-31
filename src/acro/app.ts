@@ -6,16 +6,6 @@
 import '@phosphor-icons/web/duotone';
 import { icon, toolIcon, type IconName } from './icons';
 import {
-  deletePages,
-  extractPages,
-  insertBlankPage,
-  insertPagesFrom,
-  movePage,
-  movePages,
-  pageCount,
-  rotatePages,
-} from './pages';
-import {
   allToolGroups,
   convertTools,
   editTools,
@@ -37,11 +27,10 @@ import {
 } from './viewer';
 import { Thumbnails, thumbUrl } from './thumbnails';
 import { desktop, isMac, key, toFile } from './desktop';
-import { inspectPdf, unformat, type FormInfo } from './forms';
+import type { FormInfo } from './forms';
 import { FormLayer, FormSession, type FormChange } from './form-layer';
-import { FormScripts } from './form-scripts';
 import { fillable, type FieldState, type LiveField } from './form-model';
-import { showPrintDialog, type PrintBridge } from './print';
+import type { PrintBridge } from './print';
 import {
   type AvailableUpdate,
   checkForUpdates,
@@ -83,6 +72,37 @@ import {
   updateRecent,
   type RecentFile,
 } from './recent';
+
+/** Page changes, form reading and printing use pdf-lib, which loads the
+ *  first time one of them is needed rather than with the app */
+type Pages = typeof import('./pages');
+type Forms = typeof import('./forms');
+function later<M, K extends keyof M>(load: () => Promise<M>, name: K): M[K] {
+  return (async (...args: unknown[]) =>
+    ((await load())[name] as (...a: unknown[]) => unknown)(...args)) as M[K];
+}
+const pagesModule = () => import('./pages');
+const formsModule = () => import('./forms');
+const deletePages = later<Pages, 'deletePages'>(pagesModule, 'deletePages');
+const extractPages = later<Pages, 'extractPages'>(pagesModule, 'extractPages');
+const insertBlankPage = later<Pages, 'insertBlankPage'>(
+  pagesModule,
+  'insertBlankPage'
+);
+const insertPagesFrom = later<Pages, 'insertPagesFrom'>(
+  pagesModule,
+  'insertPagesFrom'
+);
+const movePage = later<Pages, 'movePage'>(pagesModule, 'movePage');
+const movePages = later<Pages, 'movePages'>(pagesModule, 'movePages');
+const pageCount = later<Pages, 'pageCount'>(pagesModule, 'pageCount');
+const rotatePages = later<Pages, 'rotatePages'>(pagesModule, 'rotatePages');
+const inspectPdf = later<Forms, 'inspectPdf'>(formsModule, 'inspectPdf');
+const unformat = later<Forms, 'unformat'>(formsModule, 'unformat');
+const showPrintDialog = later<typeof import('./print'), 'showPrintDialog'>(
+  () => import('./print'),
+  'showPrintDialog'
+);
 
 const REPO_URL = `https://github.com/${__PAPERWING_REPO__}`;
 const WEBSITE_URL = 'https://paperwingapp.com';
@@ -543,8 +563,7 @@ interface Tab {
   editsRedo?: ('viewer' | 'form')[];
   /** The form fields panel is open */
   formOpen?: boolean;
-  /** Its scripts, running (form-scripts.ts); or they couldn't be run */
-  scripts?: FormScripts;
+  /** Its scripts couldn't be run (when they run: formSession.scripts) */
   scriptsFailed?: boolean;
   /** The document has scripts Paperwing doesn't run; the notice about
    *  them was dismissed */
@@ -788,7 +807,11 @@ function closeTab(id: string) {
   void flushView(tab); // reads the viewer, so before it closes the document
   cancelRecoveryCopy(tab);
   if (formLayer.current?.tabId === tab.id) formLayer.show(null);
-  stopScripts(tab);
+  closeForm(tab);
+  // (its tools' frames and their copies of the document go too)
+  disposeFrameTool(tab.panelTool);
+  disposeFrameTool(tab.fullTool);
+  tab.panelTool = tab.fullTool = undefined;
   viewer.close(tab.id);
   if (tab.recoveryId) void desktop?.recovery?.delete(tab.recoveryId);
   if (activeId === id) {
@@ -1018,7 +1041,12 @@ async function openDocument(
   tab.page = viewer.pageInfo(id) ?? tab.page;
   if (activeId === id) renderDocChrome(tab);
   else renderTabs();
-  void inspectDoc(tab, file.arrayBuffer(), true);
+  // (a very large file isn't read a second time for a form)
+  void inspectDoc(
+    tab,
+    file.size > INSPECT_MAX_BYTES ? null : file.arrayBuffer(),
+    true
+  );
 
   if (unsaved) {
     tab.savedVersion = -1; // shows as unsaved; closing asks first
@@ -1220,7 +1248,8 @@ const formToastShown = new Set<string>();
  *  fields to fill in, and scripts Paperwing doesn't run */
 async function inspectDoc(
   tab: Tab,
-  bytes: ArrayBuffer | Promise<ArrayBuffer>,
+  /** (null: too large to read for its form) */
+  bytes: ArrayBuffer | Promise<ArrayBuffer> | null,
   opened = false
 ): Promise<void> {
   const seq = (inspections.get(tab) ?? 0) + 1;
@@ -1236,7 +1265,7 @@ async function inspectDoc(
         : setTimeout(resolve, 300)
     );
     info =
-      data.byteLength > INSPECT_MAX_BYTES
+      !data || data.byteLength > INSPECT_MAX_BYTES
         ? { form: null, scripted: false, xfa: false }
         : await inspectPdf(data);
   } catch (err) {
@@ -1246,29 +1275,56 @@ async function inspectDoc(
   if (inspections.get(tab) !== seq || !tabs.includes(tab)) return;
   tab.form = info.form;
   tab.scripted = info.scripted;
-  // The fields as the open document holds them (PDFium reads them, also
-  // when pdf-lib can't: encrypted documents), and its scripts, which may
-  // be all it has (a message when it opens)
-  stopScripts(tab);
+  // Its fields, filled in on the page (form-layer.ts), and its scripts,
+  // which may be all it has (a message when it opens)
+  closeForm(tab);
   const runScripts = tab.scripted && getPrefs().runScripts;
-  if (tab.form || runScripts) {
-    if (!tab.formSession) {
-      const session = new FormSession(viewer, tab.id);
-      session.onChange((change) => onFormChange(tab, change));
-      tab.formSession = session;
-    }
+  if ((tab.form || runScripts) && data) {
+    const session = new FormSession(viewer, tab.id, {
+      alert: (message) => void showScriptMessage(tab, message),
+      print: () => {
+        if (activeId === tab.id) void printActiveDoc();
+      },
+    });
+    session.onChange((change) => onFormChange(tab, change));
+    let loaded = false;
     try {
-      await tab.formSession.load(tab.form ?? null);
+      await session.load(tab.form ?? null, data);
+      loaded = true;
     } catch (err) {
+      // (PDFium still draws the fields, as they are)
       console.warn(`Couldn't read the fields of ${tab.name}`, err);
     }
-    if (inspections.get(tab) !== seq || !tabs.includes(tab)) return;
-    if (!tab.formSession.fields.length) tab.form = null;
-    if (runScripts && data) await startScripts(tab, data, seq);
-    if (inspections.get(tab) !== seq || !tabs.includes(tab)) return;
+    if (inspections.get(tab) !== seq || !tabs.includes(tab)) {
+      session.close();
+      return;
+    }
+    if (loaded) {
+      tab.formSession = session;
+      if (!session.fields.length) tab.form = null;
+      if (runScripts) {
+        tab.scriptsFailed = false;
+        try {
+          await session.startScripts();
+        } catch (err) {
+          console.warn(`Couldn't run the scripts of ${tab.name}`, err);
+          tab.scriptsFailed = true;
+        }
+      }
+      if (inspections.get(tab) !== seq || !tabs.includes(tab)) {
+        if (tab.formSession === session) tab.formSession = undefined;
+        session.close();
+        return;
+      }
+    } else {
+      session.close();
+      tab.form = null;
+    }
   }
   if (!tab.form) tab.formOpen = false;
-  if (!tab.form && !tab.formSession?.scripts) tab.formSession = undefined;
+  if (!tab.form && !tab.formSession?.scripts) closeForm(tab);
+  // The form layer shows the fields: PDFium draws the pages without them
+  viewer.setFormsDrawn(tab.id, !tab.formSession?.fields.length);
   if (activeId === tab.id) {
     renderRightRail(tab);
     renderScriptBar();
@@ -1321,7 +1377,8 @@ function syncFormLayer(tab: Tab | undefined, rebuilt = false) {
     !tab.loading &&
     !tab.blank &&
     !tab.fullTool &&
-    tab.formSession?.fields.length
+    tab.formSession?.pdf &&
+    tab.formSession.fields.length
       ? tab.formSession
       : null;
   if (rebuilt && show) formLayer.show(null);
@@ -1337,7 +1394,15 @@ function syncFormLayer(tab: Tab | undefined, rebuilt = false) {
 function onFormChange(tab: Tab, change: FormChange) {
   // Formatting when the document opened isn't a change to it
   if (change.origin !== 'open') {
-    if (change.origin === 'user') {
+    const last = tab.formUndo?.at(-1);
+    if (
+      change.origin === 'user' &&
+      change.merge &&
+      last?.name === change.name
+    ) {
+      // Still typing in the same field: one change, undone at once
+      last.after = change.after;
+    } else if (change.origin === 'user') {
       tab.formUndo = [...(tab.formUndo ?? []), change].slice(-200);
       tab.formRedo = [];
       tab.edits = [...(tab.edits ?? []), 'form' as const].slice(-400);
@@ -1359,55 +1424,24 @@ async function stepForm(tab: Tab, action: 'undo' | 'redo'): Promise<boolean> {
   if (!change || !session) return false;
   const value = action === 'undo' ? change.before : change.after;
   const to = action === 'undo' ? 'formRedo' : 'formUndo';
-  if (session.scripts) {
-    // Through the scripts, so what they worked out from it follows
-    session.fill(change.name, value, 'undo');
-    tab[to] = [...(tab[to] ?? []), change];
-    return true;
-  }
-  const ok = await session.set(change.name, value, 'undo');
-  if (ok) tab[to] = [...(tab[to] ?? []), change];
-  return ok;
+  const f = session.field(change.name);
+  // A radio button or an option can't be unchosen (in the document PDFium
+  // keeps, as in Acrobat): passed over
+  if (!f || (value === -1 && f.kind !== 'text' && f.kind !== 'checkbox'))
+    return false;
+  // As if filled in again, so what the scripts work out from it follows
+  session.fill(change.name, value, 'undo');
+  tab[to] = [...(tab[to] ?? []), change];
+  return true;
 }
 
 /* Form scripts ----------------------------------------------------------- */
 
-/** Starts the scripts of the document shown in `tab` (its bytes as shown) */
-async function startScripts(tab: Tab, bytes: ArrayBuffer, seq: number) {
-  const session = tab.formSession;
-  if (!session) return;
-  tab.scriptsFailed = false;
-  try {
-    const scripts = await FormScripts.start(
-      bytes,
-      session,
-      {
-        alert: (message) => void showScriptMessage(tab, message),
-        print: () => {
-          if (activeId === tab.id) void printActiveDoc();
-        },
-      },
-      viewer.pageSizes(tab.id)
-    );
-    // (closed, or another version shown, meanwhile)
-    if (inspections.get(tab) !== seq || !tabs.includes(tab)) {
-      scripts?.stop();
-      return;
-    }
-    if (scripts) {
-      tab.scripts = scripts;
-      session.scripts = scripts;
-    }
-  } catch (err) {
-    console.warn(`Couldn't run the scripts of ${tab.name}`, err);
-    tab.scriptsFailed = true;
-  }
-}
-
-function stopScripts(tab: Tab) {
-  tab.scripts?.stop();
-  tab.scripts = undefined;
-  if (tab.formSession) tab.formSession.scripts = undefined;
+/** The document closed or is read again: its form layer and scripts go */
+function closeForm(tab: Tab) {
+  if (formLayer.current === tab.formSession) formLayer.show(null);
+  tab.formSession?.close();
+  tab.formSession = undefined;
 }
 
 /** Scripts turned on or off in Preferences: the document is read again */
@@ -1451,8 +1485,11 @@ function showScriptMessage(tab: Tab, message: string) {
 
 /** Saving a document whose scripts show fields formatted: their values as
  *  typed go in (forms.ts, unformat) */
+viewer.beforeExport = async (tabId) => {
+  await tabs.find((t) => t.id === tabId)?.formSession?.settled();
+};
 viewer.exportFilter = (tabId, bytes) => {
-  const raws = tabs.find((t) => t.id === tabId)?.scripts?.formatted();
+  const raws = tabs.find((t) => t.id === tabId)?.formSession?.formatted();
   return raws?.size ? unformat(bytes, raws) : Promise.resolve(bytes);
 };
 
@@ -1462,7 +1499,7 @@ function renderScriptBar(): void {
   const tab = activeTab();
   const show =
     !!tab?.scripted &&
-    !tab.scripts &&
+    !tab.formSession?.scripts &&
     !tab.scriptDismissed &&
     !tab.loading &&
     !tab.blank;
@@ -1743,7 +1780,7 @@ async function settleForms(list: Tab[]): Promise<void> {
   const field = document.activeElement;
   if (field instanceof HTMLElement && field.closest('#form-panel'))
     field.blur();
-  formLayer.blur();
+  formLayer.commit();
   await Promise.all(list.map((t) => t.formSession?.settled()));
 }
 
@@ -2027,6 +2064,25 @@ window.addEventListener('message', async (e: MessageEvent) => {
     ft.reveal();
   } else if (e.data?.type === 'acro:dirty') {
     ft.dirty = !!e.data.dirty;
+  } else if (
+    e.data?.type === 'acro:script-alert' &&
+    typeof e.data.message === 'string'
+  ) {
+    const owner = tabs.find((t) => t.id === ft.owner);
+    if (owner) void showScriptMessage(owner, e.data.message);
+  } else if (e.data?.type === 'acro:close-tool') {
+    // The tool's own Close or Back went to BentoPDF's home page: close the
+    // tool, as the shell's Close does (it has nothing left to lose)
+    const tab = tabs.find((t) => t.panelTool === ft || t.fullTool === ft);
+    if (!tab) return;
+    disposeFrameTool(ft);
+    if (tab.fullTool === ft) {
+      tab.fullTool = undefined;
+      renderDocChrome(tab);
+    } else {
+      tab.panelTool = undefined;
+      renderLeftPanel(tab);
+    }
   } else if (e.data?.type === 'acro:print-document') {
     if (document.querySelector('.dlg-backdrop')) return;
     // A viewer inside the tool sends the document it shows (what was filled
@@ -2067,11 +2123,14 @@ window.addEventListener('message', async (e: MessageEvent) => {
         owner.panelTool = owner.fullTool = undefined;
         const tab = await openDocument(file, {}, undefined, owner, {});
         if (tab) savePrompt(tab, `Created ${name}. It isn't saved yet`);
+        // (it couldn't be shown: it's saved instead, not lost)
+        else saveBlob(blob, name);
         return;
       }
       const tab = await openDocument(file, {}, undefined, undefined, {});
       if (tab)
         savePrompt(tab, `Opened ${name} in a new tab. It isn't saved yet`);
+      else saveBlob(blob, name);
     } else {
       saveBlob(blob, name);
       toast(`Saved ${name}`);
@@ -2165,8 +2224,10 @@ async function pickThenRun(tab: Tab, tool: AppTool): Promise<boolean> {
   );
   for (const r of rest)
     await openDocument(r.file, { handle: r.handle, path: r.path });
+  // (the picked file may not have opened: its tab is gone then)
+  if (!tabs.includes(tab)) return false;
   const target = tab.blank ? activeDoc() : tab;
-  if (target) {
+  if (target && !target.loading) {
     activate(target.id);
     await openToolOnDoc(target, tool);
   }
@@ -2196,6 +2257,8 @@ function mountTool(tab: Tab, tool: AppTool, files: File[]) {
       )
     );
     ft.el.prepend(head);
+    // (only the active tab's tool shows)
+    ft.el.hidden = tab.id !== activeId;
     $('#tool-full').append(ft.el);
     tab.fullTool = ft;
   } else {
@@ -2229,7 +2292,9 @@ async function openToolOnDoc(tab: Tab, tool: AppTool, files: File[] = []) {
 
   // Another full-page tool replaces the open one
   if (tool.full && !(await mayDiscardTool(tab))) return;
-  const bytes = await viewer.exportBytes(tab.id);
+  const bytes = await exportDoc(tab, `open ${tool.name} on`);
+  // (closed meanwhile)
+  if (!tabs.includes(tab)) return;
   const docFiles = bytes
     ? [new File([bytes], tab.name, { type: 'application/pdf' })]
     : [];
@@ -2923,19 +2988,19 @@ function renderQuickbar(tab: Tab) {
         { divider: true },
         {
           label: 'Undo',
-          shortcut: key('Ctrl+Z'),
+          shortcut: shortcutLabel('undo'),
           icon: icon('undo', 16),
           onClick: () => stepEdit(tab, 'undo'),
         },
         {
           label: 'Redo',
-          shortcut: key('Shift+Ctrl+Z'),
+          shortcut: shortcutLabel('redo'),
           icon: icon('redo', 16),
           onClick: () => stepEdit(tab, 'redo'),
         },
         {
           label: 'Delete selected',
-          shortcut: 'Del',
+          shortcut: isMac ? '⌫' : 'Del',
           icon: icon('trash', 16),
           onClick: () => viewer.command(tab.id, 'annotation:delete-selected'),
         },
@@ -3046,6 +3111,9 @@ async function showPageVersion(
   const zoom = viewer.zoom(tab.id) ?? undefined;
   // (a copy: the viewer may take the buffer)
   const shown = bytes.slice(0);
+  // The fields on the page are the old version's: they go until the new
+  // version's are read (inspectDoc)
+  closeForm(tab);
   await viewer.replace(tab.id, bytes, { page, zoom: zoom ?? 1, scroll });
   if (!tabs.includes(tab)) return;
   // A new document underneath: the viewer's and the form's undo start over
@@ -3070,14 +3138,22 @@ async function stepPages(tab: Tab, action: 'undo' | 'redo') {
   tab.pageBusy = true;
   try {
     const current = await viewer.exportBytes(tab.id);
-    const target = from.pop()!;
+    const target = from.at(-1)!;
     setPageSelection(tab, null);
     await showPageVersion(tab, target, tab.page.current || 1);
+    // (taken off only once it's shown: a failure keeps the step)
+    from.pop();
     if (current) {
       const to = action === 'undo' ? 'pageRedo' : 'pageUndo';
       tab[to] = [...(tab[to] ?? []), current].slice(-PAGE_UNDO_LIMIT);
     }
     return true;
+  } catch (err) {
+    console.error(err);
+    toast(
+      `Couldn't ${action} the page change: ${(err as Error).message ?? err}`
+    );
+    return false;
   } finally {
     tab.pageBusy = false;
   }
@@ -3387,9 +3463,20 @@ function pageMenu(tab: Tab, page: number, x: number, y: number) {
 
 /** Copies pages into a new, unsaved tab */
 async function extractToTab(tab: Tab, pages: number[]) {
-  const bytes = await viewer.exportBytes(tab.id);
+  const bytes = await exportDoc(tab, 'copy the pages of');
   if (!bytes) return;
-  const out = await extractPages(bytes, pages);
+  let out: ArrayBuffer;
+  try {
+    out = await extractPages(bytes, pages);
+  } catch (err) {
+    console.error(err);
+    toast(
+      /encrypt/i.test(String(err))
+        ? "Pages of a password-protected PDF can't be copied here. Remove its password first (Protect ▸ Remove password)."
+        : `Couldn't copy the pages: ${(err as Error).message ?? err}`
+    );
+    return;
+  }
   const base = tab.name.replace(/\.pdf$/i, '');
   const what =
     pages.length === 1 ? `page ${pages[0] + 1}` : `${pages.length} pages`;
@@ -3805,8 +3892,20 @@ viewer.onPage((tabId, info) => {
 
 async function docBlob(tab: Tab): Promise<Blob | null> {
   await settleForms([tab]);
-  const bytes = await viewer.exportBytes(tab.id);
+  const bytes = await exportDoc(tab, 'save');
   return bytes ? new Blob([bytes], { type: 'application/pdf' }) : null;
+}
+
+/** The document as shown (with its edits), or null, saying why, if it
+ *  can't be made (`doing`: "save", "print"…) */
+async function exportDoc(tab: Tab, doing: string): Promise<ArrayBuffer | null> {
+  try {
+    return await viewer.exportBytes(tab.id);
+  } catch (err) {
+    console.error(err);
+    toast(`Couldn't ${doing} ${tab.name}: ${(err as Error).message ?? err}`);
+    return null;
+  }
 }
 
 /** Save a document; resolves true if it was written somewhere */
@@ -3849,7 +3948,7 @@ async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
         tab.diskHash = hash;
         return done(tab.name);
       }
-      const saved = await desktop.saveAs(tab.name, bytes);
+      const saved = await desktop.saveAs(tab.name, bytes, tab.path);
       if (!saved) return false;
       tab.path = saved.path;
       tab.diskHash = hash;
@@ -3912,7 +4011,8 @@ function openPrintDialog(
   current: number,
   pdf: ArrayBuffer | Uint8Array
 ) {
-  if (document.querySelector('.dlg-backdrop')) return;
+  if (printing || document.querySelector('.dlg-backdrop')) return;
+  printing = true;
   void showPrintDialog(
     desktop as PrintBridge,
     {
@@ -3921,8 +4021,11 @@ function openPrintDialog(
       source: (comments) => viewer.printReady(pdf, comments),
     },
     toast
-  );
+  ).finally(() => (printing = false));
 }
+/** From Ctrl+P until its dialog closes (a second Ctrl+P meanwhile, while
+ *  a large document is prepared, doesn't open another) */
+let printing = false;
 // (The viewer's own print, if anything starts it, comes here too)
 if (canPrint)
   viewer.printTo = (tabId, pdf) =>
@@ -3933,14 +4036,16 @@ if (canPrint)
     );
 async function printActiveDoc(): Promise<void> {
   const t = activeDoc();
-  if (!t) return;
+  if (!t || printing) return;
   await settleForms([t]);
   if (!canPrint) {
     // In a browser: the viewer's print, with the browser's print dialog
     viewer.command(t.id, 'document:print');
     return;
   }
-  const pdf = await viewer.exportBytes(t.id);
+  printing = true;
+  const pdf = await exportDoc(t, 'print');
+  printing = false;
   if (pdf) openPrintDialog(t.name, t.page.current || 1, pdf);
 }
 $('#print-btn').addEventListener('click', printActiveDoc);
@@ -4068,7 +4173,7 @@ function recentMenu(entry: RecentFile, e: MouseEvent) {
       onClick: () => void setStarred(entry, !entry.starred),
     },
     {
-      label: 'Remove from Recent',
+      label: 'Remove from recent',
       onClick: async () => {
         await forgetRecent(entry.id);
         void refreshRecent();
@@ -4416,7 +4521,7 @@ $('#help-btn').addEventListener('click', (e) => {
     { label: 'Keyboard shortcuts', onClick: showShortcuts },
     {
       label: 'Search tools & commands',
-      shortcut: formatCombo('Shift+Ctrl+P', isMac),
+      shortcut: shortcutLabel('palette'),
       onClick: () => openPalette(),
     },
     {
@@ -4440,7 +4545,8 @@ function showThemeMenu(anchor: HTMLElement) {
   const current = getThemePref();
   const opt = (pref: ThemePref, label: string): MenuItem => ({
     label,
-    icon: pref === current ? icon('check', 16) : undefined,
+    // (a choice, ticked as the other menus' choices are)
+    checked: pref === current,
     onClick: () => setThemePref(pref),
   });
   showMenu(anchor, [
@@ -4463,8 +4569,9 @@ function dialog(
     document.removeEventListener('keydown', onKey, true);
   };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
+    if (e.key === 'Escape' && isTopDialog(backdrop)) {
       e.preventDefault();
+      e.stopImmediatePropagation();
       close();
     }
   };
@@ -4607,6 +4714,13 @@ function showShortcuts() {
 /* Keyboard, drag & drop, startup                                      */
 /* ------------------------------------------------------------------ */
 
+/** The dialog on top (dialogs can stack: a document's message over "Save
+ *  changes?"): only it answers Escape and Enter */
+function isTopDialog(backdrop: HTMLElement): boolean {
+  const all = document.querySelectorAll('.dlg-backdrop');
+  return all[all.length - 1] === backdrop;
+}
+
 /* ------------------------------------------------------------------ */
 /* Dialogs, preferences, session, view modes                           */
 /* ------------------------------------------------------------------ */
@@ -4632,8 +4746,9 @@ function askDialog<T>(
       resolve(v);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && isTopDialog(backdrop)) {
         e.preventDefault();
+        e.stopImmediatePropagation();
         finish(cancelValue);
       }
     };
@@ -4687,8 +4802,10 @@ function passwordDialog(name: string, wrong: boolean): Promise<string | null> {
       resolve(v);
     };
     const onKey = (e: KeyboardEvent) => {
+      if (!isTopDialog(backdrop)) return;
       if (e.key === 'Escape') {
         e.preventDefault();
+        e.stopImmediatePropagation();
         finish(null);
       } else if (e.key === 'Enter' && input.value) {
         e.preventDefault();
@@ -4821,15 +4938,20 @@ async function prepareToQuit(): Promise<boolean> {
   if (!(await settleUnsaved())) return false;
   // No background copy may land after the cleanup below
   tabs.forEach(cancelRecoveryCopy);
-  persistSession();
-  await Promise.all(tabs.map(flushView));
-  // Saved documents dropped their recovery copies already; any left belong
-  // to documents the user chose not to save
-  await Promise.all(
-    tabs
-      .filter((t) => t.recoveryId)
-      .map((t) => desktop!.recovery?.delete(t.recoveryId!))
-  );
+  // (housekeeping: if any of it fails, the app still closes)
+  try {
+    persistSession();
+    await Promise.all(tabs.map(flushView));
+    // Saved documents dropped their recovery copies already; any left
+    // belong to documents the user chose not to save
+    await Promise.all(
+      tabs
+        .filter((t) => t.recoveryId)
+        .map((t) => desktop!.recovery?.delete(t.recoveryId!))
+    );
+  } catch (err) {
+    console.warn('Tidying up before closing failed', err);
+  }
   return true;
 }
 
