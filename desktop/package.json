@@ -1,7 +1,7 @@
 {
   "name": "paperwing",
   "productName": "Paperwing",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "A free, open-source PDF editor for Windows and macOS, built on BentoPDF.",
   "main": "main.cjs",
   "private": true,
@@ -20,6 +20,7 @@
     "dist:linux": "node scripts/build-web.mjs && electron-builder --linux --publish never",
     "pack": "electron-builder --dir --publish never",
     "test:e2e": "node --test --test-concurrency=1 tests/e2e.test.mjs",
+    "test:print": "node --test tests/print.test.mjs",
     "docs:shortcuts": "node scripts/gen-shortcuts-doc.mjs",
     "docs:screenshots": "node scripts/gen-screenshots.mjs"
   },

@@ -11,6 +11,8 @@
 import type { Plugin } from 'vite';
 import { readdirSync, readFileSync } from 'fs';
 import { resolve } from 'path';
+// (shared with desktop/scripts/build-web.mjs)
+import { rebrand, rebrandCode, rebrandStrings } from './brand.mjs';
 
 const APP_ENTRY = 'app.html';
 
@@ -233,7 +235,27 @@ function patchViewer(
   return applied ? out : null;
 }
 
-export function reskinPlugin(): Plugin {
+/** The interface strings the pages import (English, bundled): Paperwing's
+ * name, before they become code (brand.mjs) */
+const brandStringsPlugin: Plugin = {
+  name: 'paperwing-name-in-strings',
+  enforce: 'pre',
+  transform(code, id) {
+    const file = id.replace(/\\/g, '/').split('?')[0];
+    if (!/\/locales\/.+\.json$/.test(file) || !code.includes('BentoPDF'))
+      return;
+    return {
+      code: JSON.stringify(rebrandStrings(JSON.parse(code))),
+      map: null,
+    };
+  },
+};
+
+export function reskinPlugin(): Plugin[] {
+  return [brandStringsPlugin, pagesPlugin()];
+}
+
+function pagesPlugin(): Plugin {
   // Inlined into each tool page's <head> so it runs before the first paint
   // (see src/reskin/boot.js)
   let bootScript = '';
@@ -268,6 +290,11 @@ export function reskinPlugin(): Plugin {
 
     transform(code, id) {
       const file = id.replace(/\\/g, '/');
+      // BentoPDF's own code: Paperwing's name where it shows its own (brand.mjs)
+      if (/\/src\/js\/.*\.[jt]s$/.test(file.split('?')[0])) {
+        const branded = rebrandCode(code);
+        return branded === code ? undefined : { code: branded, map: null };
+      }
       const patches = file.includes('/bentopdf-viewer/dist/')
         ? VIEWER_PATCHES
         : file.includes('/zgapdfsigner/lib/zgafetch.js')
@@ -284,7 +311,7 @@ export function reskinPlugin(): Plugin {
         if (ctx.filename.replace(/\\/g, '/').endsWith('/' + APP_ENTRY)) {
           return html;
         }
-        return html
+        return rebrand(html)
           .replace(
             '</head>',
             // (a function, so "$" in the script isn't read as a pattern)

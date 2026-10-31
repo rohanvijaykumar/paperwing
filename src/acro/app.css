@@ -1024,7 +1024,8 @@ body.is-dragging .drop-inner {
   visibility: hidden;
 }
 /* Another app saved the open file (renderDiskBar) */
-#disk-bar {
+#disk-bar,
+#script-bar {
   position: absolute;
   top: 16px;
   left: 50%;
@@ -1041,21 +1042,154 @@ body.is-dragging .drop-inner {
   transform: translateX(-50%);
   animation: toast-in 0.18s ease-out;
 }
-#disk-bar .db-text {
+#disk-bar .db-text,
+#script-bar .db-text {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-#disk-bar .db-reload {
+#disk-bar .db-reload,
+#script-bar .db-reload {
   flex: none;
   height: 30px;
   padding: 0 14px;
 }
-#disk-bar .db-close {
+#disk-bar .db-close,
+#script-bar .db-close {
   flex: none;
 }
 #doc-stage.has-full-tool #disk-bar {
+  display: none;
+}
+/* The document has scripts Paperwing doesn't run (renderScriptBar) */
+#doc-stage:has(#disk-bar) #script-bar {
+  top: 64px;
+}
+#doc-stage.has-form-panel #disk-bar,
+#doc-stage.has-form-panel #script-bar {
+  left: calc((100% - var(--form-panel-w)) / 2);
+  max-width: calc(100% - var(--form-panel-w) - 140px);
+}
+/* Form fields beside the document (renderFormPanel) */
+#doc-stage {
+  --form-panel-w: 300px;
+}
+#doc-stage.has-form-panel #viewer-host {
+  right: var(--form-panel-w);
+}
+#form-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  width: var(--form-panel-w);
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+#form-panel .fp-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  height: 44px;
+  padding: 0 6px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+#form-panel .fp-head h2 {
+  font-size: 15px;
+  font-weight: 700;
+}
+#form-panel .fp-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+}
+#form-panel .fp-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 0;
+}
+#form-panel .fp-field > label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 600;
+}
+#form-panel .fp-field small {
+  color: var(--text-3);
+  font-weight: 400;
+}
+#form-panel .fp-field .dlg-input {
+  flex-basis: 100%;
+  margin: 0;
+}
+#form-panel textarea.dlg-input {
+  height: auto;
+  padding: 6px 10px;
+  resize: vertical;
+}
+#form-panel .fp-field.is-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+#form-panel .fp-page {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+#form-panel .fp-page:hover {
+  background: var(--hover-soft);
+  color: var(--text);
+}
+/* A radio group's or a signature's name, like a field's label */
+#form-panel .fp-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 600;
+}
+#form-panel .fp-radios {
+  flex-basis: 100%;
+}
+#form-panel .fp-radios .fp-field {
+  padding: 3px 0;
+}
+#form-panel .fp-radios label {
+  font-weight: 400;
+}
+#form-panel .fp-select {
+  flex-basis: 100%;
+  width: 100%;
+}
+#form-panel .fp-sign {
+  flex-basis: 100%;
+  justify-content: center;
+}
+/* "Highlight fields on the page": a setting, set apart from the fields */
+#form-panel .fp-option {
+  margin-bottom: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+#form-panel .fp-option label {
+  font-weight: 400;
+}
+#doc-stage.has-full-tool #script-bar,
+#doc-stage.has-full-tool #form-panel {
   display: none;
 }
 #doc-stage.is-loading::after {
@@ -1418,11 +1552,20 @@ body.is-dragging .drop-inner {
   background: var(--backdrop);
 }
 .dlg {
+  display: flex;
+  flex-direction: column;
   width: min(460px, calc(100vw - 32px));
+  /* As tall as its content, up to the window: only then does it scroll */
+  max-height: calc(100vh - 48px);
+  /* (its rounded corners clip a scrollbar) */
+  overflow: hidden;
   border-radius: 10px;
   background: var(--surface);
   box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
   user-select: text;
+}
+.dlg > * {
+  flex: none;
 }
 .dlg-head {
   display: flex;
@@ -1432,6 +1575,11 @@ body.is-dragging .drop-inner {
 }
 .dlg-body {
   padding: 0 20px 20px;
+}
+.dlg > .dlg-body {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 .dlg-body p {
   margin: 0 0 10px;
@@ -1726,11 +1874,12 @@ body.is-dragging.is-dropping-pages #drop-overlay {
   border-top: 1px solid var(--border);
 }
 
-/* Preferences & shortcuts */
+/* Preferences & shortcuts: when they scroll, the scrollbar stops short of
+   the rounded corner */
 .dlg-body.prefs,
 .dlg-body.shortcuts {
-  max-height: min(70vh, 640px);
-  overflow-y: auto;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
 }
 .pref-group {
   margin: 14px 0 6px;
@@ -1752,6 +1901,7 @@ body.is-dragging.is-dropping-pages #drop-overlay {
   cursor: pointer;
 }
 .pref-row input[type='checkbox'] {
+  flex: none;
   order: 2;
   width: 18px;
   height: 18px;
@@ -1785,6 +1935,162 @@ body.is-dragging.is-dropping-pages #drop-overlay {
 .find-results .menu-item:focus-visible {
   outline: none;
   background: var(--hover-soft);
+}
+
+/* Print (desktop app, src/acro/print.ts) */
+.dlg.dlg-print {
+  width: min(920px, calc(100vw - 32px));
+}
+.pd-layout {
+  display: flex;
+  gap: 24px;
+}
+.pd-preview {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.pd-sheet {
+  display: grid;
+  place-items: center;
+  height: min(560px, calc(100vh - 220px));
+  min-height: 240px;
+  border-radius: 6px;
+  background: var(--canvas);
+  overflow: hidden;
+}
+.pd-page {
+  display: block;
+  background: #fff;
+  box-shadow: var(--card-shadow);
+}
+.pd-sheet.is-mono .pd-page {
+  filter: grayscale(1);
+}
+.pd-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 32px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.pd-nav .tb-btn:disabled {
+  opacity: 0.4;
+  background: none;
+}
+.pd-settings {
+  flex: 0 0 330px;
+  /* The settings scroll; the dialog keeps its size as options appear */
+  max-height: min(600px, calc(100vh - 210px));
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.pd-group h3 {
+  margin: 16px 0 2px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pd-group:first-child h3 {
+  margin-top: 0;
+}
+.dlg-print .pref-row {
+  align-items: center;
+  padding: 5px 0;
+}
+.pd-pages {
+  display: grid;
+  gap: 8px;
+  padding: 6px 0;
+}
+.pd-radio,
+.pd-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.pd-check {
+  padding: 6px 0;
+}
+.pd-radio input,
+.pd-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.pd-hint {
+  margin: 0 0 4px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.pd-range-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dlg-print input.pd-range {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.pd-seg {
+  display: flex;
+  margin: 6px 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.pd-seg-btn {
+  flex: 1;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pd-seg-btn + .pd-seg-btn {
+  border-left: 1px solid var(--border-strong);
+}
+.pd-seg-btn:hover {
+  background: var(--hover-soft);
+}
+.pd-seg-btn.is-on {
+  background: var(--accent);
+  color: #fff;
+}
+.pd-seg-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.dlg-print .pref-select {
+  font: inherit;
+  color: var(--text);
+}
+.dlg-print input.pref-select {
+  width: 72px;
+}
+@media (max-width: 640px) {
+  .pd-layout {
+    flex-direction: column;
+  }
+  .pd-sheet {
+    height: 300px;
+  }
+  .pd-settings {
+    flex-basis: auto;
+  }
 }
 
 /* Read mode / full screen: just the document */

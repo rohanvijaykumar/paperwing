@@ -30,6 +30,7 @@ import taskLists from 'markdown-it-task-lists';
 import anchor from 'markdown-it-anchor';
 import tocDoneRight from 'markdown-it-toc-done-right';
 import { applyTranslations } from '../i18n/i18n';
+import { exportPdfToShell } from '../../reskin/export-pdf';
 import type {
   WindowWithLucide,
   WindowWithI18next,
@@ -788,13 +789,19 @@ export class MarkdownEditor {
   }
 
   private exportPdf(): void {
+    // Inside Paperwing the PDF opens as a document, and is printed from there
+    if (
+      exportPdfToShell(
+        this.getStyledHtml(this.preview?.innerHTML),
+        'Markdown.pdf'
+      )
+    )
+      return;
     // Use browser's native print functionality
     window.print();
   }
 
-  private getStyledHtml(): string {
-    const content = this.getHtml();
-
+  private getStyledHtml(content: string = this.getHtml()): string {
     return `<!DOCTYPE html>
 <html>
 <head>

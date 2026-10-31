@@ -47,7 +47,12 @@ contextBridge.exposeInMainWorld('paperwing', {
   },
   writeFile: (path, data) =>
     ipcRenderer.invoke('paperwing:write-file', path, data),
-  saveAs: (name, data) => ipcRenderer.invoke('paperwing:save-as', name, data),
+  saveAs: (name, data, near) =>
+    ipcRenderer.invoke('paperwing:save-as', name, data, near),
+  printers: () => ipcRenderer.invoke('paperwing:printers'),
+  printPages: (data, request) =>
+    ipcRenderer.invoke('paperwing:print-pages', data, request),
+  htmlToPdf: (html) => ipcRenderer.invoke('paperwing:html-to-pdf', html),
   confirmClose: () => ipcRenderer.invoke('paperwing:confirm-close'),
   requestClose: () => ipcRenderer.invoke('paperwing:request-close'),
   onCloseRequested: (callback) => {

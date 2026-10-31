@@ -9,6 +9,10 @@ export interface Prefs {
   restoreView: boolean;
   /** Look for new releases once a day */
   checkUpdates: boolean;
+  /** Tint form fields on the page (Acrobat's "Highlight existing fields") */
+  highlightFields: boolean;
+  /** Run forms' scripts (calculations, formatting, checks), sandboxed */
+  runScripts: boolean;
   /** Tool ids pinned to the top of the tools panel */
   pinnedTools: string[];
   /** Most recently used tool ids, newest first */
@@ -31,6 +35,8 @@ const DEFAULTS: Prefs = {
   restoreSession: true,
   restoreView: true,
   checkUpdates: true,
+  highlightFields: true,
+  runScripts: true,
   pinnedTools: [],
   recentTools: [],
   recentToolNames: {},

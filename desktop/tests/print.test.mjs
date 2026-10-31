@@ -1,0 +1,533 @@
+/**
+ * Printing in the main process (print.cjs), with stand-ins for Electron's
+ * windows and dialogs: nothing is ever sent to a real printer.
+ *
+ *   npm run test:print
+ */
+import { beforeEach, describe, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const {
+  createPrinting,
+  pickPrinter,
+  pdfLoaded,
+  systemDefaultPrinter,
+} = require('../print.cjs');
+
+const PDF = new Uint8Array(Buffer.from('%PDF-1.7\n%test document\n%%EOF\n'));
+// As Electron lists them: which one is the default isn't said (the OS is
+// asked, see systemDefault)
+const OFFICE = { name: 'office', displayName: 'Office laser' };
+const LABEL = { name: 'label', displayName: 'Label printer' };
+let systemDefault;
+
+let dir;
+let printers;
+let windows;
+let printResult;
+let saveDialog;
+let written;
+
+/** Stand-in for a BrowserWindow: records what it loads and prints */
+class FakeWindow {
+  constructor(options) {
+    this.options = options;
+    this.destroyed = false;
+    const win = this;
+    this.webContents = {
+      prints: [],
+      on() {},
+      setWindowOpenHandler() {},
+      print(opts, done) {
+        // What the window shows when it prints
+        this.printed = readFileSync(fileURLToPath(win.url));
+        this.prints.push(opts);
+        const { ok, reason, delay = 0 } = printResult;
+        setTimeout(() => done(ok, reason), delay);
+      },
+      async printToPDF(opts) {
+        this.pdfOptions = opts;
+        if (pdfResult instanceof Error) throw pdfResult;
+        return pdfResult;
+      },
+    };
+    windows.push(this);
+  }
+  async loadURL(url) {
+    this.url = url;
+    // A page on the HTML session is served by its protocol handler
+    const ses = this.options.webPreferences.session;
+    if (ses) this.served = await (await ses.serve(url)).text();
+  }
+  isDestroyed() {
+    return this.destroyed;
+  }
+  destroy() {
+    this.destroyed = true;
+  }
+}
+
+const sender = { getPrintersAsync: async () => printers };
+const prints = () => windows.flatMap((w) => w.webContents.prints);
+
+let pdfResult;
+let partitions;
+/** Stand-in for Electron's session module */
+const fakeSession = {
+  fromPartition(name, options) {
+    const ses = {
+      name,
+      options,
+      handlers: {},
+      blocked: null,
+      protocol: {
+        handle(scheme, handler) {
+          ses.handlers[scheme] = handler;
+        },
+      },
+      webRequest: {
+        onBeforeRequest(listener) {
+          ses.blocked = (url, resourceType = 'mainFrame') =>
+            new Promise((resolve) =>
+              listener({ url, resourceType }, ({ cancel }) => resolve(!!cancel))
+            );
+        },
+      },
+      setPermissionRequestHandler(handler) {
+        ses.permission = handler;
+      },
+      serve: (url) => ses.handlers[url.split(':')[0]]({ url }),
+    };
+    partitions.push(ses);
+    return ses;
+  },
+};
+
+function service() {
+  return createPrinting({
+    BrowserWindow: FakeWindow,
+    dialog: { showSaveDialog: async (...args) => saveDialog(...args) },
+    session: fakeSession,
+    settingsFile: join(dir, 'print-settings.json'),
+    documentsDir: join(dir, 'Documents'),
+    writeFile: async (file, data) => written.push({ file, data }),
+    tempDir: dir,
+    waitForPdf: async () => {},
+    defaultPrinter: async () => systemDefault,
+    printTimeout: 200,
+  });
+}
+
+const toPrinter = (printer, extra = {}) => ({
+  destination: 'printer',
+  printer,
+  copies: 1,
+  color: true,
+  duplex: 'simplex',
+  ...extra,
+});
+
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), 'paperwing-print-test-'));
+  printers = [LABEL, OFFICE];
+  windows = [];
+  printResult = { ok: true };
+  saveDialog = async () => ({ canceled: true });
+  written = [];
+  pdfResult = Buffer.from('%PDF-1.4\n%from html\n%%EOF\n');
+  partitions = [];
+  systemDefault = 'office';
+});
+
+describe('choosing the printer', () => {
+  test('preselects the OS default printer', async () => {
+    const { selected, printers: list } = await service().printers(sender);
+    assert.equal(selected, 'office');
+    assert.deepEqual(
+      list.map((p) => [p.displayName, p.isDefault]),
+      [
+        ['Label printer', false],
+        ['Office laser', true],
+      ]
+    );
+  });
+
+  test('asks the OS which printer is the default', async () => {
+    const answer = (out) => async () => out;
+    assert.equal(
+      await systemDefaultPrinter(
+        'win32',
+        answer(
+          '\r\nHKEY_CURRENT_USER\Software\Microsoft\Windows NT\CurrentVersion\Windows\r\n' +
+            '    Device    REG_SZ    Microsoft Print to PDF,winspool,Ne01:\r\n'
+        )
+      ),
+      'Microsoft Print to PDF'
+    );
+    assert.equal(
+      await systemDefaultPrinter(
+        'darwin',
+        answer('system default destination: Office_Laser\n')
+      ),
+      'Office_Laser'
+    );
+    assert.equal(
+      await systemDefaultPrinter(
+        'linux',
+        answer('no system default destination\n')
+      ),
+      null
+    );
+    // The command failed or isn't there
+    assert.equal(await systemDefaultPrinter('linux', answer('')), null);
+  });
+
+  test('remembers the last printer that printed', async () => {
+    const p = service();
+    assert.deepEqual(await p.run(sender, null, PDF, toPrinter('label')), {
+      ok: true,
+    });
+    assert.equal((await p.printers(sender)).selected, 'label');
+    // Also after a restart
+    assert.equal((await service().printers(sender)).selected, 'label');
+  });
+
+  test('a failed print is not remembered', async () => {
+    printResult = { ok: false, reason: 'Printer offline' };
+    const result = await service().run(sender, null, PDF, toPrinter('label'));
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'failed');
+    assert.match(result.message, /offline/);
+    assert.equal((await service().printers(sender)).selected, 'office');
+  });
+
+  test('a remembered printer that is gone falls back to the default', async () => {
+    await service().run(sender, null, PDF, toPrinter('label'));
+    printers = [OFFICE];
+    assert.equal((await service().printers(sender)).selected, 'office');
+  });
+
+  test('without a default, the first printer', async () => {
+    assert.equal(pickPrinter([LABEL, OFFICE], null, null), 'label');
+    assert.equal(pickPrinter([LABEL, OFFICE], null, 'gone'), 'label');
+    assert.equal(pickPrinter([LABEL, OFFICE], null, 'office'), 'office');
+    assert.equal(pickPrinter([], 'label', 'office'), null);
+    systemDefault = null;
+    assert.equal((await service().printers(sender)).selected, 'label');
+  });
+
+  test('a printer that is missing now is not printed to', async () => {
+    const result = await service().run(sender, null, PDF, toPrinter('gone'));
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'printer-missing');
+    assert.equal(windows.length, 0);
+    assert.equal(prints().length, 0);
+  });
+
+  test('no printers: none listed, nothing printed', async () => {
+    printers = [];
+    assert.deepEqual(await service().printers(sender), {
+      printers: [],
+      selected: null,
+    });
+    const result = await service().run(sender, null, PDF, toPrinter('office'));
+    assert.equal(result.error, 'no-printers');
+    assert.equal(prints().length, 0);
+  });
+});
+
+describe('printing', () => {
+  test('prints the PDF itself, silently, with the chosen options', async () => {
+    const result = await service().run(
+      sender,
+      null,
+      PDF,
+      toPrinter('office', { copies: 3, color: false, duplex: 'longEdge' })
+    );
+    assert.deepEqual(result, { ok: true });
+    assert.equal(windows.length, 1);
+    const [win] = windows;
+    assert.equal(win.options.show, false);
+    assert.equal(win.options.webPreferences.sandbox, true);
+    assert.match(win.url, /^file:.*\.pdf$/);
+    assert.deepEqual(new Uint8Array(win.webContents.printed), PDF);
+    assert.deepEqual(win.webContents.prints, [
+      {
+        silent: true,
+        deviceName: 'office',
+        copies: 3,
+        color: false,
+        duplexMode: 'longEdge',
+        printBackground: true,
+        collate: true,
+        usePrinterDefaultPageSize: true,
+      },
+    ]);
+    // Nothing left behind
+    assert.ok(win.destroyed);
+    assert.ok(!existsSync(fileURLToPath(win.url)));
+    assert.deepEqual(
+      readdirSync(dir).filter((f) => f.startsWith('paperwing-print-')),
+      []
+    );
+  });
+
+  test('sheets laid out for a paper print at that size, edge to edge', async () => {
+    const p = service();
+    // A4 portrait
+    await p.run(
+      sender,
+      null,
+      PDF,
+      toPrinter('office', { paper: { width: 595.28, height: 841.89 } })
+    );
+    // Letter, landscape sheets
+    await p.run(
+      sender,
+      null,
+      PDF,
+      toPrinter('office', {
+        paper: { width: 612, height: 792 },
+        landscape: true,
+      })
+    );
+    const [a4, letter] = prints();
+    assert.deepEqual(a4.pageSize, { width: 210002, height: 297000 });
+    assert.equal(a4.landscape, false);
+    assert.deepEqual(a4.margins, { marginType: 'none' });
+    assert.equal(a4.usePrinterDefaultPageSize, undefined);
+    assert.deepEqual(letter.pageSize, { width: 215900, height: 279400 });
+    assert.equal(letter.landscape, true);
+  });
+
+  test('a paper size that makes no sense is refused', async () => {
+    const p = service();
+    for (const paper of [
+      { width: 0, height: 792 },
+      { width: 612 },
+      { width: 612, height: 100000 },
+      'A4',
+    ]) {
+      const r = await p.run(sender, null, PDF, toPrinter('office', { paper }));
+      assert.equal(r.error, 'invalid', JSON.stringify(paper));
+    }
+    assert.equal(prints().length, 0);
+  });
+
+  test('a printer that never answers is given up on, and printing goes on', async () => {
+    printResult = { ok: true, delay: 60000 };
+    const p = service();
+    const result = await p.run(sender, null, PDF, toPrinter('office'));
+    assert.equal(result.ok, false);
+    assert.match(result.message, /did not respond/);
+    assert.ok(windows[0].destroyed);
+    printResult = { ok: true };
+    assert.deepEqual(await p.run(sender, null, PDF, toPrinter('office')), {
+      ok: true,
+    });
+  });
+
+  test('rejects invalid options without printing', async () => {
+    const p = service();
+    for (const bad of [
+      toPrinter('office', { copies: 0 }),
+      toPrinter('office', { copies: 1.5 }),
+      toPrinter('office', { copies: 100 }),
+      toPrinter('office', { copies: '2' }),
+      toPrinter('office', { color: 'yes' }),
+      toPrinter('office', { duplex: 'both' }),
+      toPrinter(''),
+      toPrinter(42),
+      { destination: 'fax' },
+      null,
+    ]) {
+      const result = await p.run(sender, null, PDF, bad);
+      assert.equal(result.ok, false, JSON.stringify(bad));
+      assert.equal(result.error, 'invalid', JSON.stringify(bad));
+    }
+    const notPdf = await p.run(
+      sender,
+      null,
+      new TextEncoder().encode('<html>'),
+      toPrinter('office')
+    );
+    assert.equal(notPdf.error, 'invalid');
+    assert.equal(prints().length, 0);
+    assert.equal(written.length, 0);
+  });
+
+  test('one job at a time', async () => {
+    const p = service();
+    printResult = { ok: true, delay: 50 };
+    const first = p.run(sender, null, PDF, toPrinter('office'));
+    const second = await p.run(sender, null, PDF, toPrinter('office'));
+    assert.equal(second.error, 'busy');
+    const saving = await p.run(sender, null, PDF, { destination: 'pdf' });
+    assert.equal(saving.error, 'busy');
+    assert.deepEqual(await first, { ok: true });
+    assert.deepEqual(await p.run(sender, null, PDF, toPrinter('office')), {
+      ok: true,
+    });
+    assert.equal(prints().length, 2);
+  });
+});
+
+describe('Save as PDF', () => {
+  test('saves the document without printing', async () => {
+    let asked;
+    saveDialog = async (parent, options) => {
+      asked = { parent, options };
+      return { canceled: false, filePath: join(dir, 'Out.pdf') };
+    };
+    const parent = { id: 'main window' };
+    const result = await service().run(sender, parent, PDF, {
+      destination: 'pdf',
+      name: 'Report.pdf',
+    });
+    assert.deepEqual(result, { ok: true, path: join(dir, 'Out.pdf') });
+    assert.equal(asked.parent, parent);
+    assert.equal(
+      asked.options.defaultPath,
+      join(dir, 'Documents', 'Report.pdf')
+    );
+    assert.deepEqual(written, [{ file: join(dir, 'Out.pdf'), data: PDF }]);
+    assert.equal(windows.length, 0);
+    assert.equal(prints().length, 0);
+    // Not a printer choice
+    assert.equal((await service().printers(sender)).selected, 'office');
+  });
+
+  test('cancel: nothing saved, nothing printed', async () => {
+    const result = await service().run(sender, null, PDF, {
+      destination: 'pdf',
+      name: 'Report.pdf',
+    });
+    assert.deepEqual(result, { ok: false, cancelled: true });
+    assert.equal(written.length, 0);
+    assert.equal(prints().length, 0);
+  });
+});
+
+describe('making a web page into a PDF (Markdown to PDF)', () => {
+  const HTML = '<!DOCTYPE html><html><body><h1>Notes</h1></body></html>';
+
+  test('lays the page out with the print engine, scripts off', async () => {
+    const result = await service().htmlToPdf(HTML);
+    assert.equal(result.ok, true);
+    assert.deepEqual(Buffer.from(result.data).toString(), pdfResult.toString());
+    assert.equal(windows.length, 1);
+    const [win] = windows;
+    assert.equal(win.options.show, false);
+    const prefs = win.options.webPreferences;
+    assert.equal(prefs.sandbox, true);
+    assert.equal(prefs.javascript, false);
+    assert.equal(prefs.nodeIntegration, false);
+    assert.equal(prefs.session, partitions[0]);
+    assert.equal(win.served, HTML);
+    assert.deepEqual(win.webContents.pdfOptions, {
+      printBackground: true,
+      preferCSSPageSize: true,
+    });
+    // Never printed, never written anywhere, nothing left behind
+    assert.equal(prints().length, 0);
+    assert.equal(written.length, 0);
+    assert.ok(win.destroyed);
+    assert.equal((await partitions[0].serve(win.url)).status, 404);
+  });
+
+  test('on a session of its own: only the page, data and web images load', async () => {
+    const p = service();
+    await p.htmlToPdf(HTML);
+    await p.htmlToPdf(HTML);
+    assert.equal(partitions.length, 1, 'one session, made once');
+    const [ses] = partitions;
+    assert.notEqual(ses.name, '');
+    assert.ok(!ses.name.startsWith('persist:'), 'kept in memory only');
+    assert.equal(await ses.blocked('file:///etc/passwd'), true);
+    assert.equal(await ses.blocked('file:///etc/passwd', 'image'), true);
+    assert.equal(await ses.blocked('app://paperwing/app.html'), true);
+    assert.equal(
+      await ses.blocked('https://example.com/a.png', 'image'),
+      false
+    );
+    assert.equal(
+      await ses.blocked('data:image/png;base64,AA==', 'image'),
+      false
+    );
+    // No pages, frames or requests to the network or the local network
+    assert.equal(await ses.blocked('https://example.com/'), true);
+    assert.equal(await ses.blocked('http://192.168.1.1/', 'subFrame'), true);
+    assert.equal(await ses.blocked('http://localhost:8080/api', 'xhr'), true);
+    assert.equal(await ses.blocked('http://example.com/a.png', 'image'), true);
+    assert.equal(await ses.blocked('data:text/html,hi'), true);
+    let allowed;
+    ses.permission(null, 'media', (ok) => (allowed = ok));
+    assert.equal(allowed, false);
+  });
+
+  test('does not wait for or block printing', async () => {
+    const p = service();
+    printResult = { ok: true, delay: 50 };
+    const printing = p.run(sender, null, PDF, toPrinter('office'));
+    assert.equal((await p.htmlToPdf(HTML)).ok, true);
+    assert.deepEqual(await printing, { ok: true });
+  });
+
+  test('refuses what is not a page; reports a failure', async () => {
+    const p = service();
+    for (const bad of ['', '   ', null, 42, new Uint8Array(3)]) {
+      const result = await p.htmlToPdf(bad);
+      assert.equal(result.ok, false);
+      assert.equal(result.error, 'invalid');
+    }
+    assert.equal(windows.length, 0);
+    pdfResult = new Error('render process gone');
+    const failed = await p.htmlToPdf(HTML);
+    assert.equal(failed.ok, false);
+    assert.equal(failed.error, 'failed');
+    assert.match(failed.message, /render process gone/);
+    assert.ok(windows[0].destroyed);
+  });
+});
+
+describe('waiting for the PDF viewer', () => {
+  /** webContents whose PDF viewer frame reports these states in turn */
+  const contents = (states) => ({
+    mainFrame: {
+      get framesInSubtree() {
+        return [
+          { url: 'file:///tmp/doc.pdf' },
+          {
+            url: 'chrome-extension://viewer/index.html',
+            executeJavaScript: async () =>
+              states.length ? states.shift() : states.last,
+          },
+        ];
+      },
+    },
+  });
+
+  test('resolves once the document has loaded', async () => {
+    const states = [null, { state: 'loading', pages: 0 }];
+    states.last = { state: 'success', pages: 3 };
+    await pdfLoaded(contents(states), 2000);
+  });
+
+  test('rejects a document the viewer could not read', async () => {
+    const states = [{ state: 'loading' }];
+    states.last = { state: 'failed', pages: 0 };
+    await assert.rejects(pdfLoaded(contents(states), 2000), /couldn't be read/);
+  });
+
+  test('gives up after the timeout', async () => {
+    const states = [];
+    states.last = { state: 'loading', pages: 0 };
+    await assert.rejects(pdfLoaded(contents(states), 200), /Timed out/);
+  });
+});

@@ -25,6 +25,7 @@ const { pathToFileURL } = require('node:url');
 const { Readable, Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const crypto = require('node:crypto');
+const { createPrinting } = require('./print.cjs');
 
 /** PAPERWING_TRACE=1 prints startup timings (ms since the process started) */
 const trace = process.env.PAPERWING_TRACE
@@ -97,7 +98,11 @@ const pendingCommands = [];
  * write back to these, never to an arbitrary path.
  */
 const knownPaths = new Set();
-const pathKey = (p) => (IS_MAC ? p : path.resolve(p).toLowerCase());
+// (paths are case-insensitive on Windows only)
+const pathKey = (p) =>
+  process.platform === 'win32'
+    ? path.resolve(p).toLowerCase()
+    : path.resolve(p);
 
 const isPdfPath = (p) =>
   typeof p === 'string' && /\.pdf$/i.test(p) && fs.existsSync(p);
@@ -143,8 +148,11 @@ function rememberRecent(filePath) {
   } catch {
     /* read-only profile: the jump list just doesn't change */
   }
-  updateJumpList(list);
+  // (once for files opened together, or a session restored)
+  clearTimeout(jumpListTimer);
+  jumpListTimer = setTimeout(() => updateJumpList(), 1500);
 }
+let jumpListTimer;
 
 /** For files that share a name: the fewest trailing folders that tell each
  *  apart ("Acme Corp", "Globex › Product Manager"); '' for unique names */
@@ -233,8 +241,12 @@ function clearRecent() {
   updateJumpList([]);
 }
 
-function pdfArgs(argv) {
-  return argv.slice(app.isPackaged ? 1 : 2).filter(isPdfPath);
+/** The PDFs named on a command line, relative to the folder it ran in */
+function pdfArgs(argv, cwd = process.cwd()) {
+  return argv
+    .slice(app.isPackaged ? 1 : 2)
+    .map((p) => (typeof p === 'string' ? path.resolve(cwd, p) : p))
+    .filter(isPdfPath);
 }
 
 async function sendFile(filePath) {
@@ -259,8 +271,9 @@ async function sendFile(filePath) {
 
 pendingFiles.push(...pdfArgs(process.argv));
 
-app.on('second-instance', (_e, argv) => {
-  pdfArgs(argv).forEach(sendFile);
+app.on('second-instance', (_e, argv, workingDirectory) => {
+  // (a file named relative to where the second copy was started)
+  pdfArgs(argv, workingDirectory || process.cwd()).forEach(sendFile);
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
@@ -407,6 +420,14 @@ async function relay(request) {
     return deny(400, 'Bad URL');
   }
   if (!/^https?:$/.test(target.protocol)) return deny(400, 'Bad URL');
+  // Timestamp and certificate servers are on the internet: not this
+  // computer or the cloud metadata address
+  if (
+    /^(localhost|0\.0\.0\.0|127\.\d+\.\d+\.\d+|169\.254\.\d+\.\d+|\[::1?\])$/i.test(
+      target.hostname
+    )
+  )
+    return deny(403, 'Not allowed');
   if (request.method !== 'GET' && request.method !== 'POST')
     return deny(405, 'Method not allowed');
   const body =
@@ -423,8 +444,15 @@ async function relay(request) {
       redirect: 'follow',
       signal: AbortSignal.timeout(RELAY_TIMEOUT_MS),
     });
-    const data = Buffer.from(await res.arrayBuffer());
-    if (data.length > RELAY_MAX_BYTES) return deny(502, 'Response too large');
+    // Read up to the limit (not a whole endless response first)
+    const parts = [];
+    let size = 0;
+    for await (const chunk of res.body ?? []) {
+      size += chunk.length;
+      if (size > RELAY_MAX_BYTES) return deny(502, 'Response too large');
+      parts.push(Buffer.from(chunk));
+    }
+    const data = Buffer.concat(parts);
     return new Response(data, {
       status: res.status,
       headers: {
@@ -467,12 +495,30 @@ async function fetchEngine(entry) {
   const cached = path.join(ENGINE_DIR(), entry.name);
   const tmp = `${cached}.part`;
   await fsp.mkdir(ENGINE_DIR(), { recursive: true });
-  const res = await net.fetch(engineUrl(entry.name));
-  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+  // A download that stalls fails (and can be tried again) instead of
+  // hanging for good
+  const abort = new AbortController();
+  let idle;
+  const stillGoing = () => {
+    clearTimeout(idle);
+    idle = setTimeout(() => abort.abort(new Error('Download stalled')), 60000);
+  };
+  stillGoing();
+  const res = await net
+    .fetch(engineUrl(entry.name), { signal: abort.signal })
+    .catch((err) => {
+      clearTimeout(idle);
+      throw err;
+    });
+  if (!res.ok || !res.body) {
+    clearTimeout(idle);
+    throw new Error(`HTTP ${res.status}`);
+  }
   const hash = crypto.createHash('sha256');
   let received = 0;
   const check = new Transform({
     transform(chunk, _enc, done) {
+      stillGoing();
       hash.update(chunk);
       received += chunk.length;
       engineProgress(entry, received);
@@ -491,6 +537,8 @@ async function fetchEngine(entry) {
   } catch (err) {
     await fsp.rm(tmp, { force: true });
     throw err;
+  } finally {
+    clearTimeout(idle);
   }
 }
 
@@ -857,15 +905,38 @@ function senderIsApp(e) {
 }
 
 /** Write via a temporary file, so a crash can't leave a half-written PDF */
-async function writeAtomic(filePath, data) {
-  const tmp = `${filePath}.paperwing-${process.pid}.tmp`;
-  await fsp.writeFile(tmp, Buffer.from(data));
-  try {
-    await fsp.rename(tmp, filePath);
-  } catch (err) {
-    await fsp.rm(tmp, { force: true });
-    throw err;
-  }
+/** Writes to the same file one after another (two saves in a row) */
+const writing = new Map();
+
+/** Writes a file whole or not at all: to a temporary file of its own,
+ *  flushed to disk, then renamed over the old one */
+function writeAtomic(filePath, data) {
+  const key = pathKey(filePath);
+  const run = async () => {
+    const tmp = `${filePath}.paperwing-${process.pid}-${crypto
+      .randomBytes(4)
+      .toString('hex')}.tmp`;
+    try {
+      const handle = await fsp.open(tmp, 'w');
+      try {
+        await handle.writeFile(Buffer.from(data));
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await fsp.rename(tmp, filePath);
+    } catch (err) {
+      await fsp.rm(tmp, { force: true });
+      throw err;
+    }
+  };
+  const next = (writing.get(key) ?? Promise.resolve()).then(run, run);
+  const settled = next.catch(() => {});
+  writing.set(key, settled);
+  void settled.then(() => {
+    if (writing.get(key) === settled) writing.delete(key);
+  });
+  return next;
 }
 
 ipcMain.handle('paperwing:ready', (e) => {
@@ -921,31 +992,101 @@ ipcMain.handle('paperwing:write-file', async (e, filePath, data) => {
   return true;
 });
 
-ipcMain.handle('paperwing:save-as', async (e, suggestedName, data) => {
+// The folder the Open and Save As dialogs start in, as in Acrobat: the
+// last one a PDF was opened from or saved to (Save As starts in the
+// document's own folder when it has one)
+const foldersFile = () => path.join(app.getPath('userData'), 'folders.json');
+
+/** A folder that's there (quickly: a missing network drive doesn't hold
+ *  up the dialog) */
+async function folderThere(dir) {
+  if (typeof dir !== 'string' || !dir) return null;
+  const there = fsp.stat(dir).then(
+    (s) => s.isDirectory(),
+    () => false
+  );
+  const quick = new Promise((r) => setTimeout(() => r(false), 1500));
+  return (await Promise.race([there, quick])) ? dir : null;
+}
+
+async function lastFolder() {
+  try {
+    const { last } = JSON.parse(await fsp.readFile(foldersFile(), 'utf8'));
+    return await folderThere(last);
+  } catch {
+    return null;
+  }
+}
+
+function rememberFolder(filePath) {
+  fsp
+    .writeFile(foldersFile(), JSON.stringify({ last: path.dirname(filePath) }))
+    .catch(() => {
+      // (only a convenience)
+    });
+}
+
+ipcMain.handle('paperwing:save-as', async (e, suggestedName, data, near) => {
   if (!senderIsApp(e)) return null;
+  const own =
+    typeof near === 'string' ? await folderThere(path.dirname(near)) : null;
+  const start = own ?? (await lastFolder()) ?? app.getPath('documents');
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-    defaultPath: path.join(app.getPath('documents'), suggestedName),
+    defaultPath: path.join(start, suggestedName),
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
   });
   if (canceled || !filePath) return null;
   await writeAtomic(filePath, data);
   openedPath(filePath);
+  rememberFolder(filePath);
   return { path: filePath, name: path.basename(filePath) };
 });
 
 ipcMain.handle('paperwing:open-dialog', async (e) => {
   if (!senderIsApp(e)) return [];
+  const start = await lastFolder();
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    ...(start ? { defaultPath: start } : {}),
   });
   if (canceled) return [];
+  if (filePaths[0]) rememberFolder(filePaths[0]);
   return Promise.all(
     filePaths.map(async (p) => {
       openedPath(p);
       return { path: p, name: path.basename(p), data: await fsp.readFile(p) };
     })
   );
+});
+
+// Printing (see print.cjs): the page's print dialog lists the printers,
+// then sends the prepared document to a printer or to a PDF file
+let printing = null;
+const getPrinting = () =>
+  (printing ??= createPrinting({
+    BrowserWindow,
+    dialog,
+    session,
+    settingsFile: path.join(app.getPath('userData'), 'print-settings.json'),
+    documentsDir: app.getPath('documents'),
+    writeFile: writeAtomic,
+  }));
+
+ipcMain.handle('paperwing:printers', (e) => {
+  if (!senderIsApp(e)) return { printers: [], selected: null };
+  return getPrinting().printers(e.sender);
+});
+
+ipcMain.handle('paperwing:print-pages', (e, data, request) => {
+  if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
+  return getPrinting().run(e.sender, mainWindow, data, request);
+});
+
+// A tool's print-styled page (Markdown to PDF) made into a PDF document
+ipcMain.handle('paperwing:html-to-pdf', (e, html) => {
+  if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
+  return getPrinting().htmlToPdf(html);
 });
 
 // Home ▸ Clear recent also clears the OS's list

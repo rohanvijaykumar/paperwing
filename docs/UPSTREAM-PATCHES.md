@@ -11,6 +11,8 @@ has fixed each one; if it has, take upstream's version and remove the entry.
 | `src/js/editcore/type3surgery.js`        | The array branch of `TOKEN_RE` no longer lets `(` and `<` match both as string/hex starts and as plain characters                                                                             | Same ReDoS class (CodeQL `js/redos`)                                                                                                                                                                                                                                                                      |
 | `src/js/editcore/app.js`                 | The `?demo=<file>` debug loader is removed (`demo` is always `null`, so the debug hooks that need it stay off)                                                                                | Fetching a URL taken from the page's address invites request forgery (CodeQL `js/client-side-request-forgery`); nothing uses it                                                                                                                                                                           |
 | `src/js/utils/markdown-editor.ts`        | Mermaid's SVG output is re-sanitized with DOMPurify using Mermaid's strict settings (labels are kept)                                                                                         | Defence in depth before `innerHTML` (CodeQL `js/xss-through-dom`)                                                                                                                                                                                                                                         |
+| `src/js/logic/edit-pdf-text-page.ts`     | In Paperwing's desktop app, Export doesn't show "PDF saved successfully" or close the editor                                                                                                  | The result opens in a new tab (the workspace says so); closing the editor went back to the upload screen, which the workspace hides, leaving a blank page                                                                                                                                                 |
+| `src/js/utils/markdown-editor.ts`        | In Paperwing's desktop app, Export PDF hands the print-styled page to `reskin/export-pdf.ts` (`exportPdfToShell`) instead of calling `print()`; `getStyledHtml` takes the content to style    | There, `print()` opens Chromium's print dialog, which can't preview or print in the desktop app; the page is made into a PDF that opens as a document. In a browser, `print()` is still used                                                                                                              |
 | `src/js/logic/validate-signature-pdf.ts` | RSA PKCS#1 v1.5 signatures are verified with Web Crypto only, not node-forge, with the signer's own certificate key (`extractSpkiDer`)                                                        | node-forge accepts malformed DigestInfo, so forged signatures could validate ([GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv)); no fixed release exists. The key had come from the first certificate listed, so a valid signature whose signer wasn't first showed as unverified |
 | `scripts/security-patterns-check.mjs`    | File-name filter rewritten without an ambiguous regex                                                                                                                                         | CodeQL `js/regex/missing-regexp-anchor` (behaviour unchanged)                                                                                                                                                                                                                                             |
 | `src/js/editcore/app.js`                 | A paragraph's own embedded font is only re-linked to spans still in that paragraph's family (`applyDocFonts`)                                                                                 | Changing a paragraph's font in Edit a PDF kept drawing it, and exporting it, in the old font                                                                                                                                                                                                              |
@@ -28,6 +30,25 @@ has fixed each one; if it has, take upstream's version and remove the entry.
 Upstream commits cherry-picked ahead of a full merge:
 
 - `46bf0fb` Enforce file origin check in annotation PDF viewer
+- `d86de593` fix(validate-signature): detect signature dictionaries without /Type (1.2.3)
+- `f7a8a604` fix(xps): repair scanner XPS packages that MuPDF fails to parse (1.2.3)
+- `ab8f4c20` fix(merge-pdf): route result notifications through i18n (1.2.3)
+- `448035b7` fix(merge-pdf): keep worker errors out of the alert, add missing fr key (1.2.3)
+- `4d3e8b96` fix: fit wide tables when printing, keep editor panes from collapsing, rename Upload to Select in Markdown to PDF (1.2.3; its Catalan and Farsi strings are left out, as Paperwing has neither language yet)
+
+## Paperwing's name in BentoPDF's tools
+
+BentoPDF's pages, code and interface strings show its name in places (page titles, messages,
+the Markdown editor's sample, the files some tools save). `reskin/brand.mjs` puts Paperwing's
+name there while building: `reskin/vite-plugin-reskin.ts` for the pages and `src/js` code,
+`desktop/scripts/build-web.mjs` for `dist/locales`. BentoPDF's files aren't changed.
+
+Kept as they are: BentoPDF's copyright notices (any line with "©" or "All rights reserved"), web
+addresses and storage keys (lowercase, so existing settings carry over), and the credits (README,
+NOTICE.md, the About box). `desktop/bench/check-branding.mjs` fails if the build shows BentoPDF's
+name anywhere else; `check-tools.mjs` checks what every tool shows in the running app, including
+BentoPDF's website content (self-hosting, sponsors, Discord). When a BentoPDF release adds a
+file its tools save under its name, add it to `FILE_NAMES` in `brand.mjs`.
 
 ## Patches to the viewer package
 

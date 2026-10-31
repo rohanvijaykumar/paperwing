@@ -9,7 +9,35 @@ export interface DesktopFile {
   data: Uint8Array;
 }
 
-interface DesktopBridge {
+export interface Printer {
+  name: string;
+  displayName: string;
+  isDefault: boolean;
+}
+
+export type PrintRequest =
+  | {
+      destination: 'printer';
+      printer: string;
+      copies: number;
+      color: boolean;
+      duplex: 'simplex' | 'longEdge' | 'shortEdge';
+      /** The paper the sheets were laid out for, in points (portrait) */
+      paper?: { width: number; height: number };
+      /** Every sheet is landscape */
+      landscape?: boolean;
+    }
+  | { destination: 'pdf'; name: string };
+
+export interface PrintResult {
+  ok: boolean;
+  /** Save as PDF: the user closed the save dialog */
+  cancelled?: boolean;
+  error?: 'busy' | 'no-printers' | 'printer-missing' | 'invalid' | 'failed';
+  message?: string;
+}
+
+export interface DesktopBridge {
   platform: string;
   ready(): Promise<void>;
   setTheme(pref: 'system' | 'light' | 'dark'): Promise<void>;
@@ -65,10 +93,26 @@ interface DesktopBridge {
     delete(id: string): Promise<void>;
   };
   writeFile(path: string, data: Uint8Array): Promise<boolean>;
+  /** Save As, starting in the folder of `near` (the document's own file)
+   *  or else the last folder used */
   saveAs(
     name: string,
-    data: Uint8Array
+    data: Uint8Array,
+    near?: string
   ): Promise<{ path: string; name: string } | null>;
+  /** Printers to print to, and the one to preselect (the last one used,
+   *  else the system default) */
+  printers?(): Promise<{ printers: Printer[]; selected: string | null }>;
+  /** Print a document (one at a time), or save it as a PDF file */
+  printPages?(data: Uint8Array, request: PrintRequest): Promise<PrintResult>;
+  /** A complete HTML document, styled for print, made into a PDF by the
+   *  print engine (scripts don't run) */
+  htmlToPdf?(html: string): Promise<{
+    ok: boolean;
+    data?: Uint8Array;
+    error?: string;
+    message?: string;
+  }>;
   onOpenFile(callback: (file: DesktopFile) => void): () => void;
   /** The window is about to close; call confirmClose() to let it */
   onCloseRequested?(callback: () => void): () => void;

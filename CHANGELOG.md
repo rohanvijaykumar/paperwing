@@ -6,6 +6,81 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+## [1.2.4] — 2026-10-31
+
+### Added
+
+- **Fill in forms right on the page**, as in Firefox or Acrobat: click a field and type, tick
+  checkboxes, choose radio buttons, pick from dropdowns and lists, and Tab from field to field
+  (onto the next page too). The fields are Firefox's own (the same as in Fill & Sign), so they
+  respond at once, with nothing drawn again as you fill in. Text in any script works, including
+  Cyrillic, Chinese and Hindi, and the fields stay fields when saved (nothing is flattened). A Form
+  fields panel lists the same fields, always in step with the page, and Highlight fields tints
+  them; required fields are outlined. Read-only fields stay locked; signature fields lead to
+  Fill & Sign. Ctrl+Z takes back a change (all you typed in a field at once). Old Adobe XFA forms,
+  which only Acrobat can fill in, say so. Reported by
+  [@austinwilkerson](https://github.com/austinwilkerson) in
+  [#26](https://github.com/rohanvijaykumar/paperwing/issues/26).
+- **A print dialog like Acrobat's**, the same on Windows, macOS and Linux, with a preview of exactly
+  what will print: the printer (your default one is chosen first), copies, color or black and white,
+  two-sided; all pages, the current page or a range like `1-3, 5`, odd or even pages, reversed; the
+  paper size and orientation; fit to the paper, actual size, shrink oversized pages or a custom
+  scale; several pages to a sheet; booklets; and whether comments print. Text stays text, and comments
+  and filled-in forms print as they show. Printing in Fill a form, Fill & Sign and Add Stamps prints
+  what you filled in, signed or stamped there. Thanks to
+  [@austinwilkerson](https://github.com/austinwilkerson), whose
+  [#24](https://github.com/rohanvijaykumar/paperwing/pull/24) showed the way.
+- **Form scripts run**, as in Acrobat and browsers: totals worked out as you fill in, numbers and
+  dates formatted, entries checked, and the document's messages (such as instructions when it
+  opens) shown. They run sandboxed, in the same engine Firefox uses: they can't reach your files or
+  the internet, or send the form anywhere. Preferences ▸ Run form scripts turns them off; a notice
+  then says the document has some. A tool showing the document (Fill & Sign, Fill a form, Add
+  Stamps) shows its messages the same way, once. Reported by
+  [@austinwilkerson](https://github.com/austinwilkerson) in
+  [#27](https://github.com/rohanvijaykumar/paperwing/issues/27).
+
+### Changed
+
+- Open (Ctrl+O) starts in the folder you last opened or saved a PDF in, as Acrobat does, instead
+  of the desktop; Save As starts in the document's own folder.
+- Every tool looks like the rest of Paperwing, in light and dark: the same fields, buttons, panels,
+  headings, notes and upload boxes throughout. Scan & OCR's Advanced settings were dark in the light
+  theme and set apart from the rest; they now open like the other tools' settings.
+- The tools say Paperwing where they said BentoPDF (titles, messages, the files some tools save).
+  BentoPDF is still credited in About, the README and NOTICE.md.
+- Booklet printing explains how to print both sides on a printer that prints one side.
+
+### Fixed
+
+- A tool's own Close or Back (Organize pages' Close, for one) showed BentoPDF's home page inside
+  the tool. They now close the tool, as the workspace's Close does.
+- A tool's messages under its main button (Table of Contents' "no bookmarks" error, for one) were
+  partly hidden behind it.
+- Preferences scrolled although everything in it fitted, and long dialogs' scroll bars squared off
+  their rounded corners. Dialogs now grow to fit the window and only scroll when it's too small.
+- After Export in Edit a PDF, going back to the document's tab showed a blank page once its
+  "saved" message was closed. The editor now stays open with your edits, and any tool that would
+  go back to an empty upload screen gets the document again instead.
+- Saved form values and checkbox marks didn't show in the viewer. Thanks to
+  [@austinwilkerson](https://github.com/austinwilkerson)
+  ([#25](https://github.com/rohanvijaykumar/paperwing/pull/25)).
+- Printing from the desktop app sent nothing to the printer (found on Windows in
+  [#24](https://github.com/rohanvijaykumar/paperwing/pull/24)).
+- Markdown to PDF's Export PDF opened a print dialog that couldn't preview in the desktop app. The
+  PDF now opens as a document, ready to save or print.
+- Changing pages (rotate, delete, insert) in a large document and switching tabs meanwhile showed
+  that document's pages under the other tab.
+- Saving, printing or opening a tool on a document that couldn't be prepared did nothing; it now
+  says why. A tool's result that can't be shown is offered to save instead of being lost.
+- Escape closed every dialog at once when one showed over another (a document's message over
+  "Save changes?"); it now closes the top one. Pressing Ctrl+P twice on a large document no longer
+  opens two print dialogs.
+- Saving the same file twice in quick succession could mix the two; files are now written whole,
+  one save after another. A download of an engine (Office conversion) that stalls now fails and can
+  be retried instead of waiting forever, and a print that never gets ready times out.
+- A PDF named on the command line while Paperwing was already open (`Paperwing.exe file.pdf` from
+  another folder) wasn't found.
+
 ## [1.2.3] — 2026-10-28
 
 ### Changed
@@ -229,7 +304,8 @@ First public release, built on BentoPDF 2.8.8.
 - Tool pages run on their own origin, isolated from the workspace and its file bridge (see [SECURITY.md](SECURITY.md))
 - Unit tests for the shell and an end-to-end UI test suite
 
-[Unreleased]: https://github.com/rohanvijaykumar/paperwing/compare/v1.2.3...HEAD
+[Unreleased]: https://github.com/rohanvijaykumar/paperwing/compare/v1.2.4...HEAD
+[1.2.4]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.4
 [1.2.3]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.3
 [1.2.2]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.2
 [1.2.1]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.1

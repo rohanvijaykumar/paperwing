@@ -18,12 +18,20 @@
  *   tool  -> shell { type: 'acro:dirty', dirty: boolean } (full-page tools)
  *   tool  -> shell { type: 'acro:download', blob: Blob, name: string }
  *   tool  -> shell { type: 'acro:key', key: KeyInput, editing: boolean }
+ *   tool  -> shell { type: 'acro:print-document' }  (print() was called)
+ *   tool  -> shell { type: 'acro:html-to-pdf', id, html } (see export-pdf.ts)
+ *   shell -> tool  { type: 'acro:html-to-pdf', id, data: Uint8Array | null }
  */
 
 import { applyTheme, isThemePref, onThemeChange, setThemePref } from './theme';
 import { initApps } from './apps';
-import { initFrames, onViewerDownload } from './frames';
-import { shellOrigin } from './origins';
+import {
+  initFrames,
+  onViewerAlert,
+  onViewerDownload,
+  onViewerPrint,
+} from './frames';
+import { SHELL_ORIGIN, shellOrigin } from './origins';
 import { initTooltips } from './tooltip';
 import { initLabels } from './labels';
 
@@ -62,9 +70,37 @@ if (embedded) {
   }
 }
 
+/** BentoPDF's website pages (home, About, FAQ…), which a tool's own Close
+ *  or Back button goes to: not tools */
+const SITE_PAGES = new Set([
+  'index',
+  'simple-index',
+  'tools',
+  'about',
+  'contact',
+  'faq',
+  'licensing',
+  'privacy',
+  'terms',
+  '404',
+  'pdf-converter',
+  'pdf-editor',
+  'pdf-merge-split',
+  'pdf-security',
+  'hyper-compress',
+  'kura',
+]);
+
 if (shell) {
   const toShell = (message: unknown) =>
     window.parent.postMessage(message, shell);
+
+  // A tool left for one of them: it's done, so the shell closes it, and
+  // the page never shows
+  if (SITE_PAGES.has(document.documentElement.dataset.page!)) {
+    document.documentElement.style.visibility = 'hidden';
+    toShell({ type: 'acro:close-tool' });
+  }
 
   // downloadFile() and friends revoke the object URL right after click(), so
   // remember which blob each URL points to.
@@ -95,6 +131,38 @@ if (shell) {
     toShell({ type: 'acro:download', blob, name: named || 'document.pdf' });
     markSaved();
   });
+
+  // In the desktop app, print() would open Chromium's print dialog, which
+  // can't preview or print there: Paperwing's print dialog is used instead.
+  // A viewer the tool embeds (Fill a form, Fill & Sign, Add Stamps) prints
+  // the document it shows, with what was filled in or added; print() in the
+  // tool page itself, the workspace's open document. In a browser, its own
+  // print dialog works, so it's left alone.
+  // A form's scripts in a viewer the tool embeds (Fill & Sign) show their
+  // messages as the workspace's dialog, as in the workspace itself
+  onViewerAlert((message) => toShell({ type: 'acro:script-alert', message }));
+
+  if (shell === SHELL_ORIGIN) {
+    window.print = () => toShell({ type: 'acro:print-document' });
+    onViewerPrint((win) => void printViewerDocument(win));
+  }
+  async function printViewerDocument(win: Window) {
+    const pdf = (
+      win as unknown as {
+        PDFViewerApplication?: {
+          pdfDocument?: {
+            saveDocument?: () => Promise<Uint8Array>;
+            getData?: () => Promise<Uint8Array>;
+          };
+        };
+      }
+    ).PDFViewerApplication?.pdfDocument;
+    // With what was filled in or added, else as it was opened
+    const data = await (pdf?.saveDocument?.() ?? Promise.reject())
+      .catch(() => pdf?.getData?.())
+      .catch((): undefined => undefined);
+    toShell({ type: 'acro:print-document', data, name: docName });
+  }
 
   // Unsaved work in a full-page tool (the document area): the workspace asks
   // before closing it. Edit a PDF says so itself (its Export button);
@@ -183,6 +251,7 @@ if (shell) {
     if (data?.type === 'acro:load-files' && Array.isArray(data.files)) {
       const files = data.files.filter((f: unknown) => f instanceof File);
       loadFiles(files);
+      shellFiles = files;
       docName = files[0]?.name ?? '';
       docIn = true;
       docAt = performance.now();
@@ -237,6 +306,46 @@ if (shell) {
     ) {
       e.preventDefault();
     }
+  });
+
+  // A tool that goes back to its upload screen after a result (Edit a PDF
+  // after Export; PDF to JPG and others start over after their "done"
+  // message): with the workspace's document that screen is hidden, in the
+  // side panel as in the document area, so the tool would show a blank page. The document goes back in instead (a few times at most, in
+  // case a tool keeps refusing it)
+  let shellFiles: File[] = [];
+  let reloads = 0;
+  let reloadsSince = 0;
+  const showsNothing = () => {
+    if (!document.body || document.querySelector('#loader-modal:not(.hidden)'))
+      return false;
+    if (document.body.innerText.replace(/\s+/g, '').length > 2) return false;
+    return ![
+      ...document.querySelectorAll(
+        'canvas, img, iframe, embed, input:not([type="file"]), select, textarea, button'
+      ),
+    ].some((el) => el.getClientRects().length);
+  };
+  let checkTimer = 0;
+  const checkBlank = () => {
+    clearTimeout(checkTimer);
+    checkTimer = window.setTimeout(() => {
+      const root = document.documentElement;
+      if (!docIn || !shellFiles.length) return;
+      if (!root.classList.contains('rs-has-doc') || !showsNothing()) return;
+      if (performance.now() - reloadsSince > 10000) {
+        reloads = 0;
+        reloadsSince = performance.now();
+      }
+      if (reloads++ >= 3) return;
+      loadFiles(shellFiles);
+    }, 400);
+  };
+  new MutationObserver(checkBlank).observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ['class', 'hidden', 'style'],
   });
 
   const announceReady = () => toShell({ type: 'acro:ready' });

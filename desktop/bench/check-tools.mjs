@@ -8,13 +8,23 @@
  *   - for tools with a main action button (#process-btn): pressing it, and
  *     whether a result comes back to the workspace (acro:download)
  *   - a screenshot of the tool, for reviewing toolbars and layout
+ *   - BentoPDF's name, or its website's content (self-hosting, sponsors,
+ *     Discord…), anywhere in what the tool shows: Paperwing's tools carry
+ *     Paperwing's name (reskin/brand.mjs; check-branding.mjs checks the build)
+ *
+ *   - messages: the app's own dialogs that came up, and any browser
+ *     dialog (alert, confirm), which Paperwing never shows
  *
  *   node bench/check-tools.mjs <out-dir> [name filter…]
+ *
+ * PW_SAMPLE=<file.pdf> runs every tool on that document instead (a form
+ * with scripts, say: its messages must come up once, as the app's).
  *
  * Writes <out-dir>/report.json and <out-dir>/<tool>.png.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { launch } from './harness.mjs';
 
 const [outDir, ...filters] = process.argv.slice(2);
@@ -22,10 +32,17 @@ if (!outDir)
   throw new Error('usage: node bench/check-tools.mjs <out-dir> [filter…]');
 mkdirSync(outDir, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const SAMPLE = new URL(
-  '../../docs/screenshots/samples/Service Agreement - Northbeam.pdf',
-  import.meta.url
-);
+const SAMPLE = process.env.PW_SAMPLE
+  ? pathToFileURL(process.env.PW_SAMPLE)
+  : new URL(
+      '../../docs/screenshots/samples/Service Agreement - Northbeam.pdf',
+      import.meta.url
+    );
+const SAMPLE_NAME = decodeURIComponent(SAMPLE.pathname.split('/').pop());
+
+/** What a tool page shouldn't say: BentoPDF's website, not Paperwing */
+const OFF_BRAND =
+  /\bBentoPDF\b|self-host|discord|sponsor|on GitHub|commercial licen[cs]e/i;
 
 const app = await launch();
 const { page } = app;
@@ -43,6 +60,24 @@ page.on('console', (m) => {
     note('blocked', m.text());
 });
 page.on('pageerror', (e) => note('errors', 'uncaught: ' + e.message));
+// The workspace itself crashing or reloading spoils every tool after it:
+// say so, and when
+page.on('error', (e) =>
+  console.log(`WORKSPACE CRASHED (after ${current?.name}): ${e.message}`)
+);
+page.on('framenavigated', (f) => {
+  if (f === page.mainFrame() && current)
+    console.log(`WORKSPACE RELOADED (during ${current.name}): ${f.url()}`);
+});
+page.on('console', (m) => {
+  if (
+    !(m.location()?.url ?? '').startsWith('app://tools') &&
+    m.type() === 'error'
+  )
+    console.log(
+      `workspace error (during ${current?.name}): ${m.text().slice(0, 300)}`
+    );
+});
 page.on('requestfailed', (r) => {
   if (/^(app|data|blob):/.test(r.url())) return;
   note('network', `${r.failure()?.errorText} ${r.url()}`);
@@ -60,9 +95,21 @@ page.on('dialog', (d) => {
   d.dismiss().catch(() => {});
 });
 
-// The results the workspace receives
+// The results the workspace receives, and the app's messages shown
 await page.evaluate(() => {
   window.__results = [];
+  window.__messages = [];
+  new MutationObserver((records) => {
+    for (const r of records)
+      for (const n of r.addedNodes) {
+        const d =
+          n instanceof Element &&
+          (n.matches('.dlg[role="alertdialog"]')
+            ? n
+            : n.querySelector?.('.dlg[role="alertdialog"]'));
+        if (d) window.__messages.push(d.textContent.slice(0, 120));
+      }
+  }).observe(document.body, { childList: true, subtree: true });
   window.addEventListener('message', (e) => {
     // Only the tool frames (as the workspace itself checks)
     if (e.origin !== 'app://tools') return;
@@ -76,22 +123,26 @@ await page.evaluate(() => {
 
 async function openSample() {
   const b64 = readFileSync(SAMPLE).toString('base64');
-  await page.evaluate((b64) => {
-    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const dt = new DataTransfer();
-    dt.items.add(
-      new File([bytes], 'Service Agreement - Northbeam.pdf', {
-        type: 'application/pdf',
-      })
-    );
-    window.dispatchEvent(
-      new DragEvent('drop', {
-        dataTransfer: dt,
-        bubbles: true,
-        cancelable: true,
-      })
-    );
-  }, b64);
+  await page.evaluate(
+    (b64, name) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const dt = new DataTransfer();
+      dt.items.add(
+        new File([bytes], name, {
+          type: 'application/pdf',
+        })
+      );
+      window.dispatchEvent(
+        new DragEvent('drop', {
+          dataTransfer: dt,
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+    },
+    b64,
+    SAMPLE_NAME
+  );
   await page.waitForFunction(
     () =>
       document.querySelector('#view-doc.is-active') &&
@@ -195,6 +246,7 @@ for (const t of tools) {
     network: [],
     online: [],
     dialogs: [],
+    offBrand: [],
   };
   report.push(current);
   try {
@@ -205,6 +257,7 @@ for (const t of tools) {
       const all = document.querySelector('#gb-tabs [data-panel="all"]');
       if (!all?.classList.contains('is-active')) all?.click();
       window.__results.length = 0;
+      window.__messages.length = 0;
     });
     await sleep(200);
     await toolList(); // expands the sections again
@@ -249,11 +302,21 @@ for (const t of tools) {
     await page.screenshot({
       path: join(outDir, `${t.name.replace(/[^\w-]+/g, '_')}.png`),
       clip: clip ?? undefined,
+      // (otherwise the page is resized while it's taken: Crop's cropper and
+      // the PDF viewers would show mid-relayout)
+      captureBeyondViewport: false,
     });
     if (!frame) {
       current.status = shown ? 'no tool frame' : 'viewer action';
       continue;
     }
+    // What it shows (the page's title is the window's when it's open)
+    const shows = await frame
+      .evaluate(() => [document.title, document.body.innerText])
+      .catch(() => []);
+    for (const line of shows.join('\n').split('\n'))
+      if (OFF_BRAND.test(line) && !/©|all rights reserved/i.test(line))
+        current.offBrand.push(line.trim().slice(0, 200));
     // Main action
     const action = await frame
       .evaluate(() => {
@@ -293,15 +356,72 @@ for (const t of tools) {
           .catch(() => []);
       }
       current.status = got ? 'result returned' : 'no result';
+      // What the tool says (status and error lines) must be readable, not
+      // under the sticky main button or anything else
+      const covered = await frame
+        .evaluate(() => {
+          const out = [];
+          const says = document.querySelectorAll(
+            '[id*="status"], [id*="error"], [role="alert"], .alert'
+          );
+          for (const el of says) {
+            if (!el.getClientRects().length || !el.textContent.trim()) continue;
+            if (el.closest('#alert-modal, [id$="-modal"]')) continue;
+            el.scrollIntoView({ block: 'nearest' });
+            const r = el.getBoundingClientRect();
+            const hit = document.elementFromPoint(r.left + 12, r.top + 8);
+            if (hit && !el.contains(hit))
+              out.push(el.textContent.trim().slice(0, 60));
+          }
+          return out;
+        })
+        .catch(() => []);
+      if (covered.length) current.status += `, COVERED: ${covered[0]}`;
+      if (got) {
+        // Once its result is out, after its "done" message: a tool that
+        // starts over must not leave a blank page behind
+        await frame
+          .evaluate(() =>
+            document
+              .querySelector('#alert-modal:not(.hidden) #alert-ok')
+              ?.click()
+          )
+          .catch(() => {});
+        await sleep(2000);
+        const blank = await frame
+          .evaluate(
+            () =>
+              document.body.innerText.replace(/\s+/g, '').length <= 2 &&
+              ![
+                ...document.querySelectorAll(
+                  'canvas, img, iframe, embed, input:not([type="file"]), select, textarea, button'
+                ),
+              ].some((el) => el.getClientRects().length)
+          )
+          .catch(() => false);
+        if (blank) current.status += ', then BLANK';
+      }
     } else {
       current.status = `action ${action}`;
     }
   } catch (e) {
     current.status = 'error: ' + e.message.slice(0, 200);
   } finally {
+    current.messages = await page
+      .evaluate(() => {
+        // (closed, so the next tool starts clear)
+        for (const b of document.querySelectorAll(
+          '.dlg[role="alertdialog"] .accent-btn'
+        ))
+          b.click();
+        return [...window.__messages];
+      })
+      .catch(() => []);
+    for (const d of current.dialogs)
+      if (OFF_BRAND.test(d)) current.offBrand.push(d.slice(0, 200));
     current.online = [...new Set(current.online)];
     console.log(
-      `${t.name.padEnd(28)} ${current.status}${current.shownMs ? ` (${current.shownMs} ms)` : ''}${current.errors.length ? ` errors:${current.errors.length}` : ''}${current.blocked.length ? ' BLOCKED' : ''}${current.online.length ? ` online:${current.online.length}` : ''}`
+      `${t.name.padEnd(28)} ${current.status}${current.shownMs ? ` (${current.shownMs} ms)` : ''}${current.errors.length ? ` errors:${current.errors.length}` : ''}${current.blocked.length ? ' BLOCKED' : ''}${current.online.length ? ` online:${current.online.length}` : ''}${current.offBrand.length ? ` OFF-BRAND: ${current.offBrand[0]}` : ''}${current.dialogs.length ? ` BROWSER DIALOG: ${current.dialogs[0].slice(0, 80)}` : ''}${current.messages.length ? ` messages:${current.messages.length}` : ''}`
     );
   }
 }

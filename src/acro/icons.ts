@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Bookmark,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
   CircleHelp,
@@ -58,6 +59,7 @@ import {
   RotateCcw,
   FilePlus,
   FileOutput,
+  TextCursorInput,
   type IconNode,
 } from 'lucide';
 
@@ -65,6 +67,7 @@ const ICONS = {
   arrowLeft: ArrowLeft,
   bookmark: Bookmark,
   chevronDown: ChevronDown,
+  chevronLeft: ChevronLeft,
   chevronRight: ChevronRight,
   chevronUp: ChevronUp,
   help: CircleHelp,
@@ -121,6 +124,7 @@ const ICONS = {
   rotateCcw: RotateCcw,
   filePlus: FilePlus,
   fileOut: FileOutput,
+  form: TextCursorInput,
 } satisfies Record<string, IconNode>;
 
 export type IconName = keyof typeof ICONS;

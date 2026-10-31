@@ -110,7 +110,7 @@ let pdfjs: Promise<{
   worker: InstanceType<Pdfjs['PDFWorker']>;
 }> | null = null;
 
-function loadPdfjs() {
+export function loadPdfjs() {
   pdfjs ??= (async () => {
     const lib = await import('pdfjs-dist');
     await import('../js/utils/setup-pdf-worker.js');

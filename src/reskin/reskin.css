@@ -283,6 +283,7 @@
     --rs-text-2: #c9c9c9;
     --rs-text-3: #9c9c9c;
     --rs-accent: #5c7cff;
+    --rs-brand: #ff6b5e;
     --rs-accent-hover: #7590ff;
     --rs-accent-down: #4a69ef;
     --rs-accent-tint: #242a3d;
@@ -334,6 +335,7 @@
   --rs-text-2: #c9c9c9;
   --rs-text-3: #9c9c9c;
   --rs-accent: #5c7cff;
+  --rs-brand: #ff6b5e;
   --rs-accent-hover: #7590ff;
   --rs-accent-down: #4a69ef;
   --rs-accent-tint: #242a3d;
@@ -666,6 +668,21 @@ html.rs-embedded #tool-uploader {
   border-radius: 4px;
   font-size: 14px;
 }
+/* (upstream pads its text fields to 42px; selects are already 32px) */
+:where(html)
+  :where(
+    input:not(
+      [type='checkbox'],
+      [type='radio'],
+      [type='range'],
+      [type='color'],
+      [type='file'],
+      [type='hidden']
+    )
+  ) {
+  padding-block: 4px;
+  line-height: 22px;
+}
 :where(html) :where(textarea) {
   border-radius: 4px;
   font-size: 14px;
@@ -688,6 +705,28 @@ html.rs-embedded #tool-uploader {
 }
 html input[type='color'] {
   border-color: var(--rs-border-strong) !important;
+}
+/* In the tools: the viewer's swatch (a square field with the colour in
+   it), not a bare ball that vanishes when it's the page's colour */
+html #tool-uploader input[type='color'] {
+  appearance: none;
+  box-sizing: border-box;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 3px;
+  border: 1px solid var(--rs-border-strong);
+  border-radius: 4px;
+  background: var(--rs-field);
+  box-shadow: none;
+  cursor: pointer;
+}
+html #tool-uploader input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+html #tool-uploader input[type='color']::-webkit-color-swatch {
+  border: 1px solid rgb(0 0 0 / 0.12);
+  border-radius: 2px;
 }
 
 /* --- Buttons ------------------------------------------------------ */
@@ -775,6 +814,13 @@ html #drop-zone {
   border-width: 1.5px;
   border-radius: 8px;
 }
+/* Its text centred and clear of the border, also when a line wraps (Images
+   to PDF's long list of formats) */
+html #drop-zone > div {
+  max-width: 100%;
+  padding-inline: 20px;
+  text-align: center;
+}
 html #drop-zone .ph-upload-simple {
   font-size: 32px;
 }
@@ -848,12 +894,68 @@ html
   :where(
     [class~='bg-gray-900'][class*='rounded'],
     [class~='bg-gray-700'][class*='rounded']
-  ):not(button):not(#drop-zone) {
+  ):not(button, input, select, textarea, #drop-zone) {
   border-radius: 8px;
 }
 :where(#tool-uploader)
   :where(details, [class~='border-gray-700'][class*='rounded']) {
   border-color: var(--rs-border);
+}
+/* Settings tucked into upstream's FAQ accordion (Scan & OCR's Advanced
+   settings): a quiet accent link opening a panel, like Compress's
+   Custom settings */
+html #tool-uploader .faq-d {
+  border: 0;
+  background: transparent;
+}
+html #tool-uploader .faq-d-q {
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+  color: var(--rs-accent);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.4;
+}
+html #tool-uploader .faq-d-q:hover {
+  background: transparent;
+  color: var(--rs-accent-hover);
+}
+html #tool-uploader .faq-d[open] .faq-d-q {
+  color: var(--rs-accent);
+}
+/* A chevron, as on the other tools' disclosures, for upstream's plus */
+html #tool-uploader .faq-d-icon {
+  display: none;
+}
+html #tool-uploader .faq-d-q::after {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.15s;
+}
+html #tool-uploader .faq-d[open] .faq-d-q::after {
+  margin-top: 3px;
+  transform: rotate(-135deg);
+}
+/* OCR's language list: rows at the size of the other options */
+html #lang-list > label {
+  padding: 5px 8px;
+  color: var(--rs-text);
+  font-size: 14px;
+}
+html #tool-uploader .faq-d > :not(summary) {
+  margin-top: 10px;
+  padding: 16px;
+  border: 1px solid var(--rs-border);
+  border-radius: 8px;
+  background: var(--color-gray-900);
 }
 
 /* --- Page thumbnails (organize, split, rotate, delete...) ---------- */
@@ -882,13 +984,27 @@ html .page-thumbnail-wrapper .selected {
 }
 
 /* --- Dialogs (loader, alert, password, page preview) --------------- */
+/* Like the workspace's dialogs: the same dimmed backdrop, corners and
+   shadow */
+html
+  :is(
+    #loader-modal,
+    #alert-modal,
+    [id$='-modal'],
+    .modal
+  )[class~='fixed'][class~='inset-0'] {
+  background-color: var(--ap-scrim);
+}
 html #loader-modal > div,
 html #alert-modal > div,
 html :is([id$='-modal'], .modal) > [class~='bg-gray-800'] {
   border: 0;
-  border-radius: 8px;
-  box-shadow: var(--rs-dialog-shadow);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
   background: var(--rs-surface);
+}
+html #alert-modal > div {
+  padding: 20px;
 }
 html #loader-modal > div {
   min-width: 260px;
@@ -936,10 +1052,238 @@ html ::selection {
   background: color-mix(in srgb, var(--rs-accent) 30%, transparent);
 }
 
+/* --- The same parts, the same look, in every tool ------------------ */
+/* Checkboxes and radios keep their size next to a label that wraps */
+html :is(input[type='checkbox'], input[type='radio']) {
+  flex: none;
+}
+/* Section headings: one size (upstream mixes 16 to 20px) */
+html
+  #tool-uploader
+  :is(h2, h3, h4):is(
+    [class~='text-lg'],
+    [class~='text-xl'],
+    [class~='text-2xl'],
+    [class~='text-base']
+  ) {
+  font-size: 15px;
+  line-height: 1.35;
+}
+/* Segmented choices (File/Page mode, Upload/Type text…): pills, like
+   Add Watermark's Text/Image, not buttons in a grey track */
+html #tool-uploader div.p-1:has(> button.flex-1 + button.flex-1) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+html #tool-uploader div:has(> button.flex-1 + button.flex-1) > button.flex-1 {
+  min-height: 32px;
+  padding-block: 4px;
+  border-radius: 16px;
+  font-size: 14px;
+}
+html
+  #tool-uploader
+  div:has(> button.flex-1 + button.flex-1)
+  > button.flex-1:not([class~='bg-indigo-600']) {
+  border: 2px solid var(--rs-border-strong);
+  background: transparent;
+  color: var(--rs-text);
+}
+html
+  #tool-uploader
+  div:has(> button.flex-1 + button.flex-1)
+  > button.flex-1:not([class~='bg-indigo-600']):hover {
+  background: var(--rs-surface-hover);
+}
+/* Notes and explanations: the grey option panel, whatever tint upstream
+   gave them (an accent icon, the theme's text), with bullets that wrap
+   under their text */
+html #tool-uploader :is([class*='bg-indigo-900/'], [class*='bg-blue-900/']) {
+  border-color: var(--rs-border);
+  background: var(--color-gray-900);
+}
+html
+  #tool-uploader
+  :is([class*='bg-indigo-900/'], [class*='bg-blue-900/'])
+  :is([class*='text-blue-'], [class*='text-indigo-']) {
+  color: var(--rs-text-2);
+}
+html
+  #tool-uploader
+  :is([class*='bg-indigo-900/'], [class*='bg-blue-900/'])
+  :is(.font-medium, .font-semibold, strong) {
+  color: var(--rs-text);
+}
+html
+  #tool-uploader
+  :is([class*='bg-indigo-900/'], [class*='bg-blue-900/'])
+  :is(i, svg)[class*='text-'] {
+  color: var(--rs-accent);
+}
+/* Warnings: a faint amber, the theme's text */
+html #tool-uploader :is([class*='bg-yellow-900/'], [class*='bg-amber-900/']) {
+  border-color: color-mix(in srgb, var(--ap-warning) 45%, transparent);
+  background: color-mix(in srgb, var(--ap-warning) 9%, transparent);
+}
+html
+  #tool-uploader
+  :is([class*='bg-yellow-900/'], [class*='bg-amber-900/'])
+  :is([class*='text-yellow-'], [class*='text-amber-']):not(i, svg) {
+  color: var(--rs-text);
+}
+html
+  #tool-uploader
+  :is([class*='bg-yellow-900/'], [class*='bg-amber-900/'])
+  :is(i, svg)[class*='text-'] {
+  color: var(--ap-warning);
+}
+/* Other upload areas (a second PDF, a certificate, attachments, JSON…):
+   the drop zone's look */
+html
+  #tool-uploader
+  :is(
+    [class~='border-dashed']:has(input[type='file']),
+    label[class~='border-dashed']
+  ):not(#drop-zone) {
+  border: 1.5px dashed var(--rs-border-strong);
+  border-radius: 8px;
+  background: var(--rs-drop);
+}
+html
+  #tool-uploader
+  :is(
+    [class~='border-dashed']:has(input[type='file']),
+    label[class~='border-dashed']
+  ):not(#drop-zone):is(:hover, .dragover, .drag-over) {
+  border-color: var(--rs-accent);
+  background: var(--rs-accent-tint);
+}
+html
+  #tool-uploader
+  :is(
+    [class~='border-dashed']:has(input[type='file']),
+    label[class~='border-dashed']
+  ):not(#drop-zone)
+  :is(i, svg, .font-semibold) {
+  color: var(--rs-accent);
+}
+/* Status lines (Table of contents, JSON tools…): the theme's note, with a
+   faint red or green for errors and success, not solid coloured blocks */
+html #tool-uploader :is([class~='bg-blue-900'], [class~='bg-blue-600/30']) {
+  border: 1px solid var(--rs-border);
+  background: var(--color-gray-900);
+  color: var(--rs-text-2);
+}
+html #tool-uploader :is([class~='bg-red-900'], [class~='bg-red-600/30']) {
+  border: 1px solid color-mix(in srgb, var(--ap-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--ap-danger) 9%, transparent);
+  color: var(--rs-text);
+}
+html #tool-uploader :is([class~='bg-green-900'], [class~='bg-green-600/30']) {
+  border: 1px solid color-mix(in srgb, var(--ap-success) 45%, transparent);
+  background: color-mix(in srgb, var(--ap-success) 9%, transparent);
+  color: var(--rs-text);
+}
+html
+  #tool-uploader
+  :is([class~='bg-yellow-900'], [class~='bg-yellow-600/30']):not(
+    [class*='bg-yellow-900/']
+  ) {
+  border: 1px solid color-mix(in srgb, var(--ap-warning) 45%, transparent);
+  background: color-mix(in srgb, var(--ap-warning) 9%, transparent);
+  color: var(--rs-text);
+}
+/* Spaced capitals (Rotate's "Batch actions", table headings): the
+   workspace's group heading, small and muted, at the left */
+html #tool-uploader [class~='uppercase'][class*='tracking-'] {
+  color: var(--rs-text-3);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: left;
+}
+/* Choice cards (Fit / Fill): bordered, the chosen one in the accent tint */
+html #tool-uploader label[class*='has-[:checked]'] {
+  border: 1px solid var(--rs-border);
+  border-radius: 8px;
+  background: transparent;
+}
+html #tool-uploader label[class*='has-[:checked]']:has(input:checked) {
+  border-color: var(--rs-accent);
+  background: var(--rs-accent-tint);
+}
+html #tool-uploader label[class*='has-[:checked]'] .font-semibold {
+  color: var(--rs-text);
+  font-size: 14px;
+}
+/* Option cards built on a half-transparent grey (PDF/A's Pre-flatten):
+   the grey option panel */
+html #tool-uploader [class~='bg-gray-700/50'] {
+  border-color: var(--rs-border);
+  background: var(--color-gray-900);
+}
+/* Empty results (Validate signatures' "No signatures found") */
+html #tool-uploader #results-container > .text-center[class~='bg-gray-700'] {
+  padding: 20px;
+  border-color: var(--rs-border);
+  background: var(--color-gray-900);
+}
+html #tool-uploader #results-container > .text-center :is(i, svg) {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 8px;
+}
+html #tool-uploader #results-container > .text-center p {
+  font-size: 14px;
+}
+/* Section headings carry no icon (upstream puts one on a few) */
+html #tool-uploader :is(h2, h3):has(> span) > :is(i, svg) {
+  display: none;
+}
+/* Small outline buttons (Reset…): the outline pill */
+html
+  #tool-uploader
+  button[class~='border'][class~='rounded-lg'][class~='px-3']:not(
+    [class*='bg-indigo'],
+    .flex-1
+  ) {
+  border: 2px solid var(--rs-border-strong);
+  border-radius: 16px;
+  color: var(--rs-text);
+  font-weight: 600;
+}
+html #tool-uploader ul[class~='list-inside'] {
+  padding-left: 16px;
+  list-style-position: outside;
+}
+/* File cards that bring their own icon (Deskew): the card's PDF icon only,
+   and the card's type size */
+html #file-display-area > div {
+  font-size: 14px;
+}
+html #file-display-area > div > div:first-child > :is(svg, i):first-child {
+  display: none;
+}
+/* Files listed for reordering (Merge, Bates numbering…) and file rows of
+   their own (PDF overlay, JSON tools): the file card */
+html #tool-uploader li[class~='bg-gray-700'][class*='rounded'],
+html
+  #tool-uploader
+  div[class~='bg-gray-700'][class*='rounded']:has(> div > .truncate) {
+  border: 1px solid var(--rs-border);
+  background: var(--rs-surface);
+}
+html #tool-uploader li[class~='bg-gray-700'][class*='rounded'] .font-medium {
+  font-size: 14px;
+}
+
 /* Some tools use their own ids for the back link and title: hide those too */
 html.rs-embedded [id^='back-to-tools'],
 html[data-page='bookmark'].rs-embedded #back-btn,
-html.rs-embedded :is(button, a):has(> [data-i18n='tools.backToTools']) {
+html.rs-embedded :is(button, a):has(> [data-i18n='tools.backToTools']),
+/* (the workspace has its own Close) */
+html.rs-embedded #close-tool-btn {
   display: none !important;
 }
 html.rs-embedded h1[data-i18n^='tools:'],
@@ -991,16 +1335,24 @@ html.rs-embedded div.min-h-screen:has(> #tool-uploader):not(#uploader) {
 }
 
 /* The sticky primary button covers what scrolls under it: a rectangle of
-   panel colour around it (border-image, which isn't rounded), the spread
-   shadow filling the pill's corners, and a fade above */
+   panel colour around it (border-image, which isn't rounded; below it only
+   the gap to the panel's edge), the spread shadow filling the pill's
+   corners, and a fade above */
 html.rs-embedded #process-btn,
 html.rs-embedded #tool-uploader > .btn-gradient {
   border: 0 solid transparent;
   border-image: linear-gradient(var(--rs-surface), var(--rs-surface)) 1 / 12px
-    24px 40px / 12px 24px 40px;
+    24px / 12px 24px;
   box-shadow:
     0 0 0 12px var(--rs-surface),
     0 -14px 14px 6px var(--rs-surface);
+}
+/* What follows it (a status or error line) shows over that band */
+html.rs-embedded
+  :is(#process-btn, #tool-uploader > .btn-gradient)
+  ~ :not(.fixed, .absolute, [id$='-modal'], script) {
+  position: relative;
+  z-index: 6;
 }
 html.rs-embedded #process-btn:focus-visible,
 html.rs-embedded #tool-uploader > .btn-gradient:focus-visible {

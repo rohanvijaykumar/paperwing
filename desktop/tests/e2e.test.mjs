@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
 
 const BASE = (process.env.PAPERWING_URL || 'http://localhost:5173').replace(
   /\/$/,
@@ -138,6 +138,115 @@ async function dropPdf(name = 'sample.pdf') {
 
 const tabNames = () =>
   page.$$eval('#tabs .tab-label', (els) => els.map((e) => e.textContent));
+
+/** Where the form fields of formPdf are (PDF points, from the bottom left) */
+const FIELDS = {
+  name: { x: 50, y: 640, width: 320, height: 48 },
+  agree: { x: 50, y: 560, width: 40, height: 40 },
+};
+
+/** A one-page form made with pdf-lib, as base64: a text field (name), a
+ *  checkbox (agree) and a read-only field; optionally a script that runs
+ *  when it opens */
+async function formPdf({ text = '', checked = false, script = false } = {}) {
+  const doc = await PDFDocument.create();
+  const p = doc.addPage([612, 792]);
+  const form = doc.getForm();
+  const name = form.createTextField('name');
+  name.setText(text || undefined);
+  name.addToPage(p, { ...FIELDS.name, borderWidth: 0 });
+  name.setFontSize(28);
+  const agree = form.createCheckBox('agree');
+  agree.addToPage(p, { ...FIELDS.agree, borderWidth: 0 });
+  if (checked) agree.check();
+  const ref = form.createTextField('reference');
+  ref.setText('REF-1');
+  ref.enableReadOnly();
+  ref.addToPage(p, { x: 50, y: 400, width: 200, height: 30 });
+  if (script)
+    doc.catalog.set(
+      PDFName.of('OpenAction'),
+      doc.context.obj({ S: 'JavaScript', JS: PDFString.of('app.alert(1)') })
+    );
+  return Buffer.from(await doc.save()).toString('base64');
+}
+
+/** Dark pixels inside each form field, on page 1 of the active document as
+ *  the viewer renders it (options: the viewer's render options) */
+/** Dark pixels in each field in PDFium's drawing of the document with its
+ *  fields (what's saved and printed; on screen, the form layer shows the
+ *  fields, form-layer.ts) */
+const inkInFields = (options = {}) =>
+  page.evaluate(
+    async ({ options, fields }) => {
+      const v = window.__acro.viewer;
+      const id = v.docIds.get(v.current);
+      const blob = await v
+        .cap('render')
+        .forDocument(id)
+        .renderPage({
+          pageIndex: 0,
+          options: { scaleFactor: 1, withForms: true, ...options },
+        })
+        .toPromise();
+      const img = await createImageBitmap(blob);
+      const canvas = new OffscreenCanvas(img.width, img.height);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const scale = img.width / 612;
+      const ink = {};
+      for (const [field, r] of Object.entries(fields)) {
+        const { data } = ctx.getImageData(
+          Math.round(r.x * scale),
+          Math.round((792 - r.y - r.height) * scale),
+          Math.round(r.width * scale),
+          Math.round(r.height * scale)
+        );
+        let dark = 0;
+        for (let i = 0; i < data.length; i += 4)
+          if (data[i] + data[i + 1] + data[i + 2] < 300) dark++;
+        ink[field] = dark;
+      }
+      return ink;
+    },
+    { options, fields: FIELDS }
+  );
+
+/** What the fields on the page show (the form layer's controls), by name */
+const fieldsOnPage = () =>
+  page.evaluate(() => {
+    const out = {};
+    for (const c of document
+      .querySelector('embedpdf-container')
+      .shadowRoot.querySelectorAll('.pwf-layer [data-element-id]'))
+      out[c.getAttribute('name')] =
+        c.type === 'checkbox' || c.type === 'radio' ? c.checked : c.value;
+    return out;
+  });
+
+/** The active document as the viewer would save it, read with pdf-lib */
+async function exportedForm() {
+  const b64 = await page.evaluate(async () => {
+    const v = window.__acro.viewer;
+    const bytes = new Uint8Array(await v.exportBytes(v.current));
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000)
+      s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  });
+  const doc = await PDFDocument.load(Buffer.from(b64, 'base64'));
+  return { b64, form: doc.getForm() };
+}
+
+/** Wait for a dropped document to be shown */
+const shown = () =>
+  waitFor(
+    page,
+    () =>
+      !document.querySelector('#doc-stage.is-loading') &&
+      document.querySelector('#view-doc.is-active') &&
+      document.querySelector('#right-rail .rr-total')?.textContent === '1'
+  );
 
 describe('Paperwing UI', () => {
   before(async () => {
@@ -353,7 +462,8 @@ describe('Paperwing UI', () => {
           return result;
         }
         return {
-          current: await ink({ scaleFactor: 1 }),
+          // The document's own drawing (what's saved and printed)
+          current: await ink({ scaleFactor: 1, withForms: true }),
           withoutForms: await ink({ scaleFactor: 1, withForms: false }),
           exported: Array.from(
             new Uint8Array(
@@ -771,5 +881,248 @@ describe('Paperwing UI', () => {
       undefined,
       60000
     );
+  });
+
+  test('shows saved form values and checkbox marks, and keeps them as fields', async () => {
+    await page.evaluate(() => localStorage.removeItem('paperwing:session'));
+    await openApp();
+    await dropBytes(
+      'Filled.pdf',
+      await formPdf({ text: 'SAVED VALUE', checked: true })
+    );
+    await shown();
+    const ink = await inkInFields();
+    assert.ok(ink.name > 200, `saved text painted (${ink.name} dark pixels)`);
+    assert.ok(ink.agree > 40, `checkbox mark painted (${ink.agree})`);
+    // On the page, the form layer's fields show them
+    const onPage = await waitFor(page, () => {
+      const c = document
+        .querySelector('embedpdf-container')
+        .shadowRoot.querySelector('.pwf-layer [name="name"]');
+      return c?.value && c.value;
+    });
+    assert.equal(onPage, 'SAVED VALUE');
+    assert.equal((await fieldsOnPage()).agree, true);
+    // What the viewer showed before: widget appearances left out
+    const without = await inkInFields({ withForms: false });
+    assert.ok(without.name < 20 && without.agree < 10, JSON.stringify(without));
+    // Exported as a form, not flattened
+    const { form } = await exportedForm();
+    assert.equal(form.getTextField('name').getText(), 'SAVED VALUE');
+    assert.equal(form.getCheckBox('agree').isChecked(), true);
+    assert.equal(form.getFields().length, 3);
+  });
+
+  test('fills in form fields beside the document; the values are saved', async () => {
+    await dropBytes('Blank form.pdf', await formPdf());
+    await shown();
+    assert.ok((await inkInFields()).name < 20, 'empty to start with');
+    await page.waitForSelector('#right-rail [aria-label="Form fields"]');
+    await page.click('#right-rail [aria-label="Form fields"]');
+    await page.waitForSelector('#form-panel [data-field="name"]');
+    assert.equal(
+      await page
+        .$eval('#form-panel [data-field="reference"]', (e) => [
+          e.value,
+          e.disabled,
+        ])
+        .then(String),
+      'REF-1,true',
+      'read-only field shown, not editable'
+    );
+
+    await page.click('#form-panel [data-field="name"]');
+    await page.keyboard.type('TYPED VALUE');
+    await page.keyboard.press('Tab'); // leaving the field writes it
+    await waitFor(page, () =>
+      document.querySelector('#tabs .tab.is-active.is-dirty')
+    );
+    await page.click('#form-panel [data-field="agree"]');
+    let exported;
+    for (const end = Date.now() + 15000; Date.now() < end; await sleep(200)) {
+      exported = await exportedForm().catch(() => null);
+      if (exported?.form.getCheckBox('agree').isChecked()) break;
+    }
+    // The page shows the new values, and the document draws them
+    const shownNow = await fieldsOnPage();
+    assert.equal(shownNow.name, 'TYPED VALUE');
+    assert.equal(shownNow.agree, true);
+    const ink = await inkInFields();
+    assert.ok(ink.name > 200 && ink.agree > 40, JSON.stringify(ink));
+    const { b64, form } = exported;
+    assert.equal(form.getTextField('name').getText(), 'TYPED VALUE');
+    assert.equal(form.getCheckBox('agree').isChecked(), true);
+    assert.equal(form.getTextField('reference').getText(), 'REF-1');
+    assert.equal(form.getFields().length, 3, 'still a form');
+
+    // Reopening the saved file shows them
+    await dropBytes('Saved form.pdf', b64);
+    await shown();
+    await waitFor(page, () =>
+      document
+        .querySelector('#tabs .tab.is-active .tab-label')
+        ?.textContent.includes('Saved form')
+    );
+    await page.waitForSelector('#right-rail [aria-label="Form fields"]');
+    await page.click('#right-rail [aria-label="Form fields"]');
+    await waitFor(
+      page,
+      () =>
+        document.querySelector('#form-panel [data-field="name"]')?.value ===
+          'TYPED VALUE' &&
+        document.querySelector('#form-panel [data-field="agree"]')?.checked
+    );
+    const reopened = await inkInFields();
+    assert.ok(reopened.name > 200 && reopened.agree > 40);
+    await waitFor(page, () =>
+      document
+        .querySelector('embedpdf-container')
+        .shadowRoot.querySelector('.pwf-layer [name="agree"]')
+    );
+    const back = await fieldsOnPage();
+    assert.ok(back.name === 'TYPED VALUE' && back.agree, JSON.stringify(back));
+  });
+
+  /** Preferences ▸ Run form scripts, as a person sets it */
+  async function setRunScripts(on) {
+    await page.click('#menu-btn');
+    await page.evaluate(() =>
+      [...document.querySelectorAll('.menu-item')]
+        .find((m) => m.textContent.trim().startsWith('Preferences'))
+        .click()
+    );
+    await page.waitForSelector('.dlg-body.prefs');
+    await page.evaluate((on) => {
+      const row = [...document.querySelectorAll('.pref-row')].find((r) =>
+        r.textContent.includes('Run form scripts')
+      );
+      const box = row.querySelector('input[type="checkbox"]');
+      if (box.checked !== on) box.click();
+    }, on);
+    await page.keyboard.press('Escape');
+    await sleep(1500);
+  }
+
+  test("runs a document's scripts (its message shows as a dialog); says when they're off", async () => {
+    await dropBytes('Scripted.pdf', await formPdf({ script: true }));
+    await shown();
+    // app.alert(1) when it opens: the app's dialog, once
+    const message = await waitFor(
+      page,
+      () =>
+        document.querySelector('.dlg[role="alertdialog"] .dlg-body p')
+          ?.textContent
+    );
+    assert.equal(message, '1');
+    await page.click('.dlg[role="alertdialog"] .accent-btn');
+    await sleep(400);
+    assert.equal(await page.$('.dlg[role="alertdialog"]'), null, 'shown once');
+    assert.equal(await page.$('#script-bar'), null, 'no notice: they run');
+
+    // Turned off: the notice says so, and turns them back on
+    await setRunScripts(false);
+    const text = await waitFor(
+      page,
+      () => document.querySelector('#script-bar')?.textContent
+    );
+    assert.match(text, /form scripts are turned off/);
+    await sleep(300); // (it slides in)
+    await page.click('#script-bar [aria-label="Dismiss"]');
+    assert.equal(await page.$('#script-bar'), null, 'dismissed');
+    // On again: the document's scripts start over, its message included
+    await setRunScripts(true);
+    assert.equal(
+      await waitFor(
+        page,
+        () =>
+          document.querySelector('.dlg[role="alertdialog"] .dlg-body p')
+            ?.textContent
+      ),
+      '1'
+    );
+    await page.click('.dlg[role="alertdialog"] .accent-btn');
+    await sleep(300);
+    await dropPdf('Plain.pdf');
+    await sleep(500);
+    assert.equal(await page.$('#script-bar'), null, 'none for a normal PDF');
+  });
+
+  /** A tool frame (or a frame inside one) once its page has `ready` */
+  async function frameWhere(urlPattern, ready) {
+    for (let i = 0; i < 200; i++) {
+      const f = page.frames().find((f) => urlPattern.test(f.url()));
+      if (f && (await f.evaluate(ready).catch(() => false))) return f;
+      await sleep(150);
+    }
+    throw new Error(`No frame ${urlPattern}`);
+  }
+
+  /** Records the viewer commands the workspace runs; print isn't run */
+  const recordCommands = () =>
+    page.evaluate(() => {
+      window.__commands = [];
+      const v = window.__acro.viewer;
+      const run = v.command.bind(v);
+      v.command = (id, command) => {
+        window.__commands.push(command);
+        if (command !== 'document:print') return run(id, command);
+      };
+    });
+
+  // (These run Paperwing in a browser. In the desktop app, Export PDF and
+  // print() go to Paperwing's print dialog instead: see
+  // src/tests/paperwing-print-routing.test.ts and bench/check-print.mjs.)
+  test('in a browser, Markdown Export PDF uses its print dialog, which works there', async () => {
+    await waitFor(page, () => 'ready' in document.documentElement.dataset);
+    await page.click('#home-btn');
+    await page.click('#create-btn');
+    await page.evaluate(() =>
+      [...document.querySelectorAll('.menu-item')]
+        .find((b) => b.textContent.includes('From Markdown'))
+        .click()
+    );
+    const tool = await frameWhere(
+      /markdown-to-pdf/,
+      () => !!document.getElementById('mdExport')
+    );
+    await recordCommands();
+    // The browser's print dialog, recorded instead of shown
+    await tool.evaluate(() => {
+      window.__printed = 0;
+      window.print = () => window.__printed++;
+      const text = document.getElementById('mdTextarea');
+      text.value = '# Exported\n\n- One\n- Two';
+      text.dispatchEvent(new Event('input'));
+    });
+    const tabsBefore = (await tabNames()).length;
+    await tool.click('#mdExport');
+    await waitFor(tool, () => window.__printed === 1);
+    await sleep(800);
+    assert.equal((await tabNames()).length, tabsBefore, 'no tab opened');
+    assert.deepEqual(await page.evaluate(() => window.__commands), []);
+  });
+
+  test("in a browser, print() in a tool and its PDF.js viewer doesn't ask the workspace", async () => {
+    await dropPdf('Report.pdf');
+    await recordCommands();
+    await page.evaluate(() =>
+      [...document.querySelectorAll('.lp-tool')]
+        .find((b) => b.textContent.includes('Fill & Sign'))
+        .click()
+    );
+    const tool = await frameWhere(/sign-pdf/, () => !!document.body);
+    await frameWhere(
+      /pdfjs-viewer\/viewer\.html/,
+      () =>
+        !!window.PDFViewerApplication?.pdfDocument &&
+        document.readyState === 'complete'
+    );
+    // The tool page's print() is still the browser's own
+    assert.equal(
+      await tool.evaluate(() => /\[native code\]/.test(String(window.print))),
+      true
+    );
+    await sleep(800);
+    assert.deepEqual(await page.evaluate(() => window.__commands), []);
   });
 });

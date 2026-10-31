@@ -184,10 +184,47 @@ export interface PageInfo {
 export interface DocView {
   page: number;
   zoom: number;
+  /** Where it was scrolled to at that zoom (see scrollPos), rather than the
+   *  top of the page */
+  scroll?: { x: number; y: number };
 }
 
 /** PDFium's error code for a document that needs a password */
 const PASSWORD_REQUIRED = 4;
+/** PDFium's annotation subtype for form widgets */
+const WIDGET = 20;
+
+/** A form field's widget on a page, as PDFium reads it */
+export interface PageWidget {
+  /** PDFium's name for the widget (its /NM, assigned if missing) */
+  id: string;
+  pageIndex: number;
+  /** PDF points from the page's top left, before zooming */
+  rect: {
+    origin: { x: number; y: number };
+    size: { width: number; height: number };
+  };
+  field: {
+    /** Field flags (/Ff): read-only 1, required 2, multi-line 4096... */
+    flag: number;
+    /** PDFium's field type: 1 push button, 2 checkbox, 3 radio button,
+     *  4 dropdown, 5 list, 6 text, 7 signature */
+    type: number;
+    name: string;
+    /** Its tooltip (/TU) */
+    alternateName: string;
+    value: string;
+    isChecked: boolean | number;
+    options: { label: string; isSelected: boolean | number }[];
+  };
+}
+
+/** What PDFium is told to do to a field */
+export type FormValue =
+  | { kind: 'text'; text: string }
+  | { kind: 'selection'; index: number; isSelected: boolean }
+  /** Presses Enter on it: a checkbox toggles, a radio button is chosen */
+  | { kind: 'checked' };
 
 /** The viewer's annotation styles sidebar */
 const STYLES_PANEL = 'annotation-panel';
@@ -219,6 +256,9 @@ export class Viewer {
   >();
   /** Asks for the password of a protected document; null cancels opening */
   passwordPrompt?: (tabId: string, wrong: boolean) => Promise<string | null>;
+  /** Takes the document the print dialog prepared (its page range and
+   *  annotation choice applied) instead of the viewer's own print frame */
+  printTo?: (tabId: string, pdf: Uint8Array) => void;
   /** Tabs closed while their document was loading */
   private cancelled = new Set<string>();
   /** The tab last shown, so it can get the viewer back after a discard */
@@ -268,6 +308,9 @@ export class Viewer {
         },
       } as any) as EmbedPdfContainer;
       this.registry = await (this.container as any).registry;
+      this.hookFormDrawing();
+      skinViewerDialogs(this.host);
+      requestAnimationFrame(() => skinViewerDialogs(this.host));
       performance.mark('pw:engine-ready');
       onThemeChange(() => (this.container as any)?.setTheme?.(viewerTheme()));
 
@@ -354,6 +397,25 @@ export class Viewer {
         if (tabId) this.changeListeners.forEach((fn) => fn(tabId));
       });
 
+      // The viewer prints by loading the document into a hidden frame and
+      // calling its print(), which in Electron reports success without
+      // printing anything. With printTo set, that frame is stopped before
+      // its document loads (listeners run synchronously, the load later).
+      (this.registry as any)
+        .getPlugin('print')
+        ?.onPrintRequest?.(
+          (e: { documentId: string; buffer: ArrayBuffer; task: any }) => {
+            const tabId = this.tabFor(e.documentId);
+            if (!this.printTo || !tabId) return;
+            queueMicrotask(() => {
+              const frame = this.printFrame();
+              if (frame) frame.onload = null;
+            });
+            e.task.resolve(e.buffer);
+            this.printTo(tabId, new Uint8Array(e.buffer));
+          }
+        );
+
       this.cap('annotation').onActiveToolChange((e: any) => {
         const tabId = this.tabFor(e.documentId);
         if (tabId)
@@ -404,6 +466,12 @@ export class Viewer {
     if (d.getActiveSidebar('right', 'main') === STYLES_PANEL)
       d.closeSidebarSlot('right', 'main');
     else d.toggleSidebar('right', 'main', STYLES_PANEL);
+  }
+
+  /** The viewer's hidden print frame (in its shadow root) */
+  private printFrame(): HTMLIFrameElement | null {
+    const root = (this.container as any)?.shadowRoot ?? this.host;
+    return root.querySelector('iframe[title="Print Document"]');
   }
 
   private tabFor(docId: string): string | undefined {
@@ -465,6 +533,12 @@ export class Viewer {
     // After the zoom has laid the pages out again
     setTimeout(() => {
       try {
+        if (view.scroll) {
+          this.cap('viewport')
+            .forDocument(id)
+            .scrollTo({ ...view.scroll, behavior: 'instant' });
+          return;
+        }
         const scroll = this.cap('scroll').forDocument(id);
         const page = Math.min(Math.max(1, view.page), scroll.getTotalPages());
         if (page > 1)
@@ -500,6 +574,228 @@ export class Viewer {
     return true;
   }
 
+  /** The document's form fields (PDFium's widgets), page by page, as the
+   *  open document holds them now. Null if the document isn't open. */
+  async formWidgets(tabId: string): Promise<PageWidget[][] | null> {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return null;
+    const doc = this.cap('document-manager').getDocument(id);
+    if (!doc) return null;
+    const engine = (this.registry as any).getEngine();
+    const pages: PageWidget[][] = [];
+    for (const page of doc.pages) {
+      const annotations: any[] = await engine
+        .getPageAnnotations(doc, page)
+        .toPromise();
+      pages.push(
+        annotations
+          .filter((a) => a.type === WIDGET && a.field)
+          .map((a) => ({ ...a, pageIndex: page.index }))
+      );
+    }
+    return pages;
+  }
+
+  /** The widgets on one page, as the document holds them now */
+  async pageWidgets(tabId: string, pageIndex: number): Promise<PageWidget[]> {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return [];
+    const doc = this.cap('document-manager').getDocument(id);
+    const page = doc?.pages?.[pageIndex];
+    if (!page) return [];
+    const annotations: any[] = await (this.registry as any)
+      .getEngine()
+      .getPageAnnotations(doc, page)
+      .toPromise();
+    return annotations
+      .filter((a) => a.type === WIDGET && a.field)
+      .map((a) => ({ ...a, pageIndex }));
+  }
+
+  /**
+   * Fills in a field in the open document: PDFium sets the value and makes
+   * the field's drawing, which saving and printing use. Redraws the pages
+   * given (none when the form layer shows the fields).
+   */
+  async setFormValue(
+    tabId: string,
+    widget: PageWidget,
+    value: FormValue,
+    redraw: number[] = []
+  ): Promise<boolean> {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return false;
+    const doc = this.cap('document-manager').getDocument(id);
+    const page = doc?.pages?.[widget.pageIndex];
+    if (!page) return false;
+    const ok = await (this.registry as any)
+      .getEngine()
+      .setFormFieldValue(doc, page, widget, value)
+      .toPromise()
+      .catch(() => false);
+    if (ok) this.refreshPages(tabId, redraw);
+    return !!ok;
+  }
+
+  /** Documents whose form fields the form layer shows (form-layer.ts):
+   *  PDFium draws their pages without the fields, as Firefox draws its
+   *  pages under its HTML fields */
+  private formsShownElsewhere = new Set<string>();
+
+  /** Every page drawn for a document in the list leaves out its fields;
+   *  the viewer's own page thumbnails keep them (they ask with the page's
+   *  rotation, which page and tile drawings don't) */
+  private hookFormDrawing() {
+    const render = (this.registry as any)?.getPlugin?.('render');
+    if (!render) return;
+    for (const method of [
+      'renderPage',
+      'renderPageRect',
+      'renderPageRaw',
+      'renderPageRectRaw',
+    ] as const) {
+      const original = render[method]?.bind(render);
+      if (!original) continue;
+      render[method] = (request: any, documentId?: string) => {
+        const id = documentId ?? render.getActiveDocumentId?.();
+        const options = request?.options ?? {};
+        const thumbnail =
+          method.startsWith('renderPageRect') && 'rotation' in options;
+        if (
+          id &&
+          this.formsShownElsewhere.has(id) &&
+          options.withForms === undefined &&
+          !thumbnail
+        )
+          request = { ...request, options: { ...options, withForms: false } };
+        return original(request, documentId);
+      };
+    }
+  }
+
+  /** Whether PDFium draws this document's fields on its pages (false: the
+   *  form layer shows them). Draws the pages again when it changes. */
+  setFormsDrawn(tabId: string, drawn: boolean) {
+    const id = this.docIds.get(tabId);
+    if (!id) return;
+    if (this.formsShownElsewhere.has(id) === !drawn) return;
+    if (drawn) this.formsShownElsewhere.delete(id);
+    else this.formsShownElsewhere.add(id);
+    this.refreshPages(
+      tabId,
+      this.pageSizes(tabId).map((_, i) => i)
+    );
+  }
+
+  /** PDFium's drawing of a part of a page with its fields (the fields the
+   *  form layer can't show itself: signatures, buttons) */
+  async drawFields(
+    tabId: string,
+    pageIndex: number,
+    rect: PageWidget['rect'],
+    scale: number
+  ): Promise<Blob | null> {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return null;
+    try {
+      return await this.cap('render')
+        .forDocument(id)
+        .renderPageRect({
+          pageIndex,
+          rect,
+          options: {
+            scaleFactor: scale,
+            dpr: window.devicePixelRatio || 1,
+            withForms: true,
+          },
+        })
+        .toPromise();
+    } catch {
+      return null;
+    }
+  }
+
+  /** Draws the pages again (after the document changed underneath) */
+  refreshPages(tabId: string, pageIndexes: number[]) {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry || !pageIndexes.length) return;
+    (this.registry as any).store.dispatch({
+      type: 'REFRESH_PAGES',
+      payload: { documentId: id, pageIndexes: [...new Set(pageIndexes)] },
+    });
+  }
+
+  /** Where each page sits (PDF points, before zooming) and the zoom: the
+   *  form layer lines its fields up with the pages by these */
+  pageLayout(tabId: string): {
+    scale: number;
+    pages: Map<number, { x: number; y: number }>;
+  } | null {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return null;
+    try {
+      const layout = this.cap('scroll').forDocument(id).getLayout();
+      const pages = new Map<number, { x: number; y: number }>();
+      for (const item of layout.virtualItems ?? [])
+        for (const p of item.pageLayouts ?? [])
+          pages.set(p.pageIndex, { x: item.x + p.x, y: item.y + p.y });
+      const scale =
+        this.cap('document-manager').getDocumentState?.(id)?.scale ??
+        this.zoom(tabId) ??
+        1;
+      return { scale, pages };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Is this tab's document the one the viewer shows now */
+  isShowing(tabId: string): boolean {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return false;
+    return this.cap('document-manager').getActiveDocumentId() === id;
+  }
+
+  /** Each page's size (PDF points, unrotated) */
+  pageSizes(tabId: string): { width: number; height: number }[] {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return [];
+    const doc = this.cap('document-manager').getDocument(id);
+    return (doc?.pages ?? []).map((p: any) => p.size);
+  }
+
+  /** May its form be filled in (an encrypted document can forbid it) */
+  canFillForms(tabId: string): boolean {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return false;
+    const doc = this.cap('document-manager').getDocument(id);
+    if (!doc) return false;
+    // Bit 9 ("fill in forms") of the permissions; bit 6 (modify annotations)
+    // also allows it. Unencrypted documents allow everything.
+    if (!doc.isEncrypted || doc.isOwnerUnlocked) return true;
+    const p = Number(doc.permissions ?? -1);
+    return p < 0 || (p & 0x100) !== 0 || (p & 0x20) !== 0;
+  }
+
+  /** The viewer's shadow root (its pages live in it) */
+  shadow(): ShadowRoot | null {
+    return (this.container as any)?.shadowRoot ?? null;
+  }
+
+  /** Fires when the pages move: scrolling, zooming, rotating, relayout */
+  onPagesMoved(fn: (tabId: string) => void): Unsub {
+    const subs: Array<() => void> = [];
+    const on = (e: { documentId?: string }) => {
+      const tabId = e?.documentId && this.tabFor(e.documentId);
+      if (tabId) fn(tabId);
+    };
+    const scroll = this.cap('scroll');
+    subs.push(scroll.onLayoutChange?.(on) ?? (() => {}));
+    subs.push(scroll.onScroll?.(on) ?? (() => {}));
+    subs.push(this.cap('zoom').onZoomChange?.(on) ?? (() => {}));
+    return () => subs.forEach((u) => typeof u === 'function' && u());
+  }
+
   /** Page count and size of the first page (PDF points) */
   docInfo(
     tabId: string
@@ -523,7 +819,10 @@ export class Viewer {
   async open(
     tabId: string,
     buffer: ArrayBuffer,
-    view?: DocView
+    view?: DocView,
+    /** Shown at once (a new version of a tab in the background stays
+     *  there: its pages changed while another tab was picked) */
+    show = true
   ): Promise<void> {
     await this.init();
     if (view) this.startViews.set(tabId, view);
@@ -535,7 +834,7 @@ export class Viewer {
           buffer,
           name: tabId,
           documentId: docId,
-          autoActivate: true,
+          autoActivate: show,
         })
         // Refused before loading starts (e.g. too many documents open)
         .wait(
@@ -544,6 +843,14 @@ export class Viewer {
             this.settle(tabId, new Error(e.reason?.message ?? 'Open failed'))
         );
     });
+  }
+
+  /** The password a protected document was opened with (kept in memory
+   *  only: the form layer opens its own copy of the document with it) */
+  private passwords = new Map<string, string>();
+
+  password(tabId: string): string | undefined {
+    return this.passwords.get(tabId);
   }
 
   private async askPassword(tabId: string, docId: string, wrong: boolean) {
@@ -558,6 +865,7 @@ export class Viewer {
       this.settle(tabId, new OpenCancelled());
       return;
     }
+    this.passwords.set(tabId, password);
     type LoadFailure = { reason?: { code?: number; message?: string } };
     const failed = (e: LoadFailure) => {
       if (this.opening.get(tabId) !== o) return;
@@ -618,21 +926,34 @@ export class Viewer {
    *  no other document shows in between. */
   async replace(tabId: string, buffer: ArrayBuffer, view?: DocView) {
     const old = this.docIds.get(tabId);
-    await this.open(tabId, buffer, view);
-    if (old && old !== this.docIds.get(tabId))
+    await this.open(tabId, buffer, view, tabId === this.current);
+    // (unless the tab was closed meanwhile: close() closed it then)
+    const now = this.docIds.get(tabId);
+    if (old && now && old !== now) {
       this.cap('document-manager').closeDocument(old);
+      this.formsShownElsewhere.delete(old);
+    }
   }
 
   close(tabId: string) {
     if (this.opening.has(tabId)) {
-      // Still loading: close it once it has opened (see onDocumentOpened)
+      // Still loading: close it once it has opened (see onDocumentOpened),
+      // and the version it replaces now
       this.cancelled.add(tabId);
+      this.startViews.delete(tabId);
+      const old = this.docIds.get(tabId);
+      if (old && this.registry) this.cap('document-manager').closeDocument(old);
+      if (old) this.formsShownElsewhere.delete(old);
+      this.docIds.delete(tabId);
+      this.passwords.delete(tabId);
       return;
     }
     const id = this.docIds.get(tabId);
     if (!id || !this.registry) return;
     this.cap('document-manager').closeDocument(id);
+    this.formsShownElsewhere.delete(id);
     this.docIds.delete(tabId);
+    this.passwords.delete(tabId);
   }
 
   command(tabId: string, commandId: string) {
@@ -690,6 +1011,18 @@ export class Viewer {
       return typeof level === 'number' ? level : null;
     } catch {
       return null;
+    }
+  }
+
+  /** Where the document is scrolled to (for DocView.scroll) */
+  scrollPos(tabId: string): { x: number; y: number } | undefined {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return undefined;
+    try {
+      const m = this.cap('viewport').forDocument(id).getMetrics();
+      return { x: m.scrollLeft, y: m.scrollTop };
+    } catch {
+      return undefined;
     }
   }
 
@@ -768,8 +1101,115 @@ export class Viewer {
 
   /** Current document bytes, including annotations made in the viewer */
   async exportBytes(tabId: string): Promise<ArrayBuffer | null> {
+    // (what was just typed into a field goes in first)
+    await this.beforeExport?.(tabId);
     const id = this.docIds.get(tabId);
     if (!id) return null;
-    return this.cap('export').forDocument(id).saveAsCopy().toPromise();
+    const bytes: ArrayBuffer = await this.cap('export')
+      .forDocument(id)
+      .saveAsCopy()
+      .toPromise();
+    return this.exportFilter ? this.exportFilter(tabId, bytes) : bytes;
   }
+
+  /** Last touches to a document before it's saved, printed or handed to a
+   *  tool (form fields shown formatted keep their typed values) */
+  exportFilter?: (tabId: string, bytes: ArrayBuffer) => Promise<ArrayBuffer>;
+
+  /** Waits for changes still on their way into the document (form fields) */
+  beforeExport?: (tabId: string) => Promise<void>;
+
+  /**
+   * `pdf` ready to be laid out for printing (print-layout.ts): comments,
+   * stamps and form fields become part of the pages, as they print (PDFium
+   * flattens them, on a copy of its own; the open document isn't touched).
+   * Without `comments`, only the form fields stay ("Document" in Acrobat's
+   * Comments & Forms; "Document and markups" keeps them all).
+   */
+  async printReady(
+    pdf: ArrayBuffer | Uint8Array,
+    comments: boolean
+  ): Promise<Uint8Array> {
+    let input: Uint8Array = new Uint8Array(pdf).slice();
+    input = comments
+      ? await (await import('./print-layout')).printableComments(input)
+      : await (await import('./print-layout')).withoutComments(input);
+    // (the engine may take over the buffer it's given)
+    const content = input.slice().buffer;
+    const engine = (this.registry as any)?.getEngine?.();
+    if (!engine) throw new Error('The PDF engine is not ready');
+    const doc = await engine
+      .openDocumentBuffer({
+        id: `print-${crypto.randomUUID()}`,
+        content,
+      })
+      .toPromise();
+    try {
+      // FPDFPage_Flatten's FLAT_PRINT: what prints, not what shows
+      for (const page of doc.pages)
+        await engine.flattenPage(doc, page, { flag: 1 }).toPromise();
+      return new Uint8Array(await engine.saveAsCopy(doc).toPromise());
+    } finally {
+      engine.closeDocument(doc);
+    }
+  }
+}
+
+/** The viewer's own dialogs (Print Settings and the others built the same
+ *  way) live in its shadow tree, so they miss the shell's window style.
+ *  This paints that shell: the same radius, type, and pill buttons. */
+function skinViewerDialogs(host: HTMLElement) {
+  const root = host.querySelector('embedpdf-container')?.shadowRoot;
+  if (!root || root.getElementById('pw-dialog-skin')) return;
+  const style = document.createElement('style');
+  style.id = 'pw-dialog-skin';
+  style.textContent = `
+    .fixed.inset-0.z-50 {
+      font-family: 'Source Sans 3', 'Segoe UI', system-ui, sans-serif;
+      background: rgb(0 0 0 / 0.35) !important;
+    }
+    .fixed.inset-0.z-50 > div {
+      width: min(460px, calc(100vw - 32px)) !important;
+      border: 0 !important;
+      border-radius: 10px !important;
+      box-shadow: 0 12px 40px rgb(0 0 0 / 0.25) !important;
+    }
+    .fixed.inset-0.z-50 h2 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .fixed.inset-0.z-50 .border-b {
+      border-bottom: 0;
+      padding: 14px 10px 6px 20px;
+    }
+    .fixed.inset-0.z-50 .border-t {
+      border-top: 0;
+      margin-top: 18px;
+      padding-top: 0;
+    }
+    .fixed.inset-0.z-50 button.bg-accent {
+      height: 34px;
+      padding: 0 18px !important;
+      border: 0 !important;
+      border-radius: 17px !important;
+      background: var(--accent, #3b63fb) !important;
+      color: #fff !important;
+      font-weight: 700;
+    }
+    .fixed.inset-0.z-50 button.border:not(.bg-accent) {
+      height: 32px;
+      padding: 0 12px !important;
+      border: 0 !important;
+      border-radius: 16px !important;
+      background: transparent !important;
+      color: var(--text-2, #4b4b4b) !important;
+      font-weight: 600;
+    }
+    .fixed.inset-0.z-50 button.border:not(.bg-accent):hover {
+      background: var(--hover-soft, #f3f3f3) !important;
+      color: var(--text, #222) !important;
+    }
+  `;
+  root.append(style);
 }
