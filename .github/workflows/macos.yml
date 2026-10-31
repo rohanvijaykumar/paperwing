@@ -1,0 +1,151 @@
+name: macOS
+
+# The desktop app on a Mac: the unit tests, the print tests, every bench
+# check (real Electron, real mouse and keyboard), the end-to-end tests, and
+# a real print to a virtual printer that prints to a file.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      HUSKY: 0
+      BENCH_TMP: ${{ github.workspace }}/../bench-tmp
+      PRINTED: /private/tmp/paperwing-printed.out
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix desktop
+          mkdir -p "$BENCH_TMP"
+
+      - name: Unit tests
+        run: npm run test:run
+
+      - name: Build the web app
+        working-directory: desktop
+        run: npm run build:web
+
+      - name: Print tests
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: npm run test:print
+
+      # A printer that prints to a file, set as the default (CUPS, as on any Mac)
+      - name: Set up a virtual printer
+        if: ${{ !cancelled() }}
+        run: |
+          echo 'FileDevice Yes' | sudo tee -a /etc/cups/cups-files.conf
+          sudo launchctl kickstart -k system/org.cups.cupsd || sudo killall -HUP cupsd || true
+          sleep 3
+          ppd=/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/PrintCore.framework/Versions/A/Resources/Generic.ppd
+          if [ -f "$ppd" ]; then model=(-P "$ppd"); else model=(-m "$(lpinfo -m | grep -i -m1 generic | cut -d' ' -f1)"); fi
+          sudo lpadmin -p PaperwingTest -E -v "file://$PRINTED" "${model[@]}"
+          sudo cupsenable PaperwingTest
+          sudo cupsaccept PaperwingTest
+          sudo lpadmin -d PaperwingTest
+          lpstat -p -d
+
+      - name: Print bench, with a real print
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        env:
+          PAPERWING_PRINT_TO: PaperwingTest
+        run: node bench/check-print.mjs
+
+      - name: What reached the printer
+        if: ${{ !cancelled() }}
+        run: |
+          for i in $(seq 1 60); do [ -z "$(lpstat -o PaperwingTest)" ] && break; sleep 2; done
+          lpstat -W completed -o PaperwingTest
+          done=$(lpstat -W completed -o PaperwingTest | wc -l | tr -d ' ')
+          size=$(sudo stat -f %z "$PRINTED" 2>/dev/null || echo 0)
+          pages=$(sudo grep -ac '^%%Page:' "$PRINTED" || true)
+          echo "jobs completed: $done, last job: $size bytes, $pages page(s)"
+          [ "$done" -ge 2 ] && [ "$size" -gt 1000 ] && [ "$pages" -ge 1 ]
+
+      - name: Forms bench
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-forms.mjs
+
+      - name: Full screen, What's new and keyboard layouts
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-shell.mjs
+
+      - name: Opening files (and dragging them in from Finder)
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-open-running.mjs
+
+      - name: Quality-of-life bench
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-qol.mjs
+
+      - name: 1.2 interface bench
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-ui12.mjs
+
+      - name: Branding bench
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-branding.mjs
+
+      - name: Update bench
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-update.mjs
+
+      - name: Viewer, engine, signatures and results benches
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: |
+          node bench/make-fixture.mjs "$BENCH_TMP/long.pdf" 60
+          node bench/check-view.mjs "$BENCH_TMP/long.pdf"
+          node bench/check-engine.mjs ../src/tests/fixtures/sample.pdf
+          node bench/check-signatures.mjs ../src/tests/fixtures/sample.pdf
+          node bench/check-results.mjs ../src/tests/fixtures/sample.pdf
+
+      - name: End-to-end tests
+        if: ${{ !cancelled() }}
+        run: |
+          npx vite preview --port 4173 --strictPort > "$BENCH_TMP/preview.log" 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:4173/ > /dev/null && break; sleep 1; done
+          PAPERWING_URL=http://localhost:4173 npm run test:e2e --prefix desktop
+
+      - name: Keep what was printed
+        if: ${{ !cancelled() }}
+        run: sudo cp "$PRINTED" "$BENCH_TMP/printed.ps" && sudo chmod a+r "$BENCH_TMP/printed.ps" || true
+
+      - name: Upload what was printed
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-printed
+          path: ${{ github.workspace }}/../bench-tmp/printed.ps
+          if-no-files-found: ignore
