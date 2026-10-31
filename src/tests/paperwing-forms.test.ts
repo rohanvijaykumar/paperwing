@@ -1,13 +1,16 @@
-// Filling in a form from the workspace (src/acro/forms.ts)
+// Forms: what pdf-lib reads from a document's form (src/acro/forms.ts), and
+// the form as PDFium holds it (src/acro/form-model.ts). Filling in happens in
+// PDFium, in the running app (desktop/bench/check-forms.mjs).
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { inflateSync } from 'node:zlib';
-import { PDFDocument, PDFName, PDFRawStream, PDFString } from 'pdf-lib';
-import { inspectPdf, setFieldValues } from '../acro/forms';
+import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
+import { inspectPdf, type FieldMeta } from '../acro/forms';
+import { buildFields, fillable, pagesOf, stepsTo } from '../acro/form-model';
+import type { PageWidget } from '../acro/viewer';
 
-/** A two-page form: a name field and a checkbox on page 1, a read-only
- *  reference on page 2 */
+/** A two-page form: a name, a checkbox and a dropdown on page 1; a
+ *  read-only reference and a radio group on page 2 */
 async function formPdf(): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const [p1, p2] = [doc.addPage([400, 400]), doc.addPage([400, 400])];
@@ -15,200 +18,226 @@ async function formPdf(): Promise<Uint8Array> {
   const name = form.createTextField('applicant.name');
   name.addToPage(p1, { x: 20, y: 300, width: 200, height: 24 });
   name.acroField.dict.set(PDFName.of('TU'), PDFString.of('Full name'));
+  name.setMaxLength(40);
   form
     .createCheckBox('agree')
     .addToPage(p1, { x: 20, y: 250, width: 16, height: 16 });
+  const country = form.createDropdown('country');
+  country.addOptions(['India', 'Japan']);
+  country.addToPage(p1, { x: 20, y: 200, width: 120, height: 20 });
   const ref = form.createTextField('reference');
   ref.setText('REF-1');
   ref.enableReadOnly();
   ref.addToPage(p2, { x: 20, y: 300, width: 200, height: 24 });
-  form.createRadioGroup('size').addOptionToPage('s', p2, { x: 20, y: 200 });
+  const size = form.createRadioGroup('size');
+  size.addOptionToPage('small', p2, { x: 20, y: 200, width: 14, height: 14 });
+  size.addOptionToPage('large', p2, { x: 60, y: 200, width: 14, height: 14 });
   return doc.save();
 }
 
-describe('form fields', () => {
-  it('lists text fields and checkboxes with their values', async () => {
+describe('what pdf-lib reads from a form', () => {
+  it('lists every field with its label, kind and limits', async () => {
     const { form, scripted } = await inspectPdf(await formPdf());
     expect(scripted).toBe(false);
     expect(form?.locked).toBe(false);
-    expect(form?.other).toBe(1); // the radio group
-    expect(form?.fields).toEqual([
-      expect.objectContaining({
-        name: 'applicant.name',
-        label: 'Full name',
-        kind: 'text',
-        value: '',
-        readOnly: false,
-        page: 1,
-      }),
-      expect.objectContaining({
-        name: 'agree',
-        label: 'agree',
-        kind: 'checkbox',
-        value: false,
-        page: 1,
-      }),
-      expect.objectContaining({
-        name: 'reference',
-        value: 'REF-1',
-        readOnly: true,
-        page: 2,
-      }),
-    ]);
-  });
-
-  it('saves a typed value and a ticked box, and they are there on reopening', async () => {
-    const filled = await setFieldValues(await formPdf(), {
-      'applicant.name': 'Ada Lovelace',
-      agree: true,
+    const byName = new Map(form!.fields.map((f) => [f.name, f]));
+    expect(byName.get('applicant.name')).toMatchObject({
+      label: 'Full name',
+      kind: 'text',
+      readOnly: false,
+      maxLength: 40,
     });
-    // Reopened from the saved bytes
-    const reopened = await PDFDocument.load(filled);
-    const form = reopened.getForm();
-    expect(form.getTextField('applicant.name').getText()).toBe('Ada Lovelace');
-    expect(form.getCheckBox('agree').isChecked()).toBe(true);
-    expect(form.getTextField('reference').getText()).toBe('REF-1');
-    // Still a form: fields and their widgets are kept, not flattened
-    expect(form.getFields()).toHaveLength(4);
-    expect(reopened.getPage(0).node.Annots()?.size()).toBe(2);
-    const { form: info } = await inspectPdf(filled);
-    expect(info?.fields.map((f) => f.value)).toEqual([
-      'Ada Lovelace',
-      true,
-      'REF-1',
-    ]);
-
-    // And unticked again
-    const cleared = await setFieldValues(filled, { agree: false });
-    const again = await inspectPdf(cleared);
-    expect(again.form?.fields[1].value).toBe(false);
-    expect(again.form?.fields[0].value).toBe('Ada Lovelace');
+    expect(byName.get('agree')).toMatchObject({ kind: 'checkbox' });
+    expect(byName.get('country')).toMatchObject({ kind: 'dropdown' });
+    expect(byName.get('reference')).toMatchObject({ readOnly: true });
   });
 
-  it('refuses read-only fields, unknown fields and wrong kinds of value', async () => {
-    const pdf = await formPdf();
-    await expect(setFieldValues(pdf, { reference: 'X' })).rejects.toThrow(
-      /read-only/
-    );
-    await expect(setFieldValues(pdf, { nope: 'X' })).rejects.toThrow(
-      /no field/
-    );
-    await expect(setFieldValues(pdf, { agree: 'yes' })).rejects.toThrow(
-      /can't take/
-    );
-    // Nothing changed in the document itself
-    const { form } = await inspectPdf(pdf);
-    expect(form?.fields[2].value).toBe('REF-1');
-  });
-
-  it('fits auto-sized multiline text inside its box and keeps it auto-sized', async () => {
-    const doc = await PDFDocument.create();
-    const notes = doc.getForm().createTextField('notes');
-    notes.enableMultiline();
-    notes.addToPage(doc.addPage([400, 400]), {
-      x: 20,
-      y: 200,
-      width: 200,
-      height: 60,
+  it('names each radio button where PDFium places it (from the top left)', async () => {
+    const { form } = await inspectPdf(await formPdf());
+    const size = form!.fields.find((f) => f.name === 'size');
+    expect(size?.kind).toBe('radio');
+    // (within the 3 points matching allows: borders shift rectangles a bit)
+    const want = [
+      { x: 20, y: 400 - 214, value: 'small' },
+      { x: 60, y: 400 - 214, value: 'large' },
+    ];
+    expect(size?.choices).toHaveLength(2);
+    size!.choices!.forEach((c, i) => {
+      expect(c.page).toBe(1);
+      expect(c.value).toBe(want[i].value);
+      expect(Math.abs(c.x - want[i].x)).toBeLessThan(1);
+      expect(Math.abs(c.y - want[i].y)).toBeLessThan(1);
     });
-    notes.acroField.setDefaultAppearance('0 0 0 rg /Helv 0 Tf');
-    const pdf = await doc.save({ updateFieldAppearances: false });
-
-    const drawn = async (text: string) => {
-      const out = await PDFDocument.load(
-        await setFieldValues(pdf, { notes: text })
-      );
-      const field = out.getForm().getTextField('notes');
-      const ap = out.context.lookup(
-        field.acroField.getWidgets()[0].getNormalAppearance()
-      ) as PDFRawStream;
-      const body = (
-        ap.dict.get(PDFName.of('Filter'))
-          ? inflateSync(ap.contents)
-          : Buffer.from(ap.contents)
-      ).toString('latin1');
-      return {
-        da: field.acroField.getDefaultAppearance(),
-        size: Number(/([\d.]+) Tf/.exec(body)?.[1]),
-        baselines: [...body.matchAll(/1 0 0 1 [\d.]+ ([\d.-]+) Tm/g)].map((m) =>
-          Number(m[1])
-        ),
-        text: [...body.matchAll(/<([0-9A-F]+)> Tj/g)]
-          .map((m) => Buffer.from(m[1], 'hex').toString('latin1'))
-          .join(' '),
-      };
-    };
-
-    const short = await drawn('Prefers email.');
-    expect(short.size).toBe(12);
-    expect(short.text).toBe('Prefers email.');
-    expect(short.da).toMatch(/ 0 Tf/);
-
-    const long = 'Please call after six on weekdays, or any time at weekends. '
-      .repeat(3)
-      .trim();
-    const shrunk = await drawn(long);
-    expect(shrunk.size).toBeLessThan(12);
-    expect(shrunk.text.replace(/\s+/g, ' ')).toBe(long);
-    // Every line's baseline sits inside the 60pt-high box
-    expect(shrunk.baselines.length).toBeGreaterThan(2);
-    for (const y of shrunk.baselines) expect(y).toBeGreaterThan(0);
-    expect(shrunk.da).toMatch(/ 0 Tf/);
   });
 
-  it('fills in text in any script (Cyrillic, Chinese, Hindi), for viewers to draw', async () => {
-    // pdf-lib's font only has Latin letters, so it can't draw these
-    for (const name of ['Иван Петров', '李明', 'राहुल']) {
-      const out = await setFieldValues(await formPdf(), {
-        'applicant.name': name,
-        agree: true,
-      });
-      const doc = await PDFDocument.load(out);
-      const form = doc.getForm();
-      expect(form.getTextField('applicant.name').getText()).toBe(name);
-      expect(form.getCheckBox('agree').isChecked()).toBe(true);
-      // Its drawing of the old (empty) value is gone, and viewers are asked
-      // to draw the new one
-      const widget = form
-        .getTextField('applicant.name')
-        .acroField.getWidgets()[0];
-      expect(widget.dict.has(PDFName.of('AP'))).toBe(false);
-      expect(
-        String(form.acroForm.dict.lookup(PDFName.of('NeedAppearances')))
-      ).toBe('true');
-      // And it reads back like any other value
-      const { form: info } = await inspectPdf(out);
-      expect(info?.fields.find((f) => f.name === 'applicant.name')?.value).toBe(
-        name
-      );
-    }
-  });
-
-  it('still draws Latin text itself (accents included)', async () => {
-    const out = await setFieldValues(await formPdf(), {
-      'applicant.name': 'José Müller',
-    });
-    const form = (await PDFDocument.load(out)).getForm();
-    const widget = form
-      .getTextField('applicant.name')
-      .acroField.getWidgets()[0];
-    expect(widget.dict.has(PDFName.of('AP'))).toBe(true);
-    expect(form.acroForm.dict.has(PDFName.of('NeedAppearances'))).toBe(false);
-  });
-
-  it('has no form panel for a document without fields', async () => {
+  it('has no form for a document without fields', async () => {
     const doc = await PDFDocument.create();
     doc.addPage();
     expect((await inspectPdf(await doc.save())).form).toBeNull();
   });
 
-  it("doesn't change a protected (encrypted) document", async () => {
+  it("can't read a protected (encrypted) document's fields (PDFium can)", async () => {
     const locked = new Uint8Array(
       readFileSync(resolve(__dirname, 'fixtures', 'protected.pdf'))
     );
-    await expect(setFieldValues(locked, { a: 'b' })).rejects.toThrow(
-      /protected/
-    );
-    expect((await inspectPdf(locked)).scripted).toBe(false);
+    const { form, scripted } = await inspectPdf(locked);
+    expect(scripted).toBe(false);
+    if (form) expect(form).toEqual({ fields: [], locked: true });
+  });
+});
+
+/** A widget as PDFium reads it */
+function widget(
+  name: string,
+  type: number,
+  page: number,
+  more: Partial<PageWidget['field']> = {},
+  at = { x: 10, y: 10 }
+): PageWidget {
+  return {
+    id: `${name}-${Math.random()}`,
+    pageIndex: page,
+    rect: { origin: at, size: { width: 100, height: 20 } },
+    field: {
+      flag: 0,
+      type,
+      name,
+      alternateName: '',
+      value: '',
+      isChecked: false,
+      options: [],
+      ...more,
+    },
+  };
+}
+
+describe('the form as PDFium holds it', () => {
+  const pages = (): PageWidget[][] => [
+    [
+      widget('name', 6, 0, { value: 'Alex', flag: 2 }),
+      widget('agree', 2, 0, { isChecked: 1 }),
+      widget('country', 4, 0, {
+        options: [
+          { label: 'India', isSelected: 0 },
+          { label: 'Japan', isSelected: 1 },
+        ],
+      }),
+      widget('notes', 6, 0, { flag: 1 << 12 }),
+      widget('ref', 6, 0, { value: 'R1', flag: 1 }),
+      widget('sig', 7, 0),
+    ],
+    [
+      widget('plan', 3, 1, {}, { x: 20, y: 186 }),
+      widget('plan', 3, 1, { isChecked: 1 }, { x: 60, y: 186 }),
+      // The same field shown twice
+      widget('name', 6, 1, { value: 'Alex' }),
+    ],
+  ];
+
+  it('groups widgets into fields, with their values and flags', () => {
+    const fields = buildFields(pages());
+    const f = (n: string) => fields.find((x) => x.name === n)!;
+    expect(fields.map((x) => x.name)).toEqual([
+      'name',
+      'agree',
+      'country',
+      'notes',
+      'ref',
+      'sig',
+      'plan',
+    ]);
+    expect(f('name')).toMatchObject({
+      kind: 'text',
+      value: 'Alex',
+      required: true,
+    });
+    expect(pagesOf(f('name'))).toEqual([0, 1]);
+    expect(f('agree').value).toBe(true);
+    expect(f('country')).toMatchObject({
+      options: ['India', 'Japan'],
+      value: 1,
+    });
+    expect(f('notes').multiline).toBe(true);
+    expect(f('ref').readOnly).toBe(true);
+    expect(f('plan').value).toBe(1);
+    expect(fillable(f('ref'))).toBe(false);
+    expect(fillable(f('sig'))).toBe(false);
+    expect(fillable(f('name'))).toBe(true);
+  });
+
+  it("takes labels, limits and radio choices from pdf-lib's reading", () => {
+    const meta = new Map<string, FieldMeta>([
+      [
+        'name',
+        {
+          name: 'name',
+          label: 'Full name',
+          kind: 'text',
+          readOnly: false,
+          maxLength: 30,
+          fontSize: 10,
+        },
+      ],
+      [
+        'plan',
+        {
+          name: 'plan',
+          label: 'Plan',
+          kind: 'radio',
+          readOnly: false,
+          choices: [
+            { page: 1, x: 60.5, y: 186.5, value: 'Team' },
+            { page: 1, x: 20.5, y: 186.5, value: 'Free' },
+          ],
+        },
+      ],
+    ]);
+    const fields = buildFields(pages(), meta);
+    const f = (n: string) => fields.find((x) => x.name === n)!;
+    expect(f('name')).toMatchObject({
+      label: 'Full name',
+      maxLength: 30,
+      fontSize: 10,
+    });
+    // Matched by place, not by order
+    expect(f('plan').options).toEqual(['Free', 'Team']);
+    // Without a reading: by place in the group
+    expect(
+      buildFields(pages()).find((x) => x.name === 'plan')!.options
+    ).toEqual(['Option 1', 'Option 2']);
+  });
+
+  it('works out what PDFium must be told to set each kind of field', () => {
+    const fields = buildFields(pages());
+    const f = (n: string) => fields.find((x) => x.name === n)!;
+    expect(stepsTo(f('name'), 'Sam').map((s) => s.value)).toEqual([
+      { kind: 'text', text: 'Sam' },
+    ]);
+    // A ticked box pressed once to untick
+    expect(stepsTo(f('agree'), false).map((s) => s.value)).toEqual([
+      { kind: 'checked' },
+    ]);
+    // The second radio button is chosen already; choosing the first presses it
+    const plan = f('plan');
+    expect(stepsTo(plan, 1)).toEqual([]);
+    const press = stepsTo(plan, 0);
+    expect(press).toHaveLength(1);
+    expect(press[0].widget).toBe(plan.widgets[0]);
+    expect(stepsTo(f('country'), 0).map((s) => s.value)).toEqual([
+      { kind: 'selection', index: 0, isSelected: true },
+    ]);
+    // An option can't be unchosen (PDFium would still draw it chosen)
+    expect(stepsTo(f('country'), -1)).toEqual([]);
+  });
+
+  it('refuses what a field can’t take, and fields that can’t be filled in', () => {
+    const fields = buildFields(pages());
+    const f = (n: string) => fields.find((x) => x.name === n)!;
+    expect(stepsTo(f('ref'), 'X')).toEqual([]); // read-only
+    expect(stepsTo(f('sig'), 'X')).toEqual([]); // a signature
+    expect(stepsTo(f('name'), true)).toEqual([]); // wrong kind of value
+    expect(stepsTo(f('country'), 5)).toEqual([]); // no such option
+    expect(stepsTo(f('plan'), -1)).toEqual([]); // radio buttons can't be unchosen
+    expect(stepsTo(f('name'), 'Alex')).toEqual([]); // already so
   });
 });
