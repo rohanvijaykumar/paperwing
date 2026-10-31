@@ -1,7 +1,7 @@
 {
   "name": "paperwing",
   "productName": "Paperwing",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "A free, open-source PDF editor for Windows and macOS, built on BentoPDF.",
   "main": "main.cjs",
   "private": true,

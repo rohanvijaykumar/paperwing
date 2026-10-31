@@ -1,45 +1,48 @@
-## Paperwing 1.2.3
+## Paperwing 1.2.4
 
-Updates are noticed sooner, a touchscreen fix, and fixes from BentoPDF.
+Fill in forms right on the page, form scripts that run, and a print dialog like Acrobat's.
+
+### New
+
+- **Fill in forms on the page.** Click a field and type, tick checkboxes, choose radio buttons,
+  pick from dropdowns and lists, and Tab from field to field, onto the next page too. The fields are
+  Firefox's own, so they respond at once, and text in any script works (Cyrillic, Chinese, Hindi…).
+  A Form fields panel lists the same fields, always in step with the page; Ctrl+Z takes back a
+  change. Filled-in forms stay forms when saved. Old Adobe XFA forms, which only Acrobat can fill
+  in, say so. Thanks to [@austinwilkerson](https://github.com/austinwilkerson) for reporting it
+  ([#26](https://github.com/rohanvijaykumar/paperwing/issues/26)).
+- **Form scripts run.** Totals are worked out as you fill in, numbers and dates are formatted,
+  entries are checked, and a document's messages show as Paperwing's own dialog. Scripts run
+  sandboxed, in the same engine Firefox uses: they can't reach your files or the internet, or send
+  the form anywhere. Preferences ▸ Run form scripts turns them off. Thanks to
+  [@austinwilkerson](https://github.com/austinwilkerson)
+  ([#27](https://github.com/rohanvijaykumar/paperwing/issues/27)).
+- **A print dialog like Acrobat's**, with a preview of exactly what will print: printer, copies,
+  color or black and white, two-sided, page ranges, odd or even pages, paper size and orientation,
+  fit or actual size, several pages to a sheet, booklets, and whether comments print. Text stays
+  text. Printing in Fill a form, Fill & Sign and Add Stamps prints what you filled in, signed or
+  stamped there. Thanks to [@austinwilkerson](https://github.com/austinwilkerson), whose
+  [#24](https://github.com/rohanvijaykumar/paperwing/pull/24) showed the way.
 
 ### Better
 
-- **Updates found on every launch.** Paperwing now checks each time it starts, and every two hours
-  while it's open, so a new version shows up right away. **Later** holds the notice back for a day.
-- **Taskbar Recent list keeps every file.** On Windows, files with the same name used to replace each
-  other in the taskbar's Recent list. Paperwing now keeps its own list of your last 10 files, showing
-  the folder when names match.
-- **Built on Electron 45.**
+- **Every tool looks like Paperwing**, in light and dark, and says Paperwing where it said BentoPDF.
+- **Open remembers your folder.** Ctrl+O starts where you last opened or saved a PDF, and Save As
+  starts in the document's own folder, as in Acrobat.
+- **Dialogs fit the window** and only scroll when it's too small.
 
 ### Fixed
 
-- **Select works on touchscreens.** On touchscreen Windows computers, Select could leave the viewer
-  in Hand mode, so text couldn't be selected or copied. Thanks to
-  [@Lehnemann](https://github.com/Lehnemann) for reporting it and
-  [@austinwilkerson](https://github.com/austinwilkerson) for the fix.
-- **Long paths in tooltips** wrap and stay inside the window.
-- **From BentoPDF:** Validate Signature detects more signatures, XPS to PDF converts XPS files from
-  scanners, and Merge PDF and Markdown to PDF are fixed.
-
-Everything new in 1.2 (Acrobat-style toolbar menus, page actions on thumbnails, recovery of unsaved
-edits, offline engines and OCR) is in the [1.2.0 release](https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.0).
+- **Saved form values show** in the viewer. Thanks to
+  [@austinwilkerson](https://github.com/austinwilkerson)
+  ([#25](https://github.com/rohanvijaykumar/paperwing/pull/25)).
+- **Printing works** from the desktop app on Windows.
+- A tool's own **Close** (Organize pages) no longer shows a website page inside the tool, and Edit a
+  PDF no longer goes blank after Export.
+- Messages under a tool's main button are no longer hidden behind it.
+- Saving, printing or opening a tool that fails now says why; Escape closes only the top dialog;
+  page changes in a background tab stay in that tab; saving twice quickly can't mix the two.
 
 On Windows, Paperwing 1.1 and later update themselves: open Paperwing and choose **Help ▸ Check
-for updates** if it hasn't offered 1.2.3 yet. On macOS and the portable build, download it below
+for updates** if it hasn't offered 1.2.4 yet. On macOS and the portable build, download it below
 and install it over the old version. Full list of changes: [CHANGELOG.md](https://github.com/rohanvijaykumar/paperwing/blob/main/CHANGELOG.md).
-
-### Downloads
-
-|                     |                                    |
-| ------------------- | ---------------------------------- |
-| Windows installer   | `Paperwing-Setup-*-x64.exe`        |
-| Windows portable    | `Paperwing-Portable-*-win-x64.zip` |
-| macOS Apple Silicon | `Paperwing-*-mac-arm64.dmg`        |
-| macOS Intel         | `Paperwing-*-mac-x64.dmg`          |
-
-These builds aren't code-signed yet. On Windows choose **More info ▸ Run anyway**; on macOS
-right-click the app and choose **Open** the first time. Full instructions:
-[docs/INSTALL.md](https://github.com/rohanvijaykumar/paperwing/blob/main/docs/INSTALL.md).
-Checksums are in `SHA256SUMS.txt`.
-
-Thanks to Alam and the BentoPDF contributors — Paperwing wouldn't exist without their engine.
