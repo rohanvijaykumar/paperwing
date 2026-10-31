@@ -95,6 +95,37 @@ app.whenReady().then(async () => {
         ? `${made.data.length} bytes, ${Date.now() - t0} ms`
         : made.message
     );
+
+    // 4. A real print, when PAPERWING_PRINT_TO names a printer (CI sets up
+    //    a virtual one that prints to a file): to the printer's paper, and
+    //    laid out on Letter, landscape
+    const target = process.env.PAPERWING_PRINT_TO;
+    if (target) {
+      const win = new BrowserWindow({ show: false });
+      const data = new Uint8Array(require('node:fs').readFileSync(pdfs[0]));
+      for (const [label, extra] of [
+        ["the printer's paper", {}],
+        [
+          'Letter, landscape',
+          { paper: { width: 612, height: 792 }, landscape: true },
+        ],
+      ]) {
+        const t1 = Date.now();
+        const r = await printing.printPdf(win.webContents, data, {
+          printer: target,
+          copies: 1,
+          color: true,
+          duplex: 'simplex',
+          ...extra,
+        });
+        check(
+          r.ok,
+          `a real print reaches ${target} (${label})`,
+          r.ok ? `${Date.now() - t1} ms` : r.message
+        );
+      }
+      win.destroy();
+    }
   } catch (err) {
     check(false, 'probe', String(err?.stack ?? err));
   }

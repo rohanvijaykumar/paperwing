@@ -28,10 +28,7 @@ const { PDFDocument } = require('pdf-lib');
 const out = process.env.BENCH_TMP || tmpdir();
 const dir = mkdtempSync(join(out, 'pw-forms-'));
 execFileSync(process.execPath, [
-  new URL('./make-form-fixture.mjs', import.meta.url).pathname.replace(
-    /^\/(\w:)/,
-    '$1'
-  ),
+  fileURLToPath(new URL('./make-form-fixture.mjs', import.meta.url)),
   dir,
 ]);
 
@@ -68,22 +65,30 @@ const open = (name) =>
     name
   );
 
-/** In the page: the field (pdf.js's control) named `name` */
-const FIELD = `(name, nth) => [...document.querySelector('embedpdf-container').shadowRoot
-  .querySelectorAll('.pwf-layer [data-element-id]')].filter((x) => x.getAttribute('name') === name)[nth ?? 0]`;
+/** In the page: window.__field(name, nth), the field (pdf.js's control)
+ *  named `name` */
+const installField = () => {
+  window.__field = (name, nth) =>
+    [
+      ...document
+        .querySelector('embedpdf-container')
+        .shadowRoot.querySelectorAll('.pwf-layer [data-element-id]'),
+    ].filter((x) => x.getAttribute('name') === name)[nth ?? 0];
+};
+await page.evaluateOnNewDocument(installField);
+await page.evaluate(installField);
 
 /** The middle of a field on screen (scrolled into view) */
 const centre = (name, nth = 0) =>
   page.evaluate(
-    async (src, name, nth) => {
-      const c = eval(src)(name, nth);
+    async (name, nth) => {
+      const c = window.__field(name, nth);
       if (!c) return null;
       c.scrollIntoView({ block: 'center' });
       await new Promise((r) => setTimeout(r, 300));
       const r = c.getBoundingClientRect();
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     },
-    FIELD,
     name,
     nth
   );
@@ -96,15 +101,14 @@ const click = async (name, nth = 0) => {
 /** What a field on the page shows */
 const onPage = (name, nth = 0) =>
   page.evaluate(
-    (src, name, nth) => {
-      const c = eval(src)(name, nth);
+    (name, nth) => {
+      const c = window.__field(name, nth);
       if (!c) return null;
       if (c.type === 'checkbox' || c.type === 'radio') return c.checked;
       if (c instanceof HTMLSelectElement)
         return c.selectedIndex < 0 ? null : c.options[c.selectedIndex].text;
       return c.value;
     },
-    FIELD,
     name,
     nth
   );
@@ -195,8 +199,8 @@ const shown = await page
 check(shown, 'the fields on page 1 are ready to fill in');
 await sleep(1500);
 
-const look = await page.evaluate((src) => {
-  const f = eval(src);
+const look = await page.evaluate(() => {
+  const f = window.__field;
   const radio = f('plan', 0);
   const ref = f('reference');
   const option = f('country')?.options[1];
@@ -210,7 +214,7 @@ const look = await page.evaluate((src) => {
     optionColor: option && getComputedStyle(option).color,
     pageImg: pageImg?.tagName,
   };
-}, FIELD);
+});
 check(look.radioRound, 'radio buttons are round');
 check(look.refLocked, "a read-only field can't be typed in");
 check(look.refDrawn, "a read-only field shows the document's drawing of it");
@@ -251,19 +255,19 @@ const scroller = () =>
     );
     return s?.scrollTop ?? -1;
   });
-await page.evaluate((src) => eval(src)('country').focus(), FIELD);
+await page.evaluate(() => window.__field('country').focus());
 await page.keyboard.type('Jap');
 await sleep(300);
 check((await onPage('country')) === 'Japan', 'a dropdown option is picked');
 // A list: click its option
-const optionAt = await page.evaluate(async (src) => {
-  const list = eval(src)('languages');
+const optionAt = await page.evaluate(async () => {
+  const list = window.__field('languages');
   list.scrollIntoView({ block: 'center' });
   await new Promise((r) => setTimeout(r, 300));
   const o = [...list.options].find((x) => x.text === 'Hindi');
   const r = o.getBoundingClientRect();
   return { x: r.x + Math.min(30, r.width / 2), y: r.y + r.height / 2 };
-}, FIELD);
+});
 const before = await scroller();
 await page.mouse.click(optionAt.x, optionAt.y);
 await sleep(400);
@@ -302,12 +306,12 @@ const dirty = await page.evaluate(
 check(dirty, 'the document counts as changed (unsaved)');
 
 // Ctrl+Z with the focus on the document: the last change goes back
-const german = await page.evaluate(async (src) => {
-  const list = eval(src)('languages');
+const german = await page.evaluate(async () => {
+  const list = window.__field('languages');
   const o = [...list.options].find((x) => x.text === 'German');
   const r = o.getBoundingClientRect();
   return { x: r.x + Math.min(30, r.width / 2), y: r.y + r.height / 2 };
-}, FIELD);
+});
 await page.mouse.click(german.x, german.y);
 await sleep(300);
 await page.mouse.click(700, 120);
@@ -335,8 +339,8 @@ await page.evaluate(() =>
 );
 await sleep(800);
 const compare = () =>
-  page.evaluate((src) => {
-    const f = eval(src);
+  page.evaluate(() => {
+    const f = window.__field;
     const panel = (name, i) => {
       const c = [
         ...document.querySelectorAll(`#form-panel [data-field="${name}"]`),
@@ -375,7 +379,7 @@ const compare = () =>
       if (panel('plan', i) !== page('plan', i))
         diffs.push(`plan ${i}: ${panel('plan', i)} vs ${page('plan', i)}`);
     return diffs;
-  }, FIELD);
+  });
 let diffs = await compare();
 check(
   !diffs.length,
@@ -425,7 +429,7 @@ await page.screenshot({
 });
 
 // Tab from the last field on page 1 goes on to page 2's first
-await page.evaluate((src) => eval(src)('languages').focus(), FIELD);
+await page.evaluate(() => window.__field('languages').focus());
 await press('Tab');
 const onTo = await page
   .waitForFunction(
@@ -442,15 +446,14 @@ check(onTo, "Tab goes on to the next page's fields");
 // A list to pick several from: Ctrl+click two options
 const optionOf = (list, text) =>
   page.evaluate(
-    async (src, list, text) => {
-      const l = eval(src)(list);
+    async (list, text) => {
+      const l = window.__field(list);
       l.scrollIntoView({ block: 'center' });
       await new Promise((r) => setTimeout(r, 300));
       const o = [...l.options].find((x) => x.text === text);
       const r = o.getBoundingClientRect();
       return { x: r.x + Math.min(30, r.width / 2), y: r.y + r.height / 2 };
     },
-    FIELD,
     list,
     text
   );
@@ -471,16 +474,12 @@ check(
 
 /** A field's box on screen */
 const box = (name) =>
-  page.evaluate(
-    (src, name) => {
-      const c = eval(src)(name);
-      c?.scrollIntoView({ block: 'center' });
-      const r = c?.getBoundingClientRect();
-      return r && { w: r.width, h: r.height };
-    },
-    FIELD,
-    name
-  );
+  page.evaluate((name) => {
+    const c = window.__field(name);
+    c?.scrollIntoView({ block: 'center' });
+    const r = c?.getBoundingClientRect();
+    return r && { w: r.width, h: r.height };
+  }, name);
 
 // Turning the pages: the fields turn with them
 const flat = await box('full_name');
@@ -741,7 +740,9 @@ await page.evaluate(() => {
 // Home's preview of a form shows its fields. The file has nothing but a
 // dark field; opened from disk, as only files on disk go in Recent.
 await app.openFile(
-  fileURLToPath(new URL('../../src/tests/fixtures/form-only.pdf', import.meta.url))
+  fileURLToPath(
+    new URL('../../src/tests/fixtures/form-only.pdf', import.meta.url)
+  )
 );
 await sleep(3000);
 await page.evaluate(() => document.getElementById('home-btn').click());
