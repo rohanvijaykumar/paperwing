@@ -204,7 +204,16 @@ function createPrinting({
       });
       win.webContents.setWindowOpenHandler?.(() => ({ action: 'deny' }));
       win.webContents.on('will-navigate', (e) => e.preventDefault());
-      await win.loadURL(pathToFileURL(file).toString());
+      // (a load that never finishes mustn't block every later print)
+      await Promise.race([
+        win.loadURL(pathToFileURL(file).toString()),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Timed out preparing the document')),
+            60000
+          )
+        ),
+      ]);
       await waitForPdf(win.webContents);
       const [ok, reason] = await new Promise((resolve) => {
         // A printer that never answers mustn't hold the dialog (and every
