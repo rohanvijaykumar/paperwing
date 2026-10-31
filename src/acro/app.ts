@@ -31,6 +31,7 @@ import type { FormInfo } from './forms';
 import { FormLayer, FormSession, type FormChange } from './form-layer';
 import { fillable, type FieldState, type LiveField } from './form-model';
 import type { PrintBridge } from './print';
+import type { Presentation } from './present';
 import {
   type AvailableUpdate,
   checkForUpdates,
@@ -578,6 +579,8 @@ let activeId = 'home';
 let tabSeq = 0;
 
 const viewer = new Viewer($('#viewer-host'));
+/** Full screen shows one page at a time (present.ts) */
+let presenting: Presentation | null = null;
 /** Home's previews of recent files; made in the background only on Home */
 const thumbs = new Thumbnails(
   () => activeId === 'home' && !document.hidden,
@@ -749,6 +752,8 @@ function renderTabs() {
 
 function activate(id: string) {
   closePopover?.();
+  // Full screen shows the document it was started on
+  if (presenting && id !== activeId) setReadMode(false);
   activeId = id;
   const tab = activeTab();
 
@@ -5045,18 +5050,27 @@ function setReadMode(on: boolean, announce = on) {
   document.body.classList.toggle('is-reading', on);
   if (announce)
     toast(`Read mode — press Esc or ${shortcutLabel('readMode')} to exit`);
-  if (!on && document.fullscreenElement) void document.exitFullscreen();
+  if (on) return;
+  presenting?.stop();
+  presenting = null;
+  if (document.fullscreenElement) void document.exitFullscreen();
 }
 
 async function toggleFullScreen() {
-  if (document.fullscreenElement) {
-    await document.exitFullscreen();
+  if (document.fullscreenElement || presenting) {
     setReadMode(false);
-  } else {
-    setReadMode(true, false);
-    await document.documentElement.requestFullscreen().catch(() => {});
-    toast(`Full screen — press Esc or ${shortcutLabel('fullScreen')} to exit`);
+    return;
   }
+  const doc = activeDoc();
+  if (!doc) return;
+  setReadMode(true, false);
+  const [{ Presentation }] = await Promise.all([
+    import('./present'),
+    document.documentElement.requestFullscreen().catch(() => {}),
+  ]);
+  if (!document.body.classList.contains('is-reading')) return;
+  presenting = new Presentation(viewer, doc.id);
+  toast(`Full screen — press Esc or ${shortcutLabel('fullScreen')} to exit`);
 }
 document.addEventListener('fullscreenchange', () => {
   if (
@@ -5713,6 +5727,11 @@ window.addEventListener(
       }
     }
     if (document.querySelector('.dlg-backdrop')) return;
+    if (presenting?.key(e)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
     if (handleKey(e, isEditable(deepTarget(e)))) {
       e.preventDefault();
       e.stopPropagation();

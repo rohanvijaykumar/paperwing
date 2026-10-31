@@ -2104,6 +2104,13 @@ body.is-reading #right-rail {
 body.is-reading #views {
   border-top: 0;
 }
+/* Full screen: one page, on black (present.ts) */
+.present-frame {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  box-shadow: 0 0 0 200vmax #000;
+}
 
 /* ------------------------------------------------------------------ */
 /* Searchable tools sidebar & empty workspace                          */
