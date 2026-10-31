@@ -6,6 +6,7 @@
  * formatted get their typed values back when saved (unformat).
  */
 import {
+  PDFAcroText,
   PDFButton,
   PDFCheckBox,
   PDFDocument,
@@ -53,14 +54,25 @@ export interface FormInfo {
  *  scripts (see scripts.ts) */
 export async function inspectPdf(
   bytes: ArrayBuffer | Uint8Array
-): Promise<{ form: FormInfo | null; scripted: boolean }> {
+): Promise<{ form: FormInfo | null; scripted: boolean; xfa: boolean }> {
   // (pdf-lib's EncryptedPDFError can't be told apart with instanceof)
   const doc = await PDFDocument.load(bytes, {
     updateMetadata: false,
     ignoreEncryption: true,
   });
   const locked = doc.isEncrypted;
-  return { form: readForm(doc, locked), scripted: hasScripts(doc) };
+  // (before the form is read: pdf-lib drops XFA from it then)
+  const xfa = hasXfa(doc);
+  const form = readForm(doc, locked);
+  return { form, scripted: hasScripts(doc), xfa: xfa && !form };
+}
+
+/** Does it carry an Adobe XFA form. With no regular fields beside it, only
+ *  Acrobat can fill it in (browsers, like PDFium, show the page it carries
+ *  for other viewers). */
+function hasXfa(doc: PDFDocument): boolean {
+  const acro = doc.catalog.getAcroForm();
+  return !!acro?.dict.has(PDFName.of('XFA'));
 }
 
 const kindOf = (f: PDFField): FieldMeta['kind'] =>
@@ -171,12 +183,14 @@ export async function unformat(
     // (encrypted: pdf-lib can't write it; the shown text is kept)
     return bytes;
   }
-  const form = doc.getForm();
+  // The fields read straight from the document (getForm() would drop an
+  // XFA form it also carries)
+  const acro = doc.catalog.getAcroForm();
   let changed = false;
-  for (const [name, raw] of raws) {
-    const field = form.getFieldMaybe(name);
-    if (!(field instanceof PDFTextField)) continue;
-    field.acroField.dict.set(PDFName.of('V'), PDFHexString.fromText(raw));
+  for (const [field] of acro?.getAllFields() ?? []) {
+    const raw = raws.get(field.getFullyQualifiedName() ?? '');
+    if (raw === undefined || !(field instanceof PDFAcroText)) continue;
+    field.dict.set(PDFName.of('V'), PDFHexString.fromText(raw));
     changed = true;
   }
   if (!changed) return bytes;
