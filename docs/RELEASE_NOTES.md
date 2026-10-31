@@ -23,6 +23,11 @@ Fill in forms right on the page, form scripts that run, and a print dialog like 
   text. Printing in Fill a form, Fill & Sign and Add Stamps prints what you filled in, signed or
   stamped there. Thanks to [@austinwilkerson](https://github.com/austinwilkerson), whose
   [#24](https://github.com/rohanvijaykumar/paperwing/pull/24) showed the way.
+- **Full screen, as in Acrobat.** Ctrl+L shows one page at a time, as big as the screen allows, on
+  black. The arrow keys, Space, the mouse wheel or a click turn the page, and Esc leaves. Read mode
+  (Ctrl+H) still hides the toolbars inside the window.
+- **What's new.** After an update, Paperwing offers these notes once; Help ▸ What's new shows them
+  any time.
 
 ### Better
 
@@ -33,6 +38,9 @@ Fill in forms right on the page, form scripts that run, and a print dialog like 
 
 ### Fixed
 
+- **Dropping PDFs from File Explorer** opens them. Thanks to [@Lehnemann](https://github.com/Lehnemann) for reporting it ([#30](https://github.com/rohanvijaykumar/paperwing/issues/30)).
+- **Shortcuts follow your keyboard layout:** on Colemak, Dvorak, AZERTY or QWERTZ, Ctrl+Z is the key
+  marked Z. Thanks to [@Lehnemann](https://github.com/Lehnemann) ([#29](https://github.com/rohanvijaykumar/paperwing/issues/29)).
 - **Saved form values show** in the viewer. Thanks to
   [@austinwilkerson](https://github.com/austinwilkerson)
   ([#25](https://github.com/rohanvijaykumar/paperwing/pull/25)).
@@ -42,6 +50,8 @@ Fill in forms right on the page, form scripts that run, and a print dialog like 
 - Messages under a tool's main button are no longer hidden behind it.
 - Saving, printing or opening a tool that fails now says why; Escape closes only the top dialog;
   page changes in a background tab stay in that tab; saving twice quickly can't mix the two.
+
+<!-- end of the notes shown in the app -->
 
 On Windows, Paperwing 1.1 and later update themselves: open Paperwing and choose **Help ▸ Check
 for updates** if it hasn't offered 1.2.4 yet. On macOS and the portable build, download it below

@@ -1508,6 +1508,7 @@ function buildMenu() {
       {
         role: 'help',
         submenu: [
+          item("What's New in Paperwing", undefined, 'whatsNew'),
           item('Keyboard Shortcuts', undefined, 'shortcuts'),
           {
             label: 'Paperwing Website',

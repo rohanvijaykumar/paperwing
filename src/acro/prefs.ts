@@ -26,6 +26,8 @@ export interface Prefs {
   quickbarPos: { x: number; y: number } | null;
   /** The tool each quick toolbar button was last set to (button -> tool) */
   quickbarTools: Record<string, string>;
+  /** The version last run, to say what's new after an update */
+  seenVersion: string;
 }
 
 const KEY = 'paperwing:prefs';
@@ -43,7 +45,17 @@ const DEFAULTS: Prefs = {
   quickbarPos: null,
   quickbarTools: {},
   defaultZoom: 'automatic',
+  seenVersion: '',
 };
+
+/** Has Paperwing run here before (anything stored, as of this launch) */
+export const ranBefore = (() => {
+  try {
+    return Object.keys(localStorage).some((k) => k.startsWith('paperwing:'));
+  } catch {
+    return false;
+  }
+})();
 
 let cache: Prefs | null = null;
 

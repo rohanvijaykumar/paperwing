@@ -1874,6 +1874,37 @@ body.is-dragging.is-dropping-pages #drop-overlay {
   border-top: 1px solid var(--border);
 }
 
+/* What's new: the release notes */
+.dlg.dlg-whats-new {
+  width: min(600px, calc(100vw - 32px));
+}
+.dlg-body.whats-new {
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  line-height: 1.5;
+}
+.whats-new-lead {
+  color: var(--text-2);
+}
+.whats-new h3 {
+  margin: 16px 0 6px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.whats-new ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.whats-new li {
+  margin: 0 0 8px;
+}
+.whats-new-more {
+  margin-top: 14px;
+}
+
 /* Preferences & shortcuts: when they scroll, the scrollbar stops short of
    the rounded corner */
 .dlg-body.prefs,

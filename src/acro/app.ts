@@ -36,6 +36,7 @@ import {
   type AvailableUpdate,
   checkForUpdates,
   knownUpdate,
+  isNewer,
   isRemindLater,
   onUpdateAvailable,
   remindLater,
@@ -51,6 +52,7 @@ import {
 import {
   getPrefs,
   noteToolUsed,
+  ranBefore,
   setPrefs,
   togglePinned,
   type Prefs,
@@ -331,7 +333,8 @@ function showMenu(
 
 function toast(
   message: string,
-  action?: { label: string; onClick: () => void }
+  action?: { label: string; onClick: () => void },
+  showFor = 4200
 ) {
   const el = h(
     'div',
@@ -351,8 +354,8 @@ function toast(
       )
   );
   $('#toasts').append(el);
-  setTimeout(() => el.classList.add('is-leaving'), 4200);
-  setTimeout(() => el.remove(), 4600);
+  setTimeout(() => el.classList.add('is-leaving'), showFor);
+  setTimeout(() => el.remove(), showFor + 400);
 }
 
 /** A downloaded update: stays until the user restarts or puts it off */
@@ -4523,6 +4526,7 @@ $('#help-btn').addEventListener('click', (e) => {
           { divider: true },
         ]
       : []),
+    { label: "What's new", onClick: () => void showWhatsNew() },
     { label: 'Keyboard shortcuts', onClick: showShortcuts },
     {
       label: 'Search tools & commands',
@@ -4669,6 +4673,51 @@ function showAbout() {
       )
     ),
     'dlg-about'
+  );
+}
+
+/* What's new ---------------------------------------------------------- */
+
+async function showWhatsNew() {
+  const { releaseNotes } = await import('./whats-new');
+  const notes = releaseNotes(__PAPERWING_VERSION__);
+  const changes = h(
+    'a',
+    {
+      href: `${REPO_URL}/blob/main/CHANGELOG.md`,
+      target: '_blank',
+      rel: 'noopener',
+    },
+    'Every change, version by version'
+  );
+  dialog(
+    `What's new in Paperwing ${__PAPERWING_VERSION__}`,
+    h(
+      'div',
+      { class: 'dlg-body whats-new' },
+      ...(notes
+        ? [h('p', { class: 'whats-new-lead' }, notes.lead), notes.body]
+        : [h('p', {}, "This version's notes are on GitHub.")]),
+      h('p', { class: 'whats-new-more' }, changes)
+    ),
+    'dlg-whats-new'
+  );
+}
+
+/** Once after an update: a notice offering what's new */
+function noteUpdated() {
+  const seen = getPrefs().seenVersion;
+  const now = __PAPERWING_VERSION__;
+  if (seen === now) return;
+  setPrefs({ seenVersion: now });
+  // Nothing to tell on a first launch, or going back to an older version.
+  // (1.2.3 and earlier didn't note their version: having run before is
+  // enough.)
+  if (seen ? !isNewer(now, seen) : !ranBefore) return;
+  toast(
+    `Paperwing was updated to ${now}`,
+    { label: "What's new", onClick: () => void showWhatsNew() },
+    12000
   );
 }
 
@@ -5383,6 +5432,11 @@ function paletteCommands(): PaletteItem[] {
       run: () => setThemePref('system'),
     },
     { label: 'Keyboard shortcuts', icon: icon('help', 16), run: showShortcuts },
+    {
+      label: "What's new in Paperwing",
+      icon: icon('help', 16),
+      run: () => void showWhatsNew(),
+    },
     ...(knownUpdate()
       ? [
           {
@@ -5847,6 +5901,7 @@ if (desktop) {
     if (document.querySelector('.dlg-backdrop')) return;
     if (command === 'about') return showAbout();
     if (command === 'shortcuts') return showShortcuts();
+    if (command === 'whatsNew') return void showWhatsNew();
     if (command === 'undo' || command === 'redo') {
       // Inside a tool, undo belongs to the tool (as with forwarded keys):
       // it undoes typing in the focused field
@@ -5896,6 +5951,8 @@ declare const __PAPERWING_REPO__: string;
 
 // Inspection hook for the end-to-end tests (desktop/tests)
 (window as any).__acro = { viewer };
+
+setTimeout(noteUpdated, 1500);
 
 hydrateIcons();
 initTooltips();
