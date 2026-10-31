@@ -17,7 +17,8 @@ All notable changes to Paperwing are documented here. Paperwing follows
   Cyrillic, Chinese and Hindi, and the fields stay fields when saved (nothing is flattened). A Form
   fields panel lists the same fields, always in step with the page, and Highlight fields tints
   them; required fields are outlined. Read-only fields stay locked; signature fields lead to
-  Fill & Sign. Ctrl+Z takes back a change (all you typed in a field at once). Old Adobe XFA forms,
+  Fill & Sign. Fields fill in with the Hand tool too, as in Acrobat. Ctrl+Z takes back a change
+  (all you typed in a field at once). Old Adobe XFA forms,
   which only Acrobat can fill in, say so. Reported by
   [@austinwilkerson](https://github.com/austinwilkerson) in
   [#26](https://github.com/rohanvijaykumar/paperwing/issues/26).
@@ -58,6 +59,8 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ### Fixed
 
+- File Explorer's thumbnails and preview of a PDF form (Windows) left out its fields: the boxes,
+  checkboxes and what was filled in. They now show, as in Paperwing.
 - PDFs dragged in from File Explorer didn't open: the files were read after the browser had
   already let go of them. Reported by [@Lehnemann](https://github.com/Lehnemann) in [#30](https://github.com/rohanvijaykumar/paperwing/issues/30).
 - Shortcuts followed the keys' places on a US keyboard, not the keyboard layout: on Colemak,

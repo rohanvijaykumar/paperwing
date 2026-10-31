@@ -60,7 +60,8 @@ Remove-Item (Join-Path $out '*.exp'), (Join-Path $out '*.lib') -ErrorAction Sile
 if ($Test) {
   $fixtures = Resolve-Path (Join-Path $here '..\..\..\src\tests\fixtures')
   & (Join-Path $obj 'test-thumbnail.exe') (Join-Path $out 'PaperwingThumbnails.dll') `
-    (Join-Path $fixtures 'sample.pdf') (Join-Path $fixtures 'protected.pdf') (Join-Path $obj 'thumbnail.bmp')
+    (Join-Path $fixtures 'sample.pdf') (Join-Path $fixtures 'protected.pdf') (Join-Path $obj 'thumbnail.bmp') `
+    (Join-Path $fixtures 'form-only.pdf')
   if ($LASTEXITCODE) { throw 'thumbnail test failed' }
 }
 Write-Host "Built $out\PaperwingThumbnails.dll"
