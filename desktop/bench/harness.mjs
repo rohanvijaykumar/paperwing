@@ -120,9 +120,13 @@ export async function launch({
     try {
       browser.disconnect();
     } catch {}
+    // (on macOS a polite kill is a request to quit, which unsaved changes
+    // can hold up, so it's forced after that)
     const timer = setTimeout(() => child.kill(), 8000);
+    const force = setTimeout(() => child.kill('SIGKILL'), 12000);
     await exited;
     clearTimeout(timer);
+    clearTimeout(force);
     if (!profile && !keepProfile) {
       try {
         rmSync(userData, {
