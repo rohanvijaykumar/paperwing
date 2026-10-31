@@ -1,14 +1,15 @@
 ## Paperwing 1.2.4
 
-Fill in forms right on the page, form scripts that run, and a print dialog like Acrobat's.
+Fill in forms right on the page, form scripts that run, and a print dialog and full screen like
+Acrobat's.
 
 ### New
 
 - **Fill in forms on the page.** Click a field and type, tick checkboxes, choose radio buttons,
   pick from dropdowns and lists, and Tab from field to field, onto the next page too. The fields are
   Firefox's own, so they respond at once, and text in any script works (Cyrillic, Chinese, Hindi…).
-  A Form fields panel lists the same fields, always in step with the page; Ctrl+Z takes back a
-  change. Filled-in forms stay forms when saved. Old Adobe XFA forms, which only Acrobat can fill
+  Fields fill in with the Hand tool too, as in Acrobat. A Form fields panel lists the same fields,
+  always in step with the page; Ctrl+Z takes back a change. Filled-in forms stay forms when saved. Old Adobe XFA forms, which only Acrobat can fill
   in, say so. Thanks to [@austinwilkerson](https://github.com/austinwilkerson) for reporting it
   ([#26](https://github.com/rohanvijaykumar/paperwing/issues/26)).
 - **Form scripts run.** Totals are worked out as you fill in, numbers and dates are formatted,
