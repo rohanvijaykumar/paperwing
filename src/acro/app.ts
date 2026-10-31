@@ -5674,6 +5674,8 @@ const isEditable = (el: HTMLElement | null) =>
 
 /** Shared by the shell and by keys forwarded from tool frames */
 function handleKey(e: KeyInput, editing: boolean, fromFrame = false): boolean {
+  // An input method (Japanese, Chinese, Korean...) is still composing
+  if (e.key === 'Process' || e.key === 'Unidentified') return false;
   const hasMod = e.ctrlKey || e.metaKey || e.altKey;
   // Leave typing alone: plain keys and text-editing combos in fields
   if (editing && (!hasMod || /^[zyxcva]$/i.test(e.key))) return false;
@@ -5697,6 +5699,7 @@ function handleKey(e: KeyInput, editing: boolean, fromFrame = false): boolean {
 window.addEventListener(
   'keydown',
   (e) => {
+    if (e.isComposing) return;
     if (e.key === 'Escape') {
       if (document.body.classList.contains('is-reading')) {
         setReadMode(false);

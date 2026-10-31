@@ -101,6 +101,84 @@ describe('keymap', () => {
     ).toBe('findPrev');
   });
 
+  it('follows the keyboard layout for letters and digits (#29)', () => {
+    // Colemak: the key marked S sits where QWERTY has D
+    const colemakS = key({ key: 's', code: 'KeyD', ctrlKey: true });
+    expect(findShortcut(colemakS, false, true)?.id).toBe('save');
+    // and the key in QWERTY's S place types R
+    const colemakR = key({ key: 'r', code: 'KeyS', ctrlKey: true });
+    expect(matchesCombo(colemakR, 'Ctrl+S', false)).toBe(false);
+    // AZERTY: Ctrl+Z is the key marked Z (QWERTY's W)
+    const azertyZ = key({ key: 'z', code: 'KeyW', ctrlKey: true });
+    expect(findShortcut(azertyZ, false, true)?.id).toBe('undo');
+    // AZERTY digits need Shift, so the key's place counts
+    const azerty1 = key({ key: '&', code: 'Digit1', ctrlKey: true });
+    expect(findShortcut(azerty1, false, true)?.id).toBe('actualSize');
+  });
+
+  it('falls back to the US key place for non-Latin layouts and ⌥', () => {
+    // Russian: the key in S's place types ы
+    const russianS = key({ key: 'ы', code: 'KeyS', ctrlKey: true });
+    expect(findShortcut(russianS, false, true)?.id).toBe('save');
+    // ⌥ changes the character on macOS
+    const optionS = key({
+      key: 'ß',
+      code: 'KeyS',
+      metaKey: true,
+      altKey: true,
+    });
+    expect(matchesCombo(optionS, 'Alt+Ctrl+S', true)).toBe(true);
+  });
+
+  it('never takes a character typed with AltGr for a shortcut', () => {
+    // Polish ą (AltGr+A), and a character AltGr+W types on some layouts,
+    // must not trigger Ctrl+Alt shortcuts such as Close all
+    const polishA = key({
+      key: 'ą',
+      code: 'KeyA',
+      ctrlKey: true,
+      altKey: true,
+    });
+    expect(findShortcut(polishA, false, true)).toBeUndefined();
+    const altGrW = key({ key: 'ẃ', code: 'KeyW', ctrlKey: true, altKey: true });
+    expect(findShortcut(altGrW, false, true)).toBeUndefined();
+    // German @ (AltGr+Q)
+    const germanAt = key({
+      key: '@',
+      code: 'KeyQ',
+      ctrlKey: true,
+      altKey: true,
+    });
+    expect(findShortcut(germanAt, false, true)).toBeUndefined();
+    // A real Ctrl+Alt+W still closes all
+    const closeAll = key({
+      key: 'w',
+      code: 'KeyW',
+      ctrlKey: true,
+      altKey: true,
+    });
+    expect(findShortcut(closeAll, false, true)?.id).toBe(
+      findShortcut(
+        key({ key: 'W', code: 'KeyW', ctrlKey: true, shiftKey: true }),
+        false,
+        true
+      )?.id
+    );
+  });
+
+  it('zooms with the + and - keys of any layout, not a dead key', () => {
+    // QWERTZ: + has its own key; the key in US = place is a dead key (´)
+    const qwertzPlus = key({ key: '+', code: 'BracketRight', ctrlKey: true });
+    expect(findShortcut(qwertzPlus, false, true)?.id).toBe('zoomIn');
+    const qwertzMinus = key({ key: '-', code: 'Slash', ctrlKey: true });
+    expect(findShortcut(qwertzMinus, false, true)?.id).toBe('zoomOut');
+    const dead = key({ key: 'Dead', code: 'Equal', ctrlKey: true });
+    expect(findShortcut(dead, false, true)).toBeUndefined();
+    // The keypad
+    const keypad = key({ key: '+', code: 'NumpadAdd', ctrlKey: true });
+    expect(findShortcut(keypad, false, true)?.id).toBe('zoomIn');
+  });
+
   it('uses Control (not Command) for tab switching on macOS', () => {
     const e = key({ key: 'Tab', code: 'Tab', ctrlKey: true });
     expect(findShortcut(e, true, true)?.id).toBe('nextTab');

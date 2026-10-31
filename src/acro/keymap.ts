@@ -271,18 +271,42 @@ export interface KeyInput {
   altKey: boolean;
 }
 
-const KEY_ALIASES: Record<string, (e: KeyInput) => boolean> = {
-  Plus: (e) =>
-    e.code === 'Equal' ||
-    e.code === 'NumpadAdd' ||
+/*
+ * Shortcuts follow the keyboard layout: Ctrl+Z is the key marked Z on
+ * Colemak, Dvorak, AZERTY or QWERTZ too, as in browsers and Acrobat. Only
+ * when a key doesn't type a Latin character does its place on a US keyboard
+ * count instead: layouts for other scripts (Russian, Greek, Hebrew, Hindi...),
+ * digits that need Shift (AZERTY), and ⌥ on macOS, which changes the
+ * character. AltGr (Ctrl+Alt on Windows and Linux) types characters such as
+ * Polish ą or German @: those are typing, never shortcuts.
+ */
+
+/** A printable ASCII character */
+const latin = (e: KeyInput) => /^[!-~]$/.test(e.key);
+
+/** A character typed with AltGr */
+const altGr = (e: KeyInput, mac: boolean) =>
+  !mac && e.ctrlKey && e.altKey && [...e.key].length === 1;
+
+/** May the key's place on a US keyboard count */
+const byPlace = (e: KeyInput, mac: boolean) =>
+  e.key !== 'Dead' && !altGr(e, mac);
+
+const KEY_ALIASES: Record<string, (e: KeyInput, mac: boolean) => boolean> = {
+  Plus: (e, mac) =>
     e.key === '+' ||
-    e.key === '=',
-  Minus: (e) =>
-    e.code === 'Minus' ||
-    e.code === 'NumpadSubtract' ||
+    e.key === '=' ||
+    (!latin(e) &&
+      byPlace(e, mac) &&
+      (e.code === 'Equal' || e.code === 'NumpadAdd')),
+  Minus: (e, mac) =>
     e.key === '-' ||
-    e.key === '_',
-  Comma: (e) => e.code === 'Comma',
+    e.key === '_' ||
+    (!latin(e) &&
+      byPlace(e, mac) &&
+      (e.code === 'Minus' || e.code === 'NumpadSubtract')),
+  Comma: (e, mac) =>
+    e.key === ',' || (!latin(e) && byPlace(e, mac) && e.code === 'Comma'),
   Right: (e) => e.key === 'ArrowRight',
   Left: (e) => e.key === 'ArrowLeft',
   Up: (e) => e.key === 'ArrowUp',
@@ -306,10 +330,16 @@ export function matchesCombo(
   if (!mac && e.metaKey) return false;
 
   const alias = KEY_ALIASES[key];
-  if (alias) return alias(e);
+  if (alias) return alias(e, mac);
   if (/^\d$/.test(key))
-    return e.code === `Digit${key}` || e.code === `Numpad${key}`;
-  if (/^[A-Z]$/.test(key)) return e.code === `Key${key}`;
+    return /^\d$/.test(e.key)
+      ? e.key === key
+      : byPlace(e, mac) &&
+          (e.code === `Digit${key}` || e.code === `Numpad${key}`);
+  if (/^[A-Z]$/.test(key))
+    return /^[a-z]$/i.test(e.key)
+      ? e.key.toUpperCase() === key
+      : !latin(e) && byPlace(e, mac) && e.code === `Key${key}`;
   return e.key === key;
 }
 

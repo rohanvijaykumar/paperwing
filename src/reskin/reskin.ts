@@ -282,7 +282,7 @@ if (shell) {
   // App-level shortcuts (Ctrl+S, Ctrl+W, Ctrl+Tab, F4...) still work while
   // focus is inside the tool: forward the ones the tool didn't handle.
   window.addEventListener('keydown', (e) => {
-    if (e.defaultPrevented) return;
+    if (e.defaultPrevented || e.isComposing) return;
     const mod = e.ctrlKey || e.metaKey || e.altKey;
     if (!mod && !/^F\d{1,2}$/.test(e.key)) return;
     const editing = isEditable(e.target as HTMLElement | null);
