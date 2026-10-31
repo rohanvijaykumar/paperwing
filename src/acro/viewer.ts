@@ -192,6 +192,40 @@ export interface DocView {
 
 /** PDFium's error code for a document that needs a password */
 const PASSWORD_REQUIRED = 4;
+/** PDFium's annotation subtype for form widgets */
+const WIDGET = 20;
+
+/** A form field's widget on a page, as PDFium reads it */
+export interface PageWidget {
+  /** PDFium's name for the widget (its /NM, assigned if missing) */
+  id: string;
+  pageIndex: number;
+  /** PDF points from the page's top left, before zooming */
+  rect: {
+    origin: { x: number; y: number };
+    size: { width: number; height: number };
+  };
+  field: {
+    /** Field flags (/Ff): read-only 1, required 2, multi-line 4096... */
+    flag: number;
+    /** PDFium's field type: 1 push button, 2 checkbox, 3 radio button,
+     *  4 dropdown, 5 list, 6 text, 7 signature */
+    type: number;
+    name: string;
+    /** Its tooltip (/TU) */
+    alternateName: string;
+    value: string;
+    isChecked: boolean | number;
+    options: { label: string; isSelected: boolean | number }[];
+  };
+}
+
+/** What PDFium is told to do to a field */
+export type FormValue =
+  | { kind: 'text'; text: string }
+  | { kind: 'selection'; index: number; isSelected: boolean }
+  /** Presses Enter on it: a checkbox toggles, a radio button is chosen */
+  | { kind: 'checked' };
 
 /** The viewer's annotation styles sidebar */
 const STYLES_PANEL = 'annotation-panel';
@@ -538,6 +572,151 @@ export class Viewer {
     if (!(action === 'undo' ? h.canUndo() : h.canRedo())) return false;
     h[action]();
     return true;
+  }
+
+  /** The document's form fields (PDFium's widgets), page by page, as the
+   *  open document holds them now. Null if the document isn't open. */
+  async formWidgets(tabId: string): Promise<PageWidget[][] | null> {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return null;
+    const doc = this.cap('document-manager').getDocument(id);
+    if (!doc) return null;
+    const engine = (this.registry as any).getEngine();
+    const pages: PageWidget[][] = [];
+    for (const page of doc.pages) {
+      const annotations: any[] = await engine
+        .getPageAnnotations(doc, page)
+        .toPromise();
+      pages.push(
+        annotations
+          .filter((a) => a.type === WIDGET && a.field)
+          .map((a) => ({ ...a, pageIndex: page.index }))
+      );
+    }
+    return pages;
+  }
+
+  /** The widgets on one page, as the document holds them now */
+  async pageWidgets(tabId: string, pageIndex: number): Promise<PageWidget[]> {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return [];
+    const doc = this.cap('document-manager').getDocument(id);
+    const page = doc?.pages?.[pageIndex];
+    if (!page) return [];
+    const annotations: any[] = await (this.registry as any)
+      .getEngine()
+      .getPageAnnotations(doc, page)
+      .toPromise();
+    return annotations
+      .filter((a) => a.type === WIDGET && a.field)
+      .map((a) => ({ ...a, pageIndex }));
+  }
+
+  /**
+   * Fills in a field in the open document: PDFium sets the value and draws
+   * the field anew (as Chrome does), so what shows, saves and prints is the
+   * document's own rendering of it. Redraws the pages given (the field's
+   * other widgets may be on other pages).
+   */
+  async setFormValue(
+    tabId: string,
+    widget: PageWidget,
+    value: FormValue,
+    redraw: number[] = [widget.pageIndex]
+  ): Promise<boolean> {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return false;
+    const doc = this.cap('document-manager').getDocument(id);
+    const page = doc?.pages?.[widget.pageIndex];
+    if (!page) return false;
+    const ok = await (this.registry as any)
+      .getEngine()
+      .setFormFieldValue(doc, page, widget, value)
+      .toPromise()
+      .catch(() => false);
+    if (ok) this.refreshPages(tabId, redraw);
+    return !!ok;
+  }
+
+  /** Draws the pages again (after the document changed underneath) */
+  refreshPages(tabId: string, pageIndexes: number[]) {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry || !pageIndexes.length) return;
+    (this.registry as any).store.dispatch({
+      type: 'REFRESH_PAGES',
+      payload: { documentId: id, pageIndexes: [...new Set(pageIndexes)] },
+    });
+  }
+
+  /** Where each page sits (PDF points, before zooming) and the zoom: the
+   *  form layer lines its fields up with the pages by these */
+  pageLayout(tabId: string): {
+    scale: number;
+    pages: Map<number, { x: number; y: number }>;
+  } | null {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return null;
+    try {
+      const layout = this.cap('scroll').forDocument(id).getLayout();
+      const pages = new Map<number, { x: number; y: number }>();
+      for (const item of layout.virtualItems ?? [])
+        for (const p of item.pageLayouts ?? [])
+          pages.set(p.pageIndex, { x: item.x + p.x, y: item.y + p.y });
+      const scale =
+        this.cap('document-manager').getDocumentState?.(id)?.scale ??
+        this.zoom(tabId) ??
+        1;
+      return { scale, pages };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Is this tab's document the one the viewer shows now */
+  isShowing(tabId: string): boolean {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return false;
+    return this.cap('document-manager').getActiveDocumentId() === id;
+  }
+
+  /** Each page's size (PDF points, unrotated) */
+  pageSizes(tabId: string): { width: number; height: number }[] {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return [];
+    const doc = this.cap('document-manager').getDocument(id);
+    return (doc?.pages ?? []).map((p: any) => p.size);
+  }
+
+  /** May its form be filled in (an encrypted document can forbid it) */
+  canFillForms(tabId: string): boolean {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return false;
+    const doc = this.cap('document-manager').getDocument(id);
+    if (!doc) return false;
+    // Bit 9 ("fill in forms") of the permissions; bit 6 (modify annotations)
+    // also allows it. Unencrypted documents allow everything.
+    if (!doc.isEncrypted || doc.isOwnerUnlocked) return true;
+    const p = Number(doc.permissions ?? -1);
+    return p < 0 || (p & 0x100) !== 0 || (p & 0x20) !== 0;
+  }
+
+  /** The viewer's shadow root (its pages live in it) */
+  shadow(): ShadowRoot | null {
+    return (this.container as any)?.shadowRoot ?? null;
+  }
+
+  /** Fires when the pages move: scrolling, zooming, rotating, relayout */
+  onPagesMoved(fn: (tabId: string) => void): Unsub {
+    const subs: Array<() => void> = [];
+    const on = (e: { documentId?: string }) => {
+      const tabId = e?.documentId && this.tabFor(e.documentId);
+      if (tabId) fn(tabId);
+    };
+    const scroll = this.cap('scroll');
+    subs.push(scroll.onLayoutChange?.(on) ?? (() => {}));
+    subs.push(scroll.onScroll?.(on) ?? (() => {}));
+    subs.push(this.cap('zoom').onZoomChange?.(on) ?? (() => {}));
+    return () => subs.forEach((u) => typeof u === 'function' && u());
   }
 
   /** Page count and size of the first page (PDF points) */

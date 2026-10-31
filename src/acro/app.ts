@@ -37,12 +37,9 @@ import {
 } from './viewer';
 import { Thumbnails, thumbUrl } from './thumbnails';
 import { desktop, isMac, key, toFile } from './desktop';
-import {
-  inspectPdf,
-  setFieldValues,
-  type FieldValues,
-  type FormInfo,
-} from './forms';
+import { inspectPdf, type FormInfo } from './forms';
+import { FormLayer, FormSession, type FormChange } from './form-layer';
+import { fillable, type FieldState, type LiveField } from './form-model';
 import { showPrintDialog, type PrintBridge } from './print';
 import {
   type AvailableUpdate,
@@ -534,6 +531,15 @@ interface Tab {
   diskDismissed?: string;
   /** The shown version's form fields (null: none), see inspectDoc */
   form?: FormInfo | null;
+  /** Its form as the open document holds it, filled in on the page and in
+   *  the panel (form-layer.ts) */
+  formSession?: FormSession;
+  /** Form changes to undo and redo, and the order of the undoable edits
+   *  (the viewer's own, or the form's) */
+  formUndo?: FormChange[];
+  formRedo?: FormChange[];
+  edits?: ('viewer' | 'form')[];
+  editsRedo?: ('viewer' | 'form')[];
   /** The form fields panel is open */
   formOpen?: boolean;
   /** The document has scripts Paperwing doesn't run; the notice about
@@ -735,6 +741,7 @@ function activate(id: string) {
   });
 
   if (id === 'home') refreshRecent();
+  if (!tab) syncFormLayer(undefined);
   if (tab) {
     if (tab.pending) void loadPending(tab);
     else if (!tab.blank) void viewer.activate(tab.id);
@@ -776,6 +783,7 @@ function closeTab(id: string) {
     .forEach((el) => el.remove());
   void flushView(tab); // reads the viewer, so before it closes the document
   cancelRecoveryCopy(tab);
+  if (formLayer.current?.tabId === tab.id) formLayer.show(null);
   viewer.close(tab.id);
   if (tab.recoveryId) void desktop?.recovery?.delete(tab.recoveryId);
   if (activeId === id) {
@@ -1232,11 +1240,31 @@ async function inspectDoc(
   if (inspections.get(tab) !== seq || !tabs.includes(tab)) return;
   tab.form = info.form;
   tab.scripted = info.scripted;
-  if (!tab.form) tab.formOpen = false;
+  // The fields as the open document holds them (PDFium reads them, also
+  // when pdf-lib can't: encrypted documents)
+  if (tab.form) {
+    if (!tab.formSession) {
+      const session = new FormSession(viewer, tab.id);
+      session.onChange((change) => onFormChange(tab, change));
+      tab.formSession = session;
+    }
+    try {
+      await tab.formSession.load(tab.form);
+    } catch (err) {
+      console.warn(`Couldn't read the fields of ${tab.name}`, err);
+    }
+    if (inspections.get(tab) !== seq || !tabs.includes(tab)) return;
+    if (!tab.formSession.fields.length) tab.form = null;
+  }
+  if (!tab.form) {
+    tab.formOpen = false;
+    tab.formSession = undefined;
+  }
   if (activeId === tab.id) {
     renderRightRail(tab);
     renderScriptBar();
     renderFormPanel();
+    syncFormLayer(tab, true);
   }
   // Once per file a session: not again each time it's opened or restored
   const key = tab.path ?? tab.name;
@@ -1244,13 +1272,85 @@ async function inspectDoc(
     opened &&
     !tab.formOpen &&
     !formToastShown.has(key) &&
-    tab.form?.fields.some((f) => !f.readOnly)
+    tab.formSession?.allowed &&
+    tab.formSession.fields.some(fillable)
   ) {
     formToastShown.add(key);
-    toast(`${tab.name} has form fields you can fill in`, {
-      label: 'Fill in',
+    toast(`${tab.name} has form fields: click one to fill it in`, {
+      label: 'Show fields',
       onClick: () => toggleFormPanel(tab, true),
     });
+  }
+}
+
+/** The form layer (fields filled in on the page) over the shown document */
+const formLayer = new FormLayer(viewer, {
+  onSignature: () => {
+    const tab = activeTab();
+    if (!tab) return;
+    toast('Sign this document with Fill & Sign', {
+      label: 'Fill & Sign',
+      onClick: () => useQuickTool(tab, 'sign'),
+    });
+  },
+});
+formLayer.setHighlight(getPrefs().highlightFields);
+
+/** Shows the active document's fields on its pages, ready to fill in while
+ *  selecting (not while an annotation tool, the hand or zoom is in use).
+ *  `rebuilt`: the document's fields were read again */
+function syncFormLayer(tab: Tab | undefined, rebuilt = false) {
+  const show =
+    tab &&
+    activeId === tab.id &&
+    !tab.loading &&
+    !tab.blank &&
+    !tab.fullTool &&
+    tab.formSession?.fields.length
+      ? tab.formSession
+      : null;
+  if (rebuilt && show) formLayer.show(null);
+  formLayer.show(show);
+  if (show && tab)
+    formLayer.setInteractive(
+      !tab.activeAnnot && viewer.mode(tab.id) === 'select'
+    );
+}
+
+/** A field was filled in (on the page, in the panel, or by undo/redo) */
+let formUndoing = false;
+function onFormChange(tab: Tab, change: FormChange) {
+  if (!formUndoing) {
+    tab.formUndo = [...(tab.formUndo ?? []), change].slice(-200);
+    tab.formRedo = [];
+    tab.edits = [...(tab.edits ?? []), 'form' as const].slice(-400);
+    tab.editsRedo = [];
+  }
+  const wasDirty = isDirty(tab);
+  tab.version++;
+  if (!wasDirty) renderTabs();
+  scheduleRecoveryCopy(tab);
+  if (activeId === tab.id) renderFormPanel();
+}
+
+/** Ctrl+Z / Ctrl+Shift+Z for a form change. False if there was none. */
+async function stepForm(tab: Tab, action: 'undo' | 'redo'): Promise<boolean> {
+  const from = action === 'undo' ? tab.formUndo : tab.formRedo;
+  const change = from?.pop();
+  if (!change || !tab.formSession) return false;
+  formUndoing = true;
+  try {
+    const ok = await tab.formSession.set(
+      change.name,
+      action === 'undo' ? change.before : change.after
+    );
+    if (ok) {
+      const to = action === 'undo' ? 'formRedo' : 'formUndo';
+      tab[to] = [...(tab[to] ?? []), change];
+    }
+    return ok;
+  } finally {
+    formUndoing = false;
   }
 }
 
@@ -1304,90 +1404,42 @@ function toggleFormPanel(tab: Tab, open = !tab.formOpen) {
     viewer.setZoom(tab.id, room / pageWidth);
 }
 
-/** The form fields panel beside the document: what's typed (or ticked) is
- *  written into the document when the field is left */
+/** The form fields panel beside the document: the same fields as on the
+ *  page, listed (filled in the same way: PDFium holds the values) */
 function renderFormPanel(): void {
   const tab = activeTab();
-  const form = tab?.form;
-  const show = !!form && !!tab?.formOpen && !tab.loading && !tab.blank;
+  const session = tab?.formSession;
+  const show =
+    !!session?.fields.length && !!tab?.formOpen && !tab.loading && !tab.blank;
   $('#doc-stage').classList.toggle('has-form-panel', show);
   const panel = document.getElementById('form-panel');
   if (!show) {
     panel?.remove();
     return;
   }
+  const allowed = session.allowed;
   // The same fields: only update the values (rebuilding would take the
   // focus away from the field being filled in)
-  const key = [tab.id, form.locked, ...form.fields.map((f) => f.name)].join(
-    '\n'
-  );
+  const key = [
+    tab.id,
+    allowed,
+    ...session.fields.map((f) => `${f.name}:${f.kind}:${f.options.join('|')}`),
+  ].join('\n');
   if (panel?.dataset.key === key) {
-    for (const f of form.fields) {
-      const input = panel.querySelector<HTMLInputElement>(
-        `[data-field="${CSS.escape(f.name)}"]`
-      );
-      if (!input || input === document.activeElement) continue;
-      if (f.kind === 'checkbox') input.checked = f.value === true;
-      else input.value = String(f.value);
-    }
+    for (const f of session.fields) syncPanelField(panel, f);
     return;
   }
-  const rows = form.fields.map((f, i) => {
-    const id = `fp-field-${i}`;
-    const disabled = f.readOnly || form.locked;
-    const readOnly = f.readOnly ? h('small', {}, ' (read-only)') : null;
-    const page = f.page
-      ? h(
-          'button',
-          {
-            type: 'button',
-            class: 'fp-page',
-            // Tab goes from field to field
-            tabindex: '-1',
-            title: `Go to page ${f.page}`,
-            onClick: () => viewer.goToPage(tab.id, f.page),
-          },
-          `p. ${f.page}`
-        )
-      : null;
-    if (f.kind === 'checkbox') {
-      const input = h('input', {
-        type: 'checkbox',
-        id,
-        checked: f.value === true,
-        disabled,
-        'data-field': f.name,
-      });
-      input.addEventListener('change', () =>
-        fillFields(tab, { [f.name]: input.checked })
-      );
-      return h(
-        'div',
-        { class: 'fp-field is-check' },
-        input,
-        h('label', { for: id }, f.label, readOnly),
-        page
-      );
-    }
-    const input = h(f.multiline ? 'textarea' : 'input', {
-      class: 'dlg-input',
-      id,
-      disabled,
-      maxlength: f.maxLength,
-      rows: f.multiline ? 3 : undefined,
-      'data-field': f.name,
-    });
-    input.value = String(f.value);
-    input.addEventListener('change', () =>
-      fillFields(tab, { [f.name]: input.value })
-    );
-    return h(
-      'div',
-      { class: 'fp-field' },
-      h('label', { for: id }, f.label, readOnly),
-      page,
-      input
-    );
+  const rows = session.fields
+    .filter((f) => f.kind !== 'button')
+    .map((f, i) => panelRow(tab, session, f, i, allowed));
+  const highlight = h('input', {
+    type: 'checkbox',
+    id: 'fp-highlight',
+    checked: getPrefs().highlightFields,
+  });
+  highlight.addEventListener('change', () => {
+    setPrefs({ highlightFields: highlight.checked });
+    formLayer.setHighlight(highlight.checked);
   });
   const next = h(
     'aside',
@@ -1401,82 +1453,172 @@ function renderFormPanel(): void {
     h(
       'div',
       { class: 'fp-body' },
-      form.locked &&
+      h(
+        'div',
+        { class: 'fp-field is-check fp-option' },
+        highlight,
+        h('label', { for: 'fp-highlight' }, 'Highlight fields on the page')
+      ),
+      !allowed &&
         h(
           'p',
           { class: 'muted' },
-          "This document is protected, so its form can't be filled in here."
+          "This document doesn't allow its form to be filled in."
         ),
-      ...rows,
-      !form.locked &&
-        form.other > 0 &&
-        h(
-          'p',
-          { class: 'muted' },
-          form.other === 1
-            ? "1 other field (a choice, radio button or signature) can't be filled in here."
-            : `${form.other} other fields (choices, radio buttons, signatures) can't be filled in here.`
-        )
+      ...rows
     )
   );
   next.dataset.key = key;
   if (panel) panel.replaceWith(next);
   else $('#doc-stage').append(next);
+  for (const f of session.fields) syncPanelField(next, f);
 }
 
-/** Form writes waiting their turn, per tab */
-const formWrites = new WeakMap<Tab, Promise<void>>();
+/** One field in the form panel */
+function panelRow(
+  tab: Tab,
+  session: FormSession,
+  f: LiveField,
+  i: number,
+  allowed: boolean
+): HTMLElement {
+  const id = `fp-field-${i}`;
+  const disabled = f.readOnly || !allowed;
+  const note = f.readOnly
+    ? h('small', {}, ' (read-only)')
+    : f.required
+      ? h('small', {}, ' (required)')
+      : null;
+  const first = f.widgets[0];
+  const page = first
+    ? h(
+        'button',
+        {
+          type: 'button',
+          class: 'fp-page',
+          // Tab goes from field to field
+          tabindex: '-1',
+          title: `Go to page ${first.pageIndex + 1}`,
+          onClick: () => viewer.goToPage(tab.id, first.pageIndex + 1),
+        },
+        `p. ${first.pageIndex + 1}`
+      )
+    : null;
+  const set = (value: FieldState): void => {
+    void session.set(f.name, value);
+  };
+  const label = (forId: string) => h('label', { for: forId }, f.label, note);
 
-/** What's typed into the form panel is written into the document when the
- *  field is left. Before a document is saved, printed or closed, leave the
- *  field being filled in and wait for the writes, or Ctrl+S right after
- *  typing would save the document without it. */
+  if (f.kind === 'checkbox') {
+    const input = h('input', {
+      type: 'checkbox',
+      id,
+      disabled,
+      'data-field': f.name,
+    });
+    input.addEventListener('change', () => set(input.checked));
+    return h('div', { class: 'fp-field is-check' }, input, label(id), page);
+  }
+  if (f.kind === 'radio') {
+    const group = h(
+      'div',
+      { class: 'fp-radios', role: 'radiogroup', 'aria-label': f.label },
+      ...f.options.map((o, n) => {
+        const rid = `${id}-${n}`;
+        const input = h('input', {
+          type: 'radio',
+          id: rid,
+          name: id,
+          disabled,
+          'data-field': f.name,
+          'data-index': String(n),
+        });
+        input.addEventListener('change', () => {
+          if (input.checked) set(n);
+        });
+        return h(
+          'div',
+          { class: 'fp-field is-check' },
+          input,
+          h('label', { for: rid }, o)
+        );
+      })
+    );
+    return h(
+      'div',
+      { class: 'fp-field' },
+      h('span', { class: 'fp-label' }, f.label, note),
+      page,
+      group
+    );
+  }
+  if (f.kind === 'signature') {
+    return h(
+      'div',
+      { class: 'fp-field' },
+      h('span', { class: 'fp-label' }, f.label),
+      page,
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'pill-btn fp-sign',
+          onClick: () => useQuickTool(tab, 'sign'),
+        },
+        'Sign with Fill & Sign'
+      )
+    );
+  }
+  if (f.kind === 'dropdown' || f.kind === 'list') {
+    const select = h(
+      'select',
+      { class: 'pref-select fp-select', id, disabled, 'data-field': f.name },
+      h('option', { value: '-1', disabled: true }, 'Choose…'),
+      ...f.options.map((o, n) => h('option', { value: String(n) }, o))
+    );
+    select.addEventListener('change', () => set(Number(select.value)));
+    return h('div', { class: 'fp-field' }, label(id), page, select);
+  }
+  const input = h(f.multiline ? 'textarea' : 'input', {
+    class: 'dlg-input',
+    id,
+    disabled,
+    type: f.multiline ? undefined : f.password ? 'password' : 'text',
+    maxlength: f.maxLength,
+    rows: f.multiline ? 3 : undefined,
+    'data-field': f.name,
+  });
+  input.addEventListener('change', () => set(input.value));
+  return h('div', { class: 'fp-field' }, label(id), page, input);
+}
+
+/** A field's control in the panel showing its value (not while it's being
+ *  filled in) */
+function syncPanelField(panel: HTMLElement, f: LiveField) {
+  const controls = panel.querySelectorAll<
+    HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+  >(`[data-field="${CSS.escape(f.name)}"]`);
+  for (const c of controls) {
+    if (c === document.activeElement) continue;
+    if (c instanceof HTMLSelectElement)
+      c.value = String(typeof f.value === 'number' ? f.value : -1);
+    else if (c instanceof HTMLInputElement && c.type === 'checkbox')
+      c.checked = f.value === true;
+    else if (c instanceof HTMLInputElement && c.type === 'radio')
+      c.checked = f.value === Number(c.dataset.index);
+    else c.value = typeof f.value === 'string' ? f.value : '';
+  }
+}
+
+/** Before a document is saved, printed, exported or closed: leave the field
+ *  being filled in (on the page or in the panel), so what was typed goes
+ *  in, and wait for it. Ctrl+S right after typing would save without it. */
 async function settleForms(list: Tab[]): Promise<void> {
   const field = document.activeElement;
   if (field instanceof HTMLElement && field.closest('#form-panel'))
     field.blur();
-  await Promise.all(list.map((t) => formWrites.get(t)));
-}
-
-/** Writes form values into the document (see forms.ts), one change after
- *  another. The tab reopens on the result, unsaved, and Ctrl+Z takes it
- *  back as for page changes. */
-function fillFields(tab: Tab, values: FieldValues) {
-  const write = async () => {
-    const failed = (message: string) => {
-      toast(`Couldn't fill in the form: ${message}`);
-      // Show what the document holds again
-      if (activeId === tab.id) {
-        document.getElementById('form-panel')?.remove();
-        renderFormPanel();
-      }
-    };
-    if (!tabs.includes(tab)) return;
-    if (tab.loading || tab.blank || tab.fullTool || tab.pageBusy) {
-      failed('the document is busy, try again');
-      return;
-    }
-    tab.pageBusy = true;
-    try {
-      const before = await viewer.exportBytes(tab.id);
-      if (!before) throw new Error('the document is still loading');
-      const after = await setFieldValues(before, values);
-      await showPageVersion(
-        tab,
-        after,
-        tab.page.current || 1,
-        viewer.scrollPos(tab.id)
-      );
-      tab.pageUndo = [...(tab.pageUndo ?? []), before].slice(-PAGE_UNDO_LIMIT);
-      tab.pageRedo = [];
-    } catch (err) {
-      console.error(err);
-      failed((err as Error).message ?? String(err));
-    } finally {
-      tab.pageBusy = false;
-    }
-  };
-  formWrites.set(tab, (formWrites.get(tab) ?? Promise.resolve()).then(write));
+  formLayer.blur();
+  await Promise.all(list.map((t) => t.formSession?.settled()));
 }
 
 /** Show the version of a tab's file that's on disk now (asks first if there
@@ -2265,6 +2407,7 @@ function renderDocChrome(tab: Tab) {
   renderDiskBar();
   renderScriptBar();
   renderFormPanel();
+  syncFormLayer(tab);
   $('#doc-stage').classList.toggle('is-blank', tab.blank);
   $('#view-doc').classList.toggle('is-workspace', tab.blank);
   for (const id of ['#save-btn', '#print-btn', '#download-btn']) {
@@ -2524,13 +2667,19 @@ viewer.onActiveTool((tabId, toolId) => {
   if (toolId && pendingButton) buttonForTool.set(toolId, pendingButton);
   pendingButton = null;
   tab.activeAnnot = toolId ? (buttonForTool.get(toolId) ?? 'more') : null;
-  if (activeId === tabId) renderQuickbar(tab);
+  if (activeId === tabId) {
+    renderQuickbar(tab);
+    syncFormLayer(tab);
+  }
 });
 
 viewer.onMode((tabId) => {
   if (activeId === tabId) {
     const tab = tabs.find((t) => t.id === tabId);
-    if (tab) renderQuickbar(tab);
+    if (tab) {
+      renderQuickbar(tab);
+      syncFormLayer(tab);
+    }
   }
 });
 
@@ -2773,6 +2922,12 @@ async function showPageVersion(
   const shown = bytes.slice(0);
   await viewer.replace(tab.id, bytes, { page, zoom: zoom ?? 1, scroll });
   if (!tabs.includes(tab)) return;
+  // A new document underneath: the viewer's and the form's undo start over
+  // (the page versions hold what was filled in)
+  tab.formUndo = [];
+  tab.formRedo = [];
+  tab.edits = [];
+  tab.editsRedo = [];
   void inspectDoc(tab, shown);
   if (panel) viewer.toggleSidebar(tab.id, panel.id, panel.tab);
   tab.page = viewer.pageInfo(tab.id) ?? tab.page;
@@ -2802,9 +2957,32 @@ async function stepPages(tab: Tab, action: 'undo' | 'redo') {
   }
 }
 
-/** Undo (or redo) the latest edit: the viewer's first, then page changes */
+/** Undo (or redo) the latest edit: the viewer's own (annotations…) and
+ *  form changes in the order they were made, then page changes */
+let viewerStepping = false;
 function stepEdit(tab: Tab, action: 'undo' | 'redo') {
-  if (!viewer.history(tab.id, action)) void stepPages(tab, action);
+  const log = action === 'undo' ? (tab.edits ??= []) : (tab.editsRedo ??= []);
+  const other = action === 'undo' ? (tab.editsRedo ??= []) : (tab.edits ??= []);
+  if (log.at(-1) === 'form') {
+    log.pop();
+    // A change that can't be taken back (a radio button or an option
+    // can't be unchosen) is passed over: the edit before it goes back
+    void stepForm(tab, action).then((done) => {
+      if (done) other.push('form');
+      else stepEdit(tab, action);
+    });
+    return;
+  }
+  viewerStepping = true;
+  try {
+    if (viewer.history(tab.id, action)) {
+      if (log.at(-1) === 'viewer') other.push(log.pop()!);
+      return;
+    }
+  } finally {
+    viewerStepping = false;
+  }
+  void stepPages(tab, action);
 }
 
 /** Is this one of the viewer's page thumbnails: a box labelled with its
@@ -4495,6 +4673,10 @@ async function closeTabs(list: Tab[]): Promise<boolean> {
 viewer.onChange((tabId) => {
   const tab = tabs.find((t) => t.id === tabId);
   if (!tab) return;
+  if (!viewerStepping) {
+    tab.edits = [...(tab.edits ?? []), 'viewer' as const].slice(-400);
+    tab.editsRedo = [];
+  }
   const wasDirty = isDirty(tab);
   tab.version++;
   if (!wasDirty) renderTabs();
