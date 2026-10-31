@@ -1001,8 +1001,16 @@ export class Viewer {
   async exportBytes(tabId: string): Promise<ArrayBuffer | null> {
     const id = this.docIds.get(tabId);
     if (!id) return null;
-    return this.cap('export').forDocument(id).saveAsCopy().toPromise();
+    const bytes: ArrayBuffer = await this.cap('export')
+      .forDocument(id)
+      .saveAsCopy()
+      .toPromise();
+    return this.exportFilter ? this.exportFilter(tabId, bytes) : bytes;
   }
+
+  /** Last touches to a document before it's saved, printed or handed to a
+   *  tool (form fields shown formatted keep their typed values) */
+  exportFilter?: (tabId: string, bytes: ArrayBuffer) => Promise<ArrayBuffer>;
 
   /**
    * `pdf` ready to be laid out for printing (print-layout.ts): comments,

@@ -1049,7 +1049,8 @@ body.is-dragging .drop-inner {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-#disk-bar .db-reload {
+#disk-bar .db-reload,
+#script-bar .db-reload {
   flex: none;
   height: 30px;
   padding: 0 14px;

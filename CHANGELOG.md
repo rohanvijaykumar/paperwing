@@ -25,10 +25,13 @@ All notable changes to Paperwing are documented here. Paperwing follows
   what you filled in, signed or stamped there. Thanks to
   [@austinwilkerson](https://github.com/austinwilkerson), whose
   [#24](https://github.com/rohanvijaykumar/paperwing/pull/24) showed the way.
-- Documents with scripts (calculations, pop-ups, actions when opened) say so with a notice.
-  Paperwing doesn't run those scripts, for your safety, so their pop-ups don't appear
-  ([#27](https://github.com/rohanvijaykumar/paperwing/issues/27), reported by
-  [@austinwilkerson](https://github.com/austinwilkerson)).
+- **Form scripts run**, as in Acrobat and browsers: totals worked out as you fill in, numbers and
+  dates formatted, entries checked, and the document's messages (such as instructions when it
+  opens) shown. They run sandboxed, in the same engine Firefox uses: they can't reach your files or
+  the internet, or send the form anywhere. Preferences ▸ Run form scripts turns them off; a notice
+  then says the document has some. Reported by
+  [@austinwilkerson](https://github.com/austinwilkerson) in
+  [#27](https://github.com/rohanvijaykumar/paperwing/issues/27).
 
 ### Changed
 

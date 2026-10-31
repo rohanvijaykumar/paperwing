@@ -945,26 +945,65 @@ describe('Paperwing UI', () => {
     assert.ok(reopened.name > 200 && reopened.agree > 40);
   });
 
-  test('says when a document has scripts it does not run', async () => {
+  /** Preferences ▸ Run form scripts, as a person sets it */
+  async function setRunScripts(on) {
+    await page.click('#menu-btn');
+    await page.evaluate(() =>
+      [...document.querySelectorAll('.menu-item')]
+        .find((m) => m.textContent.trim().startsWith('Preferences'))
+        .click()
+    );
+    await page.waitForSelector('.dlg-body.prefs');
+    await page.evaluate((on) => {
+      const row = [...document.querySelectorAll('.pref-row')].find((r) =>
+        r.textContent.includes('Run form scripts')
+      );
+      const box = row.querySelector('input[type="checkbox"]');
+      if (box.checked !== on) box.click();
+    }, on);
+    await page.keyboard.press('Escape');
+    await sleep(1500);
+  }
+
+  test("runs a document's scripts (its message shows as a dialog); says when they're off", async () => {
     await dropBytes('Scripted.pdf', await formPdf({ script: true }));
     await shown();
+    // app.alert(1) when it opens: the app's dialog, once
+    const message = await waitFor(
+      page,
+      () =>
+        document.querySelector('.dlg[role="alertdialog"] .dlg-body p')
+          ?.textContent
+    );
+    assert.equal(message, '1');
+    await page.click('.dlg[role="alertdialog"] .accent-btn');
+    await sleep(400);
+    assert.equal(await page.$('.dlg[role="alertdialog"]'), null, 'shown once');
+    assert.equal(await page.$('#script-bar'), null, 'no notice: they run');
+
+    // Turned off: the notice says so, and turns them back on
+    await setRunScripts(false);
     const text = await waitFor(
       page,
       () => document.querySelector('#script-bar')?.textContent
     );
-    assert.match(text, /scripted instructions that Paperwing does not run/);
-    // Still there after switching tabs and back
-    await page.click('#home-btn');
-    await page.evaluate(() =>
-      [...document.querySelectorAll('#tabs .tab')]
-        .find((t) => t.textContent.includes('Scripted.pdf'))
-        .click()
-    );
-    await page.waitForSelector('#script-bar');
+    assert.match(text, /form scripts are turned off/);
     await sleep(300); // (it slides in)
     await page.click('#script-bar [aria-label="Dismiss"]');
     assert.equal(await page.$('#script-bar'), null, 'dismissed');
-
+    // On again: the document's scripts start over, its message included
+    await setRunScripts(true);
+    assert.equal(
+      await waitFor(
+        page,
+        () =>
+          document.querySelector('.dlg[role="alertdialog"] .dlg-body p')
+            ?.textContent
+      ),
+      '1'
+    );
+    await page.click('.dlg[role="alertdialog"] .accent-btn');
+    await sleep(300);
     await dropPdf('Plain.pdf');
     await sleep(500);
     assert.equal(await page.$('#script-bar'), null, 'none for a normal PDF');

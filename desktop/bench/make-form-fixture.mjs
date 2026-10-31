@@ -6,8 +6,8 @@
  *   required field), over two pages
  * - Form - filled in.pdf: the same, already filled in (saved values must
  *   show)
- * - Form - with scripts.pdf: a total calculated by a script and a pop-up
- *   when it opens (Paperwing shows a notice instead of running them)
+ * - Form - with scripts.pdf: a pop-up when it opens, a total worked out by
+ *   a script and shown as money, and a check refusing negative quantities
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -172,7 +172,23 @@ async function makeForm({ filled = false, scripts = false } = {}) {
         'event.value = (Number(this.getField("quantity").value) || 0) * (Number(this.getField("unit_price").value) || 0);'
       ),
     });
-    total.acroField.dict.set(PDFName.of('AA'), pdf.context.obj({ C: calc }));
+    // Shown as money ("$37.50"), kept as a number
+    const money = pdf.context.obj({
+      S: PDFName.of('JavaScript'),
+      JS: PDFString.of('AFNumber_Format(2, 0, 0, 0, "$", true);'),
+    });
+    total.acroField.dict.set(
+      PDFName.of('AA'),
+      pdf.context.obj({ C: calc, F: money })
+    );
+    // No negative quantities
+    const check = pdf.context.obj({
+      S: PDFName.of('JavaScript'),
+      JS: PDFString.of(
+        'if (Number(event.value) < 0) { app.alert("The quantity cannot be negative."); event.rc = false; }'
+      ),
+    });
+    qty.acroField.dict.set(PDFName.of('AA'), pdf.context.obj({ V: check }));
     const acro = form.acroForm.dict;
     acro.set(PDFName.of('CO'), pdf.context.obj([total.acroField.ref]));
     pdf.catalog.set(

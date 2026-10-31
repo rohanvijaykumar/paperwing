@@ -241,3 +241,37 @@ describe('the form as PDFium holds it', () => {
     expect(stepsTo(f('name'), 'Alex')).toEqual([]); // already so
   });
 });
+
+describe('saving fields shown formatted by their scripts', () => {
+  it('keeps the value as typed, drawn as shown (as Acrobat saves it)', async () => {
+    const { unformat } = await import('../acro/forms');
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([300, 200]);
+    const total = doc.getForm().createTextField('total');
+    total.addToPage(page, { x: 20, y: 100, width: 120, height: 24 });
+    total.setText('$37.50'); // what PDFium holds and draws
+    const bytes = await doc.save();
+    const ap = (d: PDFDocument) =>
+      d
+        .getForm()
+        .getTextField('total')
+        .acroField.getWidgets()[0]
+        .getNormalAppearance();
+    const before = ap(await PDFDocument.load(bytes));
+
+    const saved = await PDFDocument.load(
+      await unformat(bytes.slice().buffer, new Map([['total', '37.5']]))
+    );
+    expect(saved.getForm().getTextField('total').getText()).toBe('37.5');
+    // The drawing (still "$37.50") isn't redrawn
+    expect(String(ap(saved))).toBe(String(before));
+  });
+
+  it('leaves a document alone when nothing is formatted', async () => {
+    const { unformat } = await import('../acro/forms');
+    const doc = await PDFDocument.create();
+    doc.addPage();
+    const bytes = (await doc.save()).slice().buffer;
+    expect(await unformat(bytes, new Map())).toBe(bytes);
+  });
+});
