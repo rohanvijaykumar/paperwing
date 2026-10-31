@@ -100,4 +100,11 @@ export default [
       'no-empty': 'off',
     },
   },
+  {
+    // The benches eval their own constant helper source inside the test browser (Puppeteer can't pass functions)
+    files: ['desktop/bench/**'],
+    rules: {
+      'security/detect-eval-with-expression': 'off',
+    },
+  },
 ];
