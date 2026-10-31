@@ -173,6 +173,9 @@ async function formPdf({ text = '', checked = false, script = false } = {}) {
 
 /** Dark pixels inside each form field, on page 1 of the active document as
  *  the viewer renders it (options: the viewer's render options) */
+/** Dark pixels in each field in PDFium's drawing of the document with its
+ *  fields (what's saved and printed; on screen, the form layer shows the
+ *  fields, form-layer.ts) */
 const inkInFields = (options = {}) =>
   page.evaluate(
     async ({ options, fields }) => {
@@ -181,7 +184,10 @@ const inkInFields = (options = {}) =>
       const blob = await v
         .cap('render')
         .forDocument(id)
-        .renderPage({ pageIndex: 0, options: { scaleFactor: 1, ...options } })
+        .renderPage({
+          pageIndex: 0,
+          options: { scaleFactor: 1, withForms: true, ...options },
+        })
         .toPromise();
       const img = await createImageBitmap(blob);
       const canvas = new OffscreenCanvas(img.width, img.height);
@@ -205,6 +211,18 @@ const inkInFields = (options = {}) =>
     },
     { options, fields: FIELDS }
   );
+
+/** What the fields on the page show (the form layer's controls), by name */
+const fieldsOnPage = () =>
+  page.evaluate(() => {
+    const out = {};
+    for (const c of document
+      .querySelector('embedpdf-container')
+      .shadowRoot.querySelectorAll('.pwf-layer [data-element-id]'))
+      out[c.getAttribute('name')] =
+        c.type === 'checkbox' || c.type === 'radio' ? c.checked : c.value;
+    return out;
+  });
 
 /** The active document as the viewer would save it, read with pdf-lib */
 async function exportedForm() {
@@ -444,7 +462,8 @@ describe('Paperwing UI', () => {
           return result;
         }
         return {
-          current: await ink({ scaleFactor: 1 }),
+          // The document's own drawing (what's saved and printed)
+          current: await ink({ scaleFactor: 1, withForms: true }),
           withoutForms: await ink({ scaleFactor: 1, withForms: false }),
           exported: Array.from(
             new Uint8Array(
@@ -875,6 +894,15 @@ describe('Paperwing UI', () => {
     const ink = await inkInFields();
     assert.ok(ink.name > 200, `saved text painted (${ink.name} dark pixels)`);
     assert.ok(ink.agree > 40, `checkbox mark painted (${ink.agree})`);
+    // On the page, the form layer's fields show them
+    const onPage = await waitFor(page, () => {
+      const c = document
+        .querySelector('embedpdf-container')
+        .shadowRoot.querySelector('.pwf-layer [name="name"]');
+      return c?.value && c.value;
+    });
+    assert.equal(onPage, 'SAVED VALUE');
+    assert.equal((await fieldsOnPage()).agree, true);
     // What the viewer showed before: widget appearances left out
     const without = await inkInFields({ withForms: false });
     assert.ok(without.name < 20 && without.agree < 10, JSON.stringify(without));
@@ -915,7 +943,10 @@ describe('Paperwing UI', () => {
       exported = await exportedForm().catch(() => null);
       if (exported?.form.getCheckBox('agree').isChecked()) break;
     }
-    // The page shows the new values
+    // The page shows the new values, and the document draws them
+    const shownNow = await fieldsOnPage();
+    assert.equal(shownNow.name, 'TYPED VALUE');
+    assert.equal(shownNow.agree, true);
     const ink = await inkInFields();
     assert.ok(ink.name > 200 && ink.agree > 40, JSON.stringify(ink));
     const { b64, form } = exported;
@@ -943,6 +974,13 @@ describe('Paperwing UI', () => {
     );
     const reopened = await inkInFields();
     assert.ok(reopened.name > 200 && reopened.agree > 40);
+    await waitFor(page, () =>
+      document
+        .querySelector('embedpdf-container')
+        .shadowRoot.querySelector('.pwf-layer [name="agree"]')
+    );
+    const back = await fieldsOnPage();
+    assert.ok(back.name === 'TYPED VALUE' && back.agree, JSON.stringify(back));
   });
 
   /** Preferences ▸ Run form scripts, as a person sets it */

@@ -4,7 +4,6 @@
  * Acrobat-style chrome (quick toolbar, right rail) drives it via commands.
  */
 import type { EmbedPdfContainer, PluginRegistry } from 'bentopdf-viewer';
-import { printableComments, withoutComments } from './print-layout';
 import { editorFontFallback } from '../js/config/editor-fonts.js';
 import notoSansUrl from './fonts/NotoSans-Regular.ttf?url';
 
@@ -309,6 +308,7 @@ export class Viewer {
         },
       } as any) as EmbedPdfContainer;
       this.registry = await (this.container as any).registry;
+      this.hookFormDrawing();
       skinViewerDialogs(this.host);
       requestAnimationFrame(() => skinViewerDialogs(this.host));
       performance.mark('pw:engine-ready');
@@ -613,16 +613,15 @@ export class Viewer {
   }
 
   /**
-   * Fills in a field in the open document: PDFium sets the value and draws
-   * the field anew (as Chrome does), so what shows, saves and prints is the
-   * document's own rendering of it. Redraws the pages given (the field's
-   * other widgets may be on other pages).
+   * Fills in a field in the open document: PDFium sets the value and makes
+   * the field's drawing, which saving and printing use. Redraws the pages
+   * given (none when the form layer shows the fields).
    */
   async setFormValue(
     tabId: string,
     widget: PageWidget,
     value: FormValue,
-    redraw: number[] = [widget.pageIndex]
+    redraw: number[] = []
   ): Promise<boolean> {
     const id = this.docIds.get(tabId);
     if (!id || !this.registry) return false;
@@ -636,6 +635,84 @@ export class Viewer {
       .catch(() => false);
     if (ok) this.refreshPages(tabId, redraw);
     return !!ok;
+  }
+
+  /** Documents whose form fields the form layer shows (form-layer.ts):
+   *  PDFium draws their pages without the fields, as Firefox draws its
+   *  pages under its HTML fields */
+  private formsShownElsewhere = new Set<string>();
+
+  /** Every page drawn for a document in the list leaves out its fields;
+   *  the viewer's own page thumbnails keep them (they ask with the page's
+   *  rotation, which page and tile drawings don't) */
+  private hookFormDrawing() {
+    const render = (this.registry as any)?.getPlugin?.('render');
+    if (!render) return;
+    for (const method of [
+      'renderPage',
+      'renderPageRect',
+      'renderPageRaw',
+      'renderPageRectRaw',
+    ] as const) {
+      const original = render[method]?.bind(render);
+      if (!original) continue;
+      render[method] = (request: any, documentId?: string) => {
+        const id = documentId ?? render.getActiveDocumentId?.();
+        const options = request?.options ?? {};
+        const thumbnail =
+          method.startsWith('renderPageRect') && 'rotation' in options;
+        if (
+          id &&
+          this.formsShownElsewhere.has(id) &&
+          options.withForms === undefined &&
+          !thumbnail
+        )
+          request = { ...request, options: { ...options, withForms: false } };
+        return original(request, documentId);
+      };
+    }
+  }
+
+  /** Whether PDFium draws this document's fields on its pages (false: the
+   *  form layer shows them). Draws the pages again when it changes. */
+  setFormsDrawn(tabId: string, drawn: boolean) {
+    const id = this.docIds.get(tabId);
+    if (!id) return;
+    if (this.formsShownElsewhere.has(id) === !drawn) return;
+    if (drawn) this.formsShownElsewhere.delete(id);
+    else this.formsShownElsewhere.add(id);
+    this.refreshPages(
+      tabId,
+      this.pageSizes(tabId).map((_, i) => i)
+    );
+  }
+
+  /** PDFium's drawing of a part of a page with its fields (the fields the
+   *  form layer can't show itself: signatures, buttons) */
+  async drawFields(
+    tabId: string,
+    pageIndex: number,
+    rect: PageWidget['rect'],
+    scale: number
+  ): Promise<Blob | null> {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return null;
+    try {
+      return await this.cap('render')
+        .forDocument(id)
+        .renderPageRect({
+          pageIndex,
+          rect,
+          options: {
+            scaleFactor: scale,
+            dpr: window.devicePixelRatio || 1,
+            withForms: true,
+          },
+        })
+        .toPromise();
+    } catch {
+      return null;
+    }
   }
 
   /** Draws the pages again (after the document changed underneath) */
@@ -742,7 +819,10 @@ export class Viewer {
   async open(
     tabId: string,
     buffer: ArrayBuffer,
-    view?: DocView
+    view?: DocView,
+    /** Shown at once (a new version of a tab in the background stays
+     *  there: its pages changed while another tab was picked) */
+    show = true
   ): Promise<void> {
     await this.init();
     if (view) this.startViews.set(tabId, view);
@@ -754,7 +834,7 @@ export class Viewer {
           buffer,
           name: tabId,
           documentId: docId,
-          autoActivate: true,
+          autoActivate: show,
         })
         // Refused before loading starts (e.g. too many documents open)
         .wait(
@@ -763,6 +843,14 @@ export class Viewer {
             this.settle(tabId, new Error(e.reason?.message ?? 'Open failed'))
         );
     });
+  }
+
+  /** The password a protected document was opened with (kept in memory
+   *  only: the form layer opens its own copy of the document with it) */
+  private passwords = new Map<string, string>();
+
+  password(tabId: string): string | undefined {
+    return this.passwords.get(tabId);
   }
 
   private async askPassword(tabId: string, docId: string, wrong: boolean) {
@@ -777,6 +865,7 @@ export class Viewer {
       this.settle(tabId, new OpenCancelled());
       return;
     }
+    this.passwords.set(tabId, password);
     type LoadFailure = { reason?: { code?: number; message?: string } };
     const failed = (e: LoadFailure) => {
       if (this.opening.get(tabId) !== o) return;
@@ -837,21 +926,34 @@ export class Viewer {
    *  no other document shows in between. */
   async replace(tabId: string, buffer: ArrayBuffer, view?: DocView) {
     const old = this.docIds.get(tabId);
-    await this.open(tabId, buffer, view);
-    if (old && old !== this.docIds.get(tabId))
+    await this.open(tabId, buffer, view, tabId === this.current);
+    // (unless the tab was closed meanwhile: close() closed it then)
+    const now = this.docIds.get(tabId);
+    if (old && now && old !== now) {
       this.cap('document-manager').closeDocument(old);
+      this.formsShownElsewhere.delete(old);
+    }
   }
 
   close(tabId: string) {
     if (this.opening.has(tabId)) {
-      // Still loading: close it once it has opened (see onDocumentOpened)
+      // Still loading: close it once it has opened (see onDocumentOpened),
+      // and the version it replaces now
       this.cancelled.add(tabId);
+      this.startViews.delete(tabId);
+      const old = this.docIds.get(tabId);
+      if (old && this.registry) this.cap('document-manager').closeDocument(old);
+      if (old) this.formsShownElsewhere.delete(old);
+      this.docIds.delete(tabId);
+      this.passwords.delete(tabId);
       return;
     }
     const id = this.docIds.get(tabId);
     if (!id || !this.registry) return;
     this.cap('document-manager').closeDocument(id);
+    this.formsShownElsewhere.delete(id);
     this.docIds.delete(tabId);
+    this.passwords.delete(tabId);
   }
 
   command(tabId: string, commandId: string) {
@@ -999,6 +1101,8 @@ export class Viewer {
 
   /** Current document bytes, including annotations made in the viewer */
   async exportBytes(tabId: string): Promise<ArrayBuffer | null> {
+    // (what was just typed into a field goes in first)
+    await this.beforeExport?.(tabId);
     const id = this.docIds.get(tabId);
     if (!id) return null;
     const bytes: ArrayBuffer = await this.cap('export')
@@ -1011,6 +1115,9 @@ export class Viewer {
   /** Last touches to a document before it's saved, printed or handed to a
    *  tool (form fields shown formatted keep their typed values) */
   exportFilter?: (tabId: string, bytes: ArrayBuffer) => Promise<ArrayBuffer>;
+
+  /** Waits for changes still on their way into the document (form fields) */
+  beforeExport?: (tabId: string) => Promise<void>;
 
   /**
    * `pdf` ready to be laid out for printing (print-layout.ts): comments,
@@ -1025,8 +1132,8 @@ export class Viewer {
   ): Promise<Uint8Array> {
     let input: Uint8Array = new Uint8Array(pdf).slice();
     input = comments
-      ? await printableComments(input)
-      : await withoutComments(input);
+      ? await (await import('./print-layout')).printableComments(input)
+      : await (await import('./print-layout')).withoutComments(input);
     // (the engine may take over the buffer it's given)
     const content = input.slice().buffer;
     const engine = (this.registry as any)?.getEngine?.();

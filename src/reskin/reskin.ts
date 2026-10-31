@@ -25,7 +25,12 @@
 
 import { applyTheme, isThemePref, onThemeChange, setThemePref } from './theme';
 import { initApps } from './apps';
-import { initFrames, onViewerDownload, onViewerPrint } from './frames';
+import {
+  initFrames,
+  onViewerAlert,
+  onViewerDownload,
+  onViewerPrint,
+} from './frames';
 import { SHELL_ORIGIN, shellOrigin } from './origins';
 import { initTooltips } from './tooltip';
 import { initLabels } from './labels';
@@ -65,9 +70,37 @@ if (embedded) {
   }
 }
 
+/** BentoPDF's website pages (home, About, FAQ…), which a tool's own Close
+ *  or Back button goes to: not tools */
+const SITE_PAGES = new Set([
+  'index',
+  'simple-index',
+  'tools',
+  'about',
+  'contact',
+  'faq',
+  'licensing',
+  'privacy',
+  'terms',
+  '404',
+  'pdf-converter',
+  'pdf-editor',
+  'pdf-merge-split',
+  'pdf-security',
+  'hyper-compress',
+  'kura',
+]);
+
 if (shell) {
   const toShell = (message: unknown) =>
     window.parent.postMessage(message, shell);
+
+  // A tool left for one of them: it's done, so the shell closes it, and
+  // the page never shows
+  if (SITE_PAGES.has(document.documentElement.dataset.page!)) {
+    document.documentElement.style.visibility = 'hidden';
+    toShell({ type: 'acro:close-tool' });
+  }
 
   // downloadFile() and friends revoke the object URL right after click(), so
   // remember which blob each URL points to.
@@ -105,6 +138,10 @@ if (shell) {
   // the document it shows, with what was filled in or added; print() in the
   // tool page itself, the workspace's open document. In a browser, its own
   // print dialog works, so it's left alone.
+  // A form's scripts in a viewer the tool embeds (Fill & Sign) show their
+  // messages as the workspace's dialog, as in the workspace itself
+  onViewerAlert((message) => toShell({ type: 'acro:script-alert', message }));
+
   if (shell === SHELL_ORIGIN) {
     window.print = () => toShell({ type: 'acro:print-document' });
     onViewerPrint((win) => void printViewerDocument(win));
