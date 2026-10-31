@@ -8,6 +8,7 @@
  * whatever of the pages next to it would show.
  */
 import type { Viewer } from './viewer';
+import { pageBoxes } from './form-layer';
 
 const STYLE_ID = 'pw-present';
 const HIDE_CURSOR_AFTER = 2500;
@@ -201,13 +202,7 @@ export class Presentation {
   ): HTMLElement | null {
     let best: HTMLElement | null = null;
     let distance = Infinity;
-    for (const box of area.querySelectorAll<HTMLElement>('div')) {
-      if (
-        box.style.position !== 'relative' ||
-        box.style.touchAction !== 'none' ||
-        !(box.firstElementChild instanceof HTMLImageElement)
-      )
-        continue;
+    for (const box of pageBoxes(area)) {
       const r = box.getBoundingClientRect();
       if (!r.height) continue;
       const d = Math.abs((by === 'top' ? r.top : r.top + r.height / 2) - y);

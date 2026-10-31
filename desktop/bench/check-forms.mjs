@@ -19,6 +19,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { launch, sleep } from './harness.mjs';
 
 const require = createRequire(new URL('../../package.json', import.meta.url));
@@ -531,6 +532,38 @@ check(
   'and active again when selecting'
 );
 
+// Hand: the fields stay on the page and fill in, as in Acrobat (the viewer
+// changes the pages' styles in Hand mode; the fields mustn't depend on them)
+const setMode = (mode) =>
+  page.evaluate((mode) => {
+    const v = window.__acro.viewer;
+    v.setMode(v.current, mode);
+  }, mode);
+await setMode('hand');
+await sleep(800);
+let modeLayers = await layersOff();
+check(
+  modeLayers.length > 0 && modeLayers.some((x) => !x),
+  `with Hand, the fields stay on the page and take clicks (${modeLayers.length} page(s))`
+);
+await click('email');
+await press('a', ['Control']);
+await page.keyboard.type('hand@example.com');
+await sleep(300);
+check(
+  (await onPage('email')) === 'hand@example.com',
+  `a field fills in with Hand (${await onPage('email')})`
+);
+await setMode('marquee');
+await sleep(800);
+modeLayers = await layersOff();
+check(
+  modeLayers.length > 0 && modeLayers.every(Boolean),
+  `while zooming to a rectangle, the fields stay shown but leave the clicks (${modeLayers.length} page(s))`
+);
+await setMode('select');
+await sleep(600);
+
 // ---- A form with scripts ----------------------------------------------
 await open('Form - with scripts.pdf');
 
@@ -704,6 +737,41 @@ await page.evaluate(() => {
   const box = row?.querySelector('input[type="checkbox"]');
   if (box && !box.checked) box.click();
 });
+
+// Home's preview of a form shows its fields. The file has nothing but a
+// dark field; opened from disk, as only files on disk go in Recent.
+await app.openFile(
+  fileURLToPath(new URL('../../src/tests/fixtures/form-only.pdf', import.meta.url))
+);
+await sleep(3000);
+await page.evaluate(() => document.getElementById('home-btn').click());
+let inked = -1;
+for (let i = 0; i < 40 && inked < 0; i++) {
+  await sleep(500);
+  inked = await page.evaluate(async () => {
+    const row = [...document.querySelectorAll('#view-home *')].find(
+      (el) =>
+        el.textContent.includes('form-only.pdf') &&
+        el.querySelectorAll('img').length === 1
+    );
+    const img = row?.querySelector('img');
+    if (!img?.complete || !img.naturalWidth) return -1;
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const px = ctx.getImageData(0, 0, c.width, c.height).data;
+    let dark = 0;
+    for (let j = 0; j < px.length; j += 4)
+      if (px[j] + px[j + 1] + px[j + 2] < 600) dark++;
+    return dark / (px.length / 4);
+  });
+}
+check(
+  inked > 0.1,
+  `Home's preview of a form shows its fields (${(inked * 100).toFixed(1)}% inked)`
+);
 
 await app.close();
 console.log(failures ? `\n${failures} failed` : '\nall passed');
