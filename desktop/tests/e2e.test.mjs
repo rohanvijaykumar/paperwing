@@ -76,6 +76,9 @@ async function waitFor(page, fn, arg, timeout = 15000) {
   }
 }
 
+// Shortcuts use ⌘ on macOS, Ctrl elsewhere
+const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
+
 let browser;
 let page;
 const pdfBase64 = readFileSync(SAMPLE).toString('base64');
@@ -335,9 +338,9 @@ describe('Paperwing UI', () => {
     await page.keyboard.press('v');
     assert.equal(await tool(), null, 'V = select');
 
-    await page.keyboard.down('Control');
+    await page.keyboard.down(MOD);
     await page.keyboard.press('KeyD');
-    await page.keyboard.up('Control');
+    await page.keyboard.up(MOD);
     assert.equal(
       await page.$eval('.dlg h2', (e) => e.textContent),
       'Document properties'
@@ -347,9 +350,9 @@ describe('Paperwing UI', () => {
       document.querySelector('.dlg-backdrop')?.remove()
     );
 
-    await page.keyboard.down('Control');
+    await page.keyboard.down(MOD);
     await page.keyboard.press('KeyK');
-    await page.keyboard.up('Control');
+    await page.keyboard.up(MOD);
     assert.equal(
       await page.$eval('.dlg h2', (e) => e.textContent),
       'Preferences'
@@ -358,11 +361,11 @@ describe('Paperwing UI', () => {
       document.querySelector('.dlg-backdrop')?.remove()
     );
 
-    await page.keyboard.down('Control');
+    await page.keyboard.down(MOD);
     await page.keyboard.down('Shift');
     await page.keyboard.press('KeyP');
     await page.keyboard.up('Shift');
-    await page.keyboard.up('Control');
+    await page.keyboard.up(MOD);
     assert.ok(await page.$('.find-pop .find-input'), 'command palette opens');
     await page.keyboard.press('Escape');
   });
@@ -516,9 +519,9 @@ describe('Paperwing UI', () => {
     await waitFor(page, () => document.querySelector('#tabs .tab.is-dirty'));
     await page.keyboard.press('Escape');
 
-    await page.keyboard.down('Control');
+    await page.keyboard.down(MOD);
     await page.keyboard.press('KeyW');
-    await page.keyboard.up('Control');
+    await page.keyboard.up(MOD);
     await waitFor(page, () =>
       document.querySelector('.dlg[role="alertdialog"]')
     );
@@ -530,11 +533,11 @@ describe('Paperwing UI', () => {
     await waitFor(page, () => !document.querySelector('#tabs .tab'));
 
     // Ctrl+Shift+T brings it back
-    await page.keyboard.down('Control');
+    await page.keyboard.down(MOD);
     await page.keyboard.down('Shift');
     await page.keyboard.press('KeyT');
     await page.keyboard.up('Shift');
-    await page.keyboard.up('Control');
+    await page.keyboard.up(MOD);
     await waitFor(page, () => document.querySelector('#tabs .tab'));
     assert.deepEqual(await tabNames(), ['Report.pdf']);
   });
@@ -609,9 +612,9 @@ describe('Paperwing UI', () => {
 
   test('Preferences can override the system theme', async () => {
     await openApp('light');
-    await page.keyboard.down('Control');
+    await page.keyboard.down(MOD);
     await page.keyboard.press('KeyK');
-    await page.keyboard.up('Control');
+    await page.keyboard.up(MOD);
     await page.select('.pref-select', 'dark');
     const bg = await page.evaluate(
       () => getComputedStyle(document.body).backgroundColor
@@ -796,9 +799,9 @@ describe('Paperwing UI', () => {
     );
 
     // Changing the theme in the workspace reaches the tool
-    await page.keyboard.down('Control');
+    await page.keyboard.down(MOD);
     await page.keyboard.press('KeyK');
-    await page.keyboard.up('Control');
+    await page.keyboard.up(MOD);
     await page.select('.pref-select', 'dark');
     await waitFor(
       content,
@@ -872,6 +875,7 @@ describe('Paperwing UI', () => {
     // One run makes one ZIP of both
     await content.waitForSelector('#process-btn');
     await content.click('#process-btn');
+    // (a slow machine takes a while; if it never comes, say what the tool shows)
     await waitFor(
       page,
       () =>
@@ -879,8 +883,14 @@ describe('Paperwing UI', () => {
           document.querySelector('#toasts')?.textContent ?? ''
         ),
       undefined,
-      60000
-    );
+      180000
+    ).catch(async (e) => {
+      const shown = await content
+        .evaluate(() => document.body.innerText.slice(0, 600))
+        .catch(() => '?');
+      throw new Error(`${e.message}
+The tool shows: ${shown}`);
+    });
   });
 
   test('shows saved form values and checkbox marks, and keeps them as fields', async () => {
