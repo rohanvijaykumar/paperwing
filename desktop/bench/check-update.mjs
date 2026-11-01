@@ -13,6 +13,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { launch, sleep } from './harness.mjs';
 
+// Only the Windows installer updates itself; macOS and the portable build
+// show a "new version available" notice (src/tests/paperwing-updates.test.ts)
+if (process.platform !== 'win32') {
+  console.log('skipped: only the Windows installer updates itself');
+  process.exit(0);
+}
+
 let failures = 0;
 const check = (ok, label) => {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}`);

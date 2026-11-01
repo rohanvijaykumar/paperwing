@@ -162,20 +162,24 @@ check(
 // one entry per file name; Paperwing keeps its own, newest first, and names
 // same-named files by their folder. (The jump list itself is only set by an
 // installed copy: this checks the list and the titles it's built from.)
+// macOS keeps its own recent documents (File ▸ Open Recent).
+const win = process.platform === 'win32';
 const recentJson = join(profile, 'recent-files.json');
-const recent = await until(() => {
-  try {
-    const l = JSON.parse(readFileSync(recentJson, 'utf8'));
-    return l.length === 3 ? l : null;
-  } catch {
-    return null;
-  }
-});
-check(
-  !!recent && recent[0] === C && recent[1] === B && recent[2] === A,
-  'every opened file is on the Recent list, newest first (same names too)',
-  JSON.stringify(recent?.map((p) => p.slice(root.length)))
-);
+if (win) {
+  const recent = await until(() => {
+    try {
+      const l = JSON.parse(readFileSync(recentJson, 'utf8'));
+      return l.length === 3 ? l : null;
+    } catch {
+      return null;
+    }
+  });
+  check(
+    !!recent && recent[0] === C && recent[1] === B && recent[2] === A,
+    'every opened file is on the Recent list, newest first (same names too)',
+    JSON.stringify(recent?.map((p) => p.slice(root.length)))
+  );
+}
 const mainSrc = readFileSync(new URL('../main.cjs', import.meta.url), 'utf8');
 const hintsSrc = mainSrc.slice(
   mainSrc.indexOf('function folderHints'),
@@ -184,7 +188,7 @@ const hintsSrc = mainSrc.slice(
 const jumpHints = new Function('path', `${hintsSrc}; return folderHints;`)(
   require('node:path')
 );
-const hints = jumpHints(recent ?? []);
+const hints = jumpHints([C, B, A]);
 check(
   JSON.stringify(hints) === JSON.stringify(['', 'Globex', 'Acme Corp']),
   'jump list titles name same-named files by their folder',
@@ -203,10 +207,11 @@ check(
 await page.click('#clear-recent');
 await until(dialogTitle, 5000);
 await clickButton('.dlg button', 'Clear');
-check(
-  !!(await until(() => !existsSync(recentJson), 5000)),
-  "Home's Clear recent clears the taskbar's list too"
-);
+if (win)
+  check(
+    !!(await until(() => !existsSync(recentJson), 5000)),
+    "Home's Clear recent clears the taskbar's list too"
+  );
 
 // 2. Tab right-click menu
 const tabEls = await page.$$('#tabs .tab');

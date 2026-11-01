@@ -117,7 +117,7 @@ const items = await page.evaluate(() =>
 check(
   [
     'Open',
-    'Show in File Explorer',
+    process.platform === 'darwin' ? 'Show in Finder' : 'Show in File Explorer',
     'Copy path',
     'Compress…',
     'Combine with other files…',
@@ -128,8 +128,9 @@ check(
 );
 await page.keyboard.press('Escape');
 
-// Crash: kill the app, start it again
-app.child.kill();
+// Crash: kill the app, start it again (SIGKILL: on macOS a plain kill asks
+// it to quit, which the unsaved result holds up)
+app.child.kill('SIGKILL');
 await new Promise((r) => app.child.once('exit', r));
 await sleep(800);
 app = await launch({ profile });
