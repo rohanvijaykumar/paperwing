@@ -14,6 +14,7 @@ import type {
   PrintResult,
 } from './desktop';
 import { icon } from './icons';
+import { showModal } from './modal';
 import { openPreview, type PrintPreview } from './print-preview';
 import {
   PAPERS,
@@ -640,7 +641,7 @@ export async function showPrintDialog(
     backdrop.addEventListener('pointerdown', (e) => {
       if (e.target === backdrop && !cancelBtn.disabled) finish('cancelled');
     });
-    document.body.append(backdrop);
+    showModal(backdrop);
     showHandling();
     showColor();
     enable();
