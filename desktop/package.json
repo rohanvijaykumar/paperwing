@@ -22,7 +22,8 @@
     "test:e2e": "node --test --test-concurrency=1 tests/e2e.test.mjs",
     "test:print": "node --test tests/print.test.mjs",
     "docs:shortcuts": "node scripts/gen-shortcuts-doc.mjs",
-    "docs:screenshots": "node scripts/gen-screenshots.mjs"
+    "docs:screenshots": "node scripts/gen-screenshots.mjs",
+    "docs:screenshots:desktop": "node scripts/gen-desktop-screenshots.mjs"
   },
   "devDependencies": {
     "electron": "45.0.0",
