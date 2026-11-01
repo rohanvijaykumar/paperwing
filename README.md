@@ -6,10 +6,10 @@
 
 **The free, open-source desktop alternative to Adobe Acrobat for Windows and macOS.**
 
-Edit, sign, convert, organize, compress and protect PDFs in a familiar desktop workspace —
+Edit, sign, convert, organize, compress and protect PDFs in a familiar desktop workspace,
 offline, with no account, no subscription and no upsells.
 
-**[paperwingapp.com](https://paperwingapp.com)** · Built by [Rohan Vijaykumar](https://rohanvijaykumar.cv)
+**[Download at paperwingapp.com](https://paperwingapp.com)** · Built by [Rohan Vijaykumar](https://rohanvijaykumar.cv)
 
 [![Website](https://img.shields.io/badge/website-paperwingapp.com-D7193A)](https://paperwingapp.com)
 [![Latest release](https://img.shields.io/github/v/release/rohanvijaykumar/paperwing?label=download&color=D7193A)](https://github.com/rohanvijaykumar/paperwing/releases/latest)
@@ -25,193 +25,232 @@ offline, with no account, no subscription and no upsells.
 
 </div>
 
----
-
 ## Why Paperwing?
 
-If you've used Acrobat, you already know how to use Paperwing: the same tabbed workspace,
-**All tools** panel, **Edit / Convert / E-Sign** tabs, floating quick-action toolbar and right-hand
-navigation rail — and the same keyboard shortcuts.
+If you've used Acrobat, you already know Paperwing: the same tabbed workspace, **All tools** panel,
+**Edit / Convert / E-Sign** tabs, floating toolbar and keyboard shortcuts. Without the sign-in
+prompts, trial pop-ups, AI overlays or monthly bill. Every feature is free, and your files never
+leave your computer.
 
-What you won't find: sign-in prompts, cloud nags, trial pop-ups, AI overlays, paywalled buttons or a
-monthly bill. Every feature is free, and your files never leave your computer.
+|                                       | Paperwing          | Acrobat Pro  |
+| ------------------------------------- | ------------------ | ------------ |
+| Price                                 | **Free, forever**  | Subscription |
+| Account required                      | **No**             | Yes          |
+| Works offline                         | **Yes**¹           | Partly       |
+| Upsell / AI pop-ups                   | **None**           | Frequent     |
+| Open source                           | **Yes (AGPL-3.0)** | No           |
+| Portable (no install) on Windows      | **Yes**            | No           |
+| Acrobat-style workspace and shortcuts | **Yes**            | —            |
 
-|                                              | Paperwing          | Acrobat Pro  |
-| -------------------------------------------- | ------------------ | ------------ |
-| Price                                        | **Free, forever**  | Subscription |
-| Account required                             | **No**             | Yes          |
-| Works offline                                | **Yes**¹           | Partly       |
-| Upsell / AI pop-ups                          | **None**           | Frequent     |
-| Open source                                  | **Yes (AGPL-3.0)** | No           |
-| Portable (no install) on Windows             | **Yes**            | No           |
-| Familiar Acrobat-style workspace & shortcuts | **Yes**            | —            |
+<sub>¹ A few tools fetch their engine once on first use; see [Privacy](#privacy). Paperwing isn't
+affiliated with Adobe ([Trademarks](#trademarks)) or with PaperWingPDF, a separate set of browser tools.</sub>
 
-¹ A few tools fetch their engine once on first use; see [Privacy](#privacy).
+## New in 1.2.4
 
-> Paperwing is an independent project and is not affiliated with or endorsed by Adobe.
-> It is a desktop app, distributed only through [paperwingapp.com](https://paperwingapp.com) and this
-> repository's [Releases](https://github.com/rohanvijaykumar/paperwing/releases). It isn't connected to
-> PaperWingPDF (paperwingpdf.com), a separate set of browser-based PDF tools.
-> See [Trademarks](#trademarks).
+- **Fill in forms right on the page**: click a field and type, with a Form fields panel beside it
+- **Form scripts run**, sandboxed: totals add up, dates format, entries are checked
+- **A print dialog like Acrobat's**, with a preview of exactly what will print
+- **Full screen**: one page at a time on black (<kbd>Ctrl</kbd>+<kbd>L</kbd>)
+- Shortcuts follow your keyboard layout, and dragging PDFs in from File Explorer works
+
+[All release notes →](https://github.com/rohanvijaykumar/paperwing/releases)
 
 ## Features
 
-**A complete PDF workspace**
+- 🧰 **100+ tools from [BentoPDF](https://github.com/alam00000/bentopdf)**, each opening right beside your document
+- 🔒 **Private by default**: everything runs locally, with no account, telemetry or uploads
+- ⌨️ **Acrobat's shortcuts**, including single-key tools (H, V, S, U, D, X), plus a command palette (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>)
+- 📝 **Forms and printing** that work like Acrobat's: fill in on the page, print with a preview
+- ⚡ **Fast and light**: opens in about a second and scrolls at a steady 60 fps
+- 💾 **Never lose work**: unsaved-change markers, session restore and recovery after a crash
+- 🌗 **Light and dark themes** that follow your system
+- 🖼️ **PDF thumbnails in File Explorer** (Windows), filled-in forms included
 
-- Tabbed documents and a Home view with recent and starred files, shown with a preview of their first page
-- A searchable **All tools** sidebar: every tool, grouped like Acrobat's, with pinned and recently used tools on top
-- Every tool opens right beside your document — no separate tool pages
-- Floating quick-action toolbar: select, comment, highlight, draw, text box, sign, shapes, stamps
-- Right rail with comments, bookmarks, page thumbnails, find, page navigation, rotate and zoom (pick a level or type any percentage)
-- **Light and dark themes** that follow your system automatically (neutral, Acrobat-style dark mode)
+<details>
+<summary><b>Every tool</b></summary>
 
-**100+ tools from [BentoPDF](https://github.com/alam00000/bentopdf)**
+- **Edit**: edit text and images, annotate, redact, watermarks, headers and footers, page numbers, Bates numbering, bookmarks, stamps, crop
+- **Convert**: PDF to Word, Excel, images, text, Markdown, JSON; Word, Excel, PowerPoint, images, ebooks, email, Markdown and 30+ formats to PDF
+- **Organize**: combine, split, reorder, rotate, insert, delete and extract pages; N-up, booklets, attachments, layers
+- **E-Sign and forms**: fill in and sign, digital certificates, signature validation, timestamps, create forms
+- **Optimize and protect**: compress, OCR, repair, PDF/A, encrypt, remove restrictions, sanitize, flatten, compare
 
-- **Edit** — edit text & images, annotate, redact, watermarks, headers & footers, page numbers, Bates numbering, bookmarks, stamps, crop
-- **Convert** — PDF to Word, Excel, images, text, Markdown, JSON; Word, Excel, PowerPoint, images, ebooks, email, Markdown and 30+ formats to PDF
-- **Organize** — combine, split, reorder, rotate, insert, delete and extract pages; N-up, booklets, attachments, layers
-- **E-Sign & forms** — fill & sign, digital certificates, signature validation, timestamps, create and fill forms
-- **Optimize & protect** — compress, OCR, repair, PDF/A, encrypt, remove restrictions, sanitize, flatten, compare documents
+</details>
 
-**Designed around Acrobat's most common complaints**
+<details>
+<summary><b>More of the workspace</b></summary>
 
-- 🔒 **Private by default** — everything runs locally; no account, telemetry or uploads
-- ⚡ **Fast and light** — opens in about a second, scrolls at a steady 60 fps, and restores your last session without loading every document up front
-- 🖼️ **PDF thumbnails in File Explorer** (Windows) while Paperwing is your default PDF app
-- ⌨️ **Acrobat shortcuts** — including the single-key tool accelerators (H, V, S, U, D, X…), on by default
-- 🔎 **Command palette** — <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> finds any tool or command instantly
-- 📌 **Pin your tools** — pinned and recently used tools sit at the top of the tools panel
-- 💾 **Never lose work** — unsaved-change markers, save prompts on close, session restore, and
-  recovery of documents a tool made but you hadn't saved yet if the app closes unexpectedly
-- 📍 **Pick up where you left off** — documents reopen at the page and zoom you left them at
-- 📚 **Batch tools** — run Compress, Flatten, PDF to Word and other tools on many files at once
-- 🔄 **Updates itself** (Windows installer): tells you when there's a new version and installs it
-  when you choose **Update**
-- ↩️ **Reopen closed tab** — <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>, just like your browser
-- 🧪 **Non-destructive tools** — results open in a new tab; your original stays untouched until you save
-- 🗂️ **Native file dialogs** and real "Save" back to the original file
-- 🎒 **Portable mode** on Windows — run from a USB stick with settings stored next to the app
+- Tabbed documents and a Home view with recent and starred files, each with a preview of its first page
+- A searchable **All tools** sidebar, grouped like Acrobat's, with pinned and recently used tools on top
+- Right rail with comments, bookmarks, thumbnails, find, page navigation, rotate and zoom to any percentage
+- Read mode (<kbd>Ctrl</kbd>+<kbd>H</kbd>) and full screen (<kbd>Ctrl</kbd>+<kbd>L</kbd>)
+- Documents reopen at the page and zoom you left them at; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> reopens a closed tab
+- Batch tools run Compress, Flatten, PDF to Word and more on many files at once
+- Tools never change your original: results open in a new tab until you save
+- Native file dialogs and a real Save back to the original file
+- Updates itself on Windows (installer), when you choose **Update**
+- Portable mode on Windows: run it from a USB stick, settings stored beside it
 
-## Download
-
-Download it from **[paperwingapp.com](https://paperwingapp.com/#download)**, which picks the right file for
-your computer, or from the **[Releases page](https://github.com/rohanvijaykumar/paperwing/releases/latest)**.
-
-| Platform                  | File                                       | Notes                                                               |
-| ------------------------- | ------------------------------------------ | ------------------------------------------------------------------- |
-| **Windows** — installer   | `Paperwing-Setup-<version>-x64.exe`        | Start-menu entry, file association, uninstaller                     |
-| **Windows** — portable    | `Paperwing-Portable-<version>-win-x64.zip` | Unzip anywhere and run `Paperwing.exe`; settings stay in the folder |
-| **macOS** — Apple Silicon | `Paperwing-<version>-mac-arm64.dmg`        | M1 / M2 / M3 / M4 Macs                                              |
-| **macOS** — Intel         | `Paperwing-<version>-mac-x64.dmg`          | Intel Macs                                                          |
-
-Paperwing isn't code-signed yet, so Windows SmartScreen and macOS Gatekeeper will warn the first time
-you open it. See **[Installation](docs/INSTALL.md)** for the one-time steps.
-
-## FAQ
-
-**Is Paperwing the same as PaperWingPDF?**
-
-No. Paperwing is this desktop app for Windows and macOS. PaperWingPDF (paperwingpdf.com) is a
-separate set of browser-based PDF tools by a different developer; the two projects aren't connected.
-
-**Do I need to install LibreOffice for Word, Excel and PowerPoint conversions?**
-
-No. The conversion engine isn't in the installer, to keep the download small, but you don't install
-anything yourself: the first time you convert an Office file, Paperwing downloads it once (about
-75 MB) from this repository's GitHub Releases and verifies it against a SHA-256 hash.
-
-**Does redaction actually remove the content, or just draw a box over it?**
-
-It removes it. When you apply a redaction, the text and graphics under the marked area are deleted
-from the page itself, not just covered. Redaction doesn't touch the document's metadata (author,
-title and so on); use the **Sanitize** tool to strip that too.
-
-**Why does Windows or macOS warn me when I open it?**
-
-Paperwing isn't code-signed yet. The warning appears for any unsigned app; the full source is here,
-and you can [build it yourself](#build-from-source).
-
-**Does it work offline?**
-
-Yes. The exceptions are the one-time downloads listed under [Privacy](#privacy): the Office
-conversion engine, and OCR in languages other than English. The other engines (PyMuPDF,
-Ghostscript, coherentpdf, Tesseract with English…) come with the app.
+</details>
 
 ## Screenshots
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/home.png" alt="Home view with recommended tools and page previews of recent files" /><br /><sub><b>Home</b> — recent and starred files with page previews</sub></td>
-    <td width="50%"><img src="docs/screenshots/dark.png" alt="Document view in dark mode with the Edit panel" /><br /><sub><b>Dark mode</b> — follows your system automatically</sub></td>
+    <td width="50%"><img src="docs/screenshots/forms.png" alt="A client intake form filled in on the page, with the Form fields panel" /><br /><sub><b>Forms</b>: fill in right on the page</sub></td>
+    <td width="50%"><img src="docs/screenshots/print.png" alt="The print dialog with a preview of the annual report" /><br /><sub><b>Print</b>: with a preview of exactly what prints</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/all-tools.png" alt="Searchable All tools sidebar" /><br /><sub><b>All tools sidebar</b> — search and browse every tool</sub></td>
-    <td><img src="docs/screenshots/tool-panel.png" alt="Compress tool running in the side panel next to the document" /><br /><sub><b>Tools on the open document</b> — results open in a new tab</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/edit-text.png" alt="Edit text and images mode" /><br /><sub><b>Edit text &amp; images</b> — right in the page</sub></td>
-    <td><img src="docs/screenshots/shortcuts.png" alt="Keyboard shortcuts dialog" /><br /><sub><b>Acrobat shortcuts</b> — including single-key tools</sub></td>
+    <td><img src="docs/screenshots/home.png" alt="Home view with recommended tools and page previews of recent files" /><br /><sub><b>Home</b>: recent and starred files with page previews</sub></td>
+    <td><img src="docs/screenshots/dark.png" alt="Document view in dark mode with the Edit panel" /><br /><sub><b>Dark mode</b>: follows your system</sub></td>
   </tr>
 </table>
 
+<details>
+<summary><b>More screenshots</b></summary>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/all-tools.png" alt="Searchable All tools sidebar" /><br /><sub><b>All tools</b>: search and browse every tool</sub></td>
+    <td width="50%"><img src="docs/screenshots/tool-panel.png" alt="Compress tool running in the side panel next to the document" /><br /><sub><b>Tools beside the document</b>: results open in a new tab</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/edit-text.png" alt="Edit text and images mode" /><br /><sub><b>Edit text and images</b>: right in the page</sub></td>
+    <td><img src="docs/screenshots/full-screen.png" alt="Full screen: one page of the annual report on black" /><br /><sub><b>Full screen</b>: one page at a time</sub></td>
+  </tr>
+</table>
+
+</details>
+
+## Download
+
+Get it from **[paperwingapp.com](https://paperwingapp.com/#download)**, which picks the right file for
+your computer, or from **[Releases](https://github.com/rohanvijaykumar/paperwing/releases/latest)**.
+
+| Platform                 | File                                       | Notes                                                  |
+| ------------------------ | ------------------------------------------ | ------------------------------------------------------ |
+| **Windows**, installer   | `Paperwing-Setup-<version>-x64.exe`        | Start-menu entry, opens your PDFs, updates itself      |
+| **Windows**, portable    | `Paperwing-Portable-<version>-win-x64.zip` | Unzip and run `Paperwing.exe`; settings stay beside it |
+| **macOS**, Apple Silicon | `Paperwing-<version>-mac-arm64.dmg`        | M1, M2, M3, M4 and later                               |
+| **macOS**, Intel         | `Paperwing-<version>-mac-x64.dmg`          | Intel Macs                                             |
+
+Paperwing isn't code-signed yet, so Windows and macOS warn the first time you open it.
+[Installation](docs/INSTALL.md) has the one-time steps.
+
+## FAQ
+
+<details>
+<summary><b>Is Paperwing the same as PaperWingPDF?</b></summary>
+
+No. Paperwing is this desktop app for Windows and macOS. PaperWingPDF (paperwingpdf.com) is a
+separate set of browser-based PDF tools by a different developer; the two projects aren't connected.
+Paperwing is distributed only through [paperwingapp.com](https://paperwingapp.com) and this
+repository's [Releases](https://github.com/rohanvijaykumar/paperwing/releases).
+
+</details>
+
+<details>
+<summary><b>Do I need to install LibreOffice for Word, Excel and PowerPoint?</b></summary>
+
+No. The first time you convert an Office file, Paperwing downloads the engine once (about 75 MB)
+from this repository's Releases and checks it against a SHA-256 hash. It's left out of the installer
+to keep the download small.
+
+</details>
+
+<details>
+<summary><b>Does redaction actually remove the content?</b></summary>
+
+Yes. The text and graphics under a redaction are deleted from the page, not just covered. To strip
+metadata such as the author and title too, use the **Sanitize** tool.
+
+</details>
+
+<details>
+<summary><b>Why does Windows or macOS warn me when I open it?</b></summary>
+
+Paperwing isn't code-signed yet, and both systems warn about any unsigned app. The full source is
+here, and you can [build it yourself](#build-from-source).
+
+</details>
+
+<details>
+<summary><b>Does it work offline?</b></summary>
+
+Yes. The exceptions are the one-time downloads listed under [Privacy](#privacy): the Office
+conversion engine, and OCR in languages other than English. The other engines (PyMuPDF,
+Ghostscript, coherentpdf, Tesseract with English…) come with the app.
+
+</details>
+
 ## Keyboard shortcuts
 
-Paperwing mirrors Acrobat's defaults (⌘ replaces Ctrl on macOS). A few favourites:
+Paperwing mirrors Acrobat's defaults (⌘ instead of Ctrl on macOS). The full list is in
+**[docs/SHORTCUTS.md](docs/SHORTCUTS.md)** and in the app under **Help ▸ Keyboard shortcuts**.
+
+<details>
+<summary><b>A few favourites</b></summary>
 
 | Action                                 | Shortcut                                                                                                                  |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Open / Save / Save as                  | <kbd>Ctrl</kbd>+<kbd>O</kbd> · <kbd>Ctrl</kbd>+<kbd>S</kbd> · <kbd>Shift</kbd>+<kbd>Ctrl</kbd>+<kbd>S</kbd>               |
+| Print                                  | <kbd>Ctrl</kbd>+<kbd>P</kbd>                                                                                              |
 | Find / find next                       | <kbd>Ctrl</kbd>+<kbd>F</kbd> · <kbd>F3</kbd>                                                                              |
 | Zoom in / out / fit page / actual size | <kbd>Ctrl</kbd>+<kbd>=</kbd> · <kbd>Ctrl</kbd>+<kbd>-</kbd> · <kbd>Ctrl</kbd>+<kbd>0</kbd> · <kbd>Ctrl</kbd>+<kbd>1</kbd> |
 | Rotate view                            | <kbd>Shift</kbd>+<kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd>                                                              |
 | Page thumbnails / tools panel          | <kbd>F4</kbd> · <kbd>Shift</kbd>+<kbd>F4</kbd>                                                                            |
 | Highlight · comment · draw · text box  | <kbd>U</kbd> · <kbd>S</kbd> · <kbd>D</kbd> · <kbd>X</kbd>                                                                 |
 | Read mode · full screen                | <kbd>Ctrl</kbd>+<kbd>H</kbd> · <kbd>Ctrl</kbd>+<kbd>L</kbd>                                                               |
-| Search tools & commands                | <kbd>Shift</kbd>+<kbd>Ctrl</kbd>+<kbd>P</kbd>                                                                             |
+| Search tools and commands              | <kbd>Shift</kbd>+<kbd>Ctrl</kbd>+<kbd>P</kbd>                                                                             |
 
-The full list is in **[docs/SHORTCUTS.md](docs/SHORTCUTS.md)** and inside the app under **Help ▸ Keyboard shortcuts**.
+</details>
 
 ## Privacy
 
-All PDF processing happens on your computer. Paperwing has no accounts, analytics or telemetry.
-The only network requests it makes are:
+All PDF processing happens on your computer. Paperwing has no accounts, analytics or telemetry, and
+goes online only for updates and a few one-time engine downloads.
 
-- an optional check of this repository's GitHub Releases for updates, every time Paperwing starts
-  and every two hours while it's open (can be turned off in **Preferences**). When
-  there's a new version, Paperwing tells you and downloads nothing until you choose to: the Windows
-  installer then downloads and installs it, and the portable build and macOS download the right file;
-- the **Word, Excel and PowerPoint → PDF** converters download the LibreOffice engine (about 75 MB,
-  once) from this repository's GitHub Releases the first time you use them. It's left out of the
-  installer to keep the download small, and it's checked against a SHA-256 hash before it's used;
-- **Timestamp** (and a digital signature with a timestamp) contacts the timestamp server you pick,
-  sending only a hash of the document;
-- **OCR** in English works offline. Other languages download their Tesseract data (a few MB each)
-  from jsDelivr the first time you use them, and for non-Latin scripts the font for the text
-  layer comes from a CDN;
-- for text in fonts a document doesn't embed, a fallback font is used. The Latin one ships with
-  Paperwing; for other scripts (Chinese, Japanese, Korean, Arabic, Hebrew) it's downloaded from a
-  CDN the first time it's needed, as is the Latin font in the **Edit text** tool.
+<details>
+<summary><b>Every network request it makes</b></summary>
+
+- **Updates:** a check of this repository's Releases every time Paperwing starts and every two hours
+  while it's open (you can turn it off in **Preferences**). Nothing downloads until you choose to:
+  the Windows installer then installs it; the portable build and macOS download the right file.
+- **Word, Excel and PowerPoint to PDF** download the LibreOffice engine (about 75 MB, once) from this
+  repository's Releases, checked against a SHA-256 hash.
+- **Timestamps** (and digital signatures with one) contact the timestamp server you pick, sending only
+  a hash of the document.
+- **OCR** in English works offline. Other languages download their Tesseract data (a few MB each) from
+  jsDelivr on first use; for non-Latin scripts, the font for the text layer comes from a CDN.
+- **Fallback fonts** for text in fonts a document doesn't embed: the Latin one ships with Paperwing;
+  others (Chinese, Japanese, Korean, Arabic, Hebrew) download from a CDN the first time they're needed,
+  as does the Latin font in the **Edit text** tool.
+
+</details>
 
 ## How Paperwing works
 
-Paperwing is a fork of BentoPDF. BentoPDF is a web app: each of its tools is a page that processes
-PDFs in the browser with open-source libraries compiled to WebAssembly, so nothing is uploaded.
-Paperwing keeps that code unchanged and adds three layers around it:
+Paperwing is a fork of BentoPDF, whose tools process PDFs with open-source libraries compiled to
+WebAssembly. It keeps BentoPDF's code unchanged and adds an Acrobat-style workspace and a desktop
+app around it.
+
+<details>
+<summary><b>The layers</b></summary>
 
 | Layer           | What it does                                                                                                                                  | Code                            |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
 | **BentoPDF**    | All PDF work: the 100+ tools, plus the document viewer (EmbedPDF on PDFium), pdf-lib, PDF.js, qpdf, Tesseract OCR, LibreOffice and more       | `src/js`, `src/pages`, `public` |
-| **Workspace**   | The Acrobat-style interface: tabs, Home, the searchable tools sidebar, the viewer workspace, shortcuts, preferences                           | `app.html`, `src/acro/`         |
+| **Workspace**   | The Acrobat-style interface: tabs, Home, the searchable tools sidebar, the viewer workspace, forms, printing, shortcuts, preferences          | `app.html`, `src/acro/`         |
 | **Integration** | Restyles every BentoPDF tool page (light/dark, Acrobat look) and connects it to the workspace: passes the open file in and catches the result | `src/reskin/`, `reskin/`        |
-| **Desktop app** | Electron: serves the built app from disk, native open/save dialogs, file associations, launch screen, portable mode                           | `desktop/`                      |
+| **Desktop app** | Electron: serves the built app from disk, native open/save dialogs, printing, file associations, launch screen, portable mode                 | `desktop/`                      |
 
-When you open a PDF, it appears in BentoPDF's viewer. When you pick a tool, Paperwing loads that
-BentoPDF tool page beside the document and hands it your file. BentoPDF's code does the work on your
-computer, and Paperwing opens the result in a new tab or saves it where you choose.
+When you pick a tool, Paperwing loads that BentoPDF tool page beside the document and hands it your
+file; the result opens in a new tab or saves where you choose. Apart from two lines in
+`vite.config.ts` and a handful of security fixes (listed in
+[docs/UPSTREAM-PATCHES.md](docs/UPSTREAM-PATCHES.md)), BentoPDF's code is included unmodified, so new
+BentoPDF releases merge in directly.
 
-Apart from two lines in `vite.config.ts` that register Paperwing's build plugin and a handful of
-security fixes (listed in [docs/UPSTREAM-PATCHES.md](docs/UPSTREAM-PATCHES.md)), BentoPDF's code is
-included unmodified, so new BentoPDF releases can be merged in directly.
+</details>
 
 ## Build from source
 
@@ -225,36 +264,30 @@ cd desktop && npm ci        # desktop shell dependencies
 npm run dev                 # build the web app and launch Paperwing
 ```
 
-Packaging, testing and the release process are covered in **[docs/BUILDING.md](docs/BUILDING.md)**.
+Packaging, testing and releases are covered in **[docs/BUILDING.md](docs/BUILDING.md)**.
 
 ## Credits
 
 Paperwing is built on **[BentoPDF](https://github.com/alam00000/bentopdf)** by
-[Alam](https://github.com/alam00000) and contributors. BentoPDF provides every one of the 100+ tools
-and all of the PDF processing, including its integration of PDFium, PDF.js, pdf-lib, qpdf, LibreOffice
-and more. Paperwing adds the desktop application and the Acrobat-style interface on top (see
-[How Paperwing works](#how-paperwing-works)).
-
-If Paperwing is useful to you, please consider
+[Alam](https://github.com/alam00000) and contributors, which provides every tool and all of the PDF
+processing. If Paperwing is useful to you, please consider
 **[sponsoring BentoPDF's author](https://github.com/sponsors/alam00000)** ❤️
 
-Full third-party notices are in [NOTICE.md](NOTICE.md). BentoPDF's original README is preserved in
+Third-party notices are in [NOTICE.md](NOTICE.md); BentoPDF's original README is in
 [docs/BENTOPDF.md](docs/BENTOPDF.md).
 
 ## Contributing
 
-Bug reports, ideas and pull requests are welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)**.
-Problems with an individual tool's output usually come from BentoPDF's tool code; we'll help route
-them upstream.
+Bug reports, ideas and pull requests are welcome: see **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 ## License
 
-Paperwing is released under the **[GNU Affero General Public License v3.0](LICENSE)**, the same
-license as BentoPDF. You're free to use, study, modify and share it; if you distribute a modified
-version, you must make its source available under the same license.
+**[GNU Affero General Public License v3.0](LICENSE)**, the same as BentoPDF. You're free to use, study,
+modify and share it; if you distribute a modified version, its source must be available under the
+same license.
 
 ## Trademarks
 
-Adobe and Acrobat are registered trademarks of Adobe Inc. Paperwing is not affiliated with,
-endorsed by or sponsored by Adobe. These names are used only to describe the kind of software
-Paperwing is an alternative to. Paperwing contains no Adobe code, logos, icons or fonts.
+Adobe and Acrobat are registered trademarks of Adobe Inc. Paperwing is not affiliated with, endorsed
+by or sponsored by Adobe; the names are used only to describe what Paperwing is an alternative to.
+Paperwing contains no Adobe code, logos, icons or fonts.
