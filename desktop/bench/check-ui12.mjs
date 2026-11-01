@@ -490,7 +490,7 @@ check(
   `unsaved edits copied for recovery: ${copies.join(', ')}`
 );
 // Crash: kill the app, then start it again with the same profile
-app.child.kill();
+app.child.kill('SIGKILL'); // (a plain kill on macOS only asks it to quit)
 await sleep(1500);
 app = await launch({ profile });
 page = app.page;
@@ -655,7 +655,7 @@ await page.evaluate(() => {
   // Leave without prompts
   window.onbeforeunload = null;
 });
-app.child.kill();
+app.child.kill('SIGKILL'); // (a plain kill on macOS only asks it to quit)
 await sleep(1000);
 try {
   rmSync(profile, {

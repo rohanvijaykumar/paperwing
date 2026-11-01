@@ -116,7 +116,10 @@ const onPage = (name, nth = 0) =>
 const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
 const press = async (key, mods = []) => {
   for (const m of mods) await page.keyboard.down(m);
-  await page.keyboard.press(key);
+  // (on macOS ⌘A is the Edit menu's Select All, which a key sent to the
+  // page doesn't reach: the page gets the editing command with it)
+  const selectAll = MOD === 'Meta' && key === 'a' && mods.includes(MOD);
+  await page.keyboard.press(key, selectAll ? { commands: ['SelectAll'] } : {});
   for (const m of mods.reverse()) await page.keyboard.up(m);
 };
 
