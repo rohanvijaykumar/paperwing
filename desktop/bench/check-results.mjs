@@ -206,17 +206,24 @@ check(
   recovery().filter((f) => f.endsWith('.pdf')).length === 1,
   'second result has a recovery copy'
 );
+// (on macOS closing the window leaves the app in the Dock, as Mac apps do:
+// the window closing is what counts there)
+const mac = process.platform === 'darwin';
 const exited = new Promise((r) => app.child.once('exit', r));
+const closed = new Promise((r) => page.once('close', r));
 await page.evaluate(() => window.paperwing.requestClose());
 await until(page, () => document.querySelector('.dlg[role="alertdialog"]'));
 await page.evaluate(() =>
   document.querySelector('.dlg-actions .quiet-btn').click()
 );
 const quit = await Promise.race([
-  exited.then(() => true),
+  (mac ? Promise.race([exited, closed]) : exited).then(() => true),
   sleep(15000).then(() => false),
 ]);
-check(quit, "app quits after Don't save");
+check(
+  quit,
+  mac ? "the window closes after Don't save" : "app quits after Don't save"
+);
 check(
   recovery().length === 0,
   `quitting without saving leaves no copy (${recovery().join(', ') || 'none left'})`
@@ -226,6 +233,7 @@ try {
   app.browser.disconnect();
 } catch {}
 if (!quit) await app.close();
+else if (mac) app.child.kill('SIGKILL');
 try {
   rmSync(profile, {
     recursive: true,
