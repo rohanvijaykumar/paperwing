@@ -536,6 +536,13 @@ await until(
 );
 await sleep(2500);
 const frame = page.frames().find((f) => f.url().includes('form-creator'));
+// (the tool's buttons and its page, which a slow machine takes a while over)
+await until(
+  frame,
+  () =>
+    !!document.querySelector('.tool-item[data-type="text"]') &&
+    (document.querySelector('canvas')?.getBoundingClientRect().width ?? 0) > 0
+);
 // A change in the tool: place a text field (the Text tool, then the page)
 const frameEl = await frame.frameElement();
 const fb = await frameEl.boundingBox();
@@ -569,7 +576,12 @@ await sleep(1500);
 await page.evaluate(() =>
   document.querySelector('.full-head .pill-btn').click()
 );
-await sleep(500);
+await until(
+  page,
+  () => !!document.querySelector('.dlg-backdrop'),
+  undefined,
+  5000
+);
 const asked = await page.evaluate(
   () => document.querySelector('.dlg-backdrop')?.textContent ?? ''
 );
