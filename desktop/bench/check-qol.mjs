@@ -282,8 +282,12 @@ check(
 await writePdf(B, 5, 'Globex v3');
 text = await until(barText, 10000);
 check(!!text, 'a second change brings the notice back');
+// (macOS can report a save while it's still being written: dismissing that
+// version and seeing the notice again for the finished file is right, so
+// let the save settle first)
+await sleep(1500);
 await page.click('#disk-bar .db-close');
-await sleep(400);
+await sleep(1500);
 check(
   !(await barText()) && (await pagesShown()) === 4,
   'Dismiss hides it and keeps the current document'
