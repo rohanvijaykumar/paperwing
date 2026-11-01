@@ -32,6 +32,7 @@ import { FormLayer, FormSession, type FormChange } from './form-layer';
 import { fillable, type FieldState, type LiveField } from './form-model';
 import type { PrintBridge } from './print';
 import type { Presentation } from './present';
+import { showModal } from './modal';
 import {
   type AvailableUpdate,
   checkForUpdates,
@@ -232,12 +233,15 @@ function showPopover(
   };
   const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
   const close = () => {
+    // Keyboard users carry on from the button that opened it
+    const hadFocus = pop.contains(document.activeElement);
     pop.remove();
     anchor.classList.remove('is-open');
     document.removeEventListener('pointerdown', onDown, true);
     document.removeEventListener('keydown', onKey, true);
     window.removeEventListener('blur', close);
     if (closePopover === close) closePopover = null;
+    if (hadFocus) anchor.focus();
   };
   // Escape works at once, even pressed right after opening; outside clicks
   // count from the next tick, so the click that opened it doesn't close it
@@ -4608,7 +4612,7 @@ function dialog(
     'pointerdown',
     (e) => e.target === backdrop && close()
   );
-  document.body.append(backdrop);
+  showModal(backdrop);
   return close;
 }
 
@@ -4837,7 +4841,7 @@ function askDialog<T>(
         h('div', { class: 'dlg-body' }, h('p', {}, message), actions)
       )
     );
-    document.body.append(backdrop);
+    showModal(backdrop);
     actions.querySelector<HTMLButtonElement>('.accent-btn')?.focus();
   });
 }
@@ -4910,7 +4914,7 @@ function passwordDialog(name: string, wrong: boolean): Promise<string | null> {
         )
       )
     );
-    document.body.append(backdrop);
+    showModal(backdrop);
     input.focus();
   });
 }
