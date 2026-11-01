@@ -872,8 +872,10 @@ describe('Paperwing UI', () => {
       !names.includes('sample.pdf') && !names.includes('Second.pdf'),
       `files not opened as tabs (${names.join(', ')})`
     );
-    // One run makes one ZIP of both
+    // One run makes one ZIP of both. (Photon: Condense first downloads its
+    // engine from a CDN in a browser, which a CI machine can't count on)
     await content.waitForSelector('#process-btn');
+    await content.select('#compression-algorithm', 'photon');
     await content.click('#process-btn');
     // (a slow machine takes a while; if it never comes, say what the tool shows)
     await waitFor(
