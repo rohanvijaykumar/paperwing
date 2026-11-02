@@ -3928,7 +3928,7 @@ async function exportDoc(tab: Tab, doing: string): Promise<ArrayBuffer | null> {
   }
 }
 
-/** Save a document; resolves true if it was written somewhere */
+/** Save a document; resolves true only when a file write has completed */
 async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
   await settleForms([tab]);
   // Saving over a file another app has saved since: ask first
@@ -4010,12 +4010,13 @@ async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
   } catch (e) {
     if ((e as DOMException)?.name === 'AbortError') return false;
     console.error(e);
+    toast(`Couldn't save ${tab.name}. Your changes are still open.`);
+    return false;
   }
-  // No file system access (plain browser): download a copy instead
+  // A download cannot confirm that the file reached disk; keep unsaved state.
   saveBlob(blob, tab.name);
-  tab.savedVersion = version;
-  renderTabs();
-  return true;
+  toast('Downloaded a copy. Verify it before closing this tab.');
+  return false;
 }
 
 $('#save-btn').addEventListener('click', () => {
