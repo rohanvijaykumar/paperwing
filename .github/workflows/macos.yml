@@ -50,6 +50,15 @@ jobs:
       - name: Unit tests
         run: npm run test:run
 
+      - name: Build the web app
+        working-directory: desktop
+        run: npm run build:web
+
+      - name: Print tests
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: npm run test:print
+
       # Apple's ImageCaptureCore, through the Swift helper: it must build
       # (universal) and, with no scanner attached, list none
       - name: Scanner helper
@@ -60,15 +69,6 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: desktop
         run: npm run test:scan
-
-      - name: Build the web app
-        working-directory: desktop
-        run: npm run build:web
-
-      - name: Print tests
-        if: ${{ !cancelled() }}
-        working-directory: desktop
-        run: npm run test:print
 
       # A network printer on this machine, set as the default: CUPS (as on any
       # Mac) sends its jobs to 127.0.0.1:9100, the way office printers take
