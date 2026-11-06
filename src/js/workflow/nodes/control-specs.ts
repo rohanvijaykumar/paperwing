@@ -86,23 +86,14 @@ const CONTROL_SPECS: Record<string, Record<string, WorkflowControlSpec>> = {
     separatorColor: COLOR,
   },
   CompressNode: {
-    algorithm: selectSpec(
-      ['condense', 'Condense (Smart, requires PyMuPDF)'],
-      ['photon', 'Photon (Rasterize pages)']
-    ),
     compressionLevel: selectSpec(
-      ['light', 'Light'],
-      ['balanced', 'Balanced'],
-      ['aggressive', 'Aggressive'],
-      ['extreme', 'Extreme']
+      ['low', 'Low (Best Quality)'],
+      ['medium', 'Medium (Recommended)'],
+      ['high', 'High (Smallest Files)'],
+      ['lossless', 'Lossless (No Quality Loss)']
     ),
-    imageQuality: numberSpec(1, 100, 1),
-    dpiTarget: numberSpec(36, 300, 1),
-    dpiThreshold: numberSpec(72, 600, 1),
-    removeMetadata: BOOLEAN,
-    subsetFonts: BOOLEAN,
+    targetKilobytes: numberSpec(0, 1048576, 1),
     convertToGrayscale: BOOLEAN,
-    removeThumbnails: BOOLEAN,
   },
   CropNode: {
     top: PAGE_COORDINATE,

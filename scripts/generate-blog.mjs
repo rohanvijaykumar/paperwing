@@ -45,6 +45,19 @@ function styleBody(html) {
       '<ul class="list-disc list-inside text-gray-300 leading-relaxed mb-5 space-y-2">'
     )
     .replace(
+      /<table>/g,
+      '<div class="overflow-x-auto mb-6"><table class="w-full text-left text-sm text-gray-300 border-collapse">'
+    )
+    .replace(/<\/table>/g, '</table></div>')
+    .replace(
+      /<th(?=[ >])[^>]*>/g,
+      '<th class="border-b border-gray-600 px-3 py-2 font-semibold text-white">'
+    )
+    .replace(
+      /<td(?=[ >])[^>]*>/g,
+      '<td class="border-b border-gray-800 px-3 py-2 align-top">'
+    )
+    .replace(
       /<a href="http/g,
       `<a rel="noopener" class="${LINK_CLASS}" href="http`
     )
@@ -274,7 +287,7 @@ ${renderFaqs(meta.faqs)}
             '@type': 'ListItem',
             position: 1,
             name: 'Blog',
-            item: `${SITE_URL}/blog/`,
+            item: `${SITE_URL}/blog`,
           },
           {
             '@type': 'ListItem',
@@ -319,9 +332,9 @@ function renderIndex(posts) {
       content="Guides and honest comparisons from the maintainer of BentoPDF: how PDF tools handle your files, and how to get things done without uploading them."
     />
     <meta name="robots" content="index, follow, max-image-preview:large" />
-    <link rel="canonical" href="${SITE_URL}/blog/" />
+    <link rel="canonical" href="${SITE_URL}/blog" />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="${SITE_URL}/blog/" />
+    <meta property="og:url" content="${SITE_URL}/blog" />
     <meta property="og:title" content="The BentoPDF Blog" />
     <meta
       property="og:description"
@@ -363,7 +376,7 @@ ${cards}
         '@context': 'https://schema.org',
         '@type': 'Blog',
         name: 'The BentoPDF Blog',
-        url: `${SITE_URL}/blog/`,
+        url: `${SITE_URL}/blog`,
         description:
           'Guides and honest comparisons from the maintainer of BentoPDF.',
         publisher: {

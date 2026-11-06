@@ -178,17 +178,19 @@ function main() {
   const headers = buildSecurityHeaders();
   const outPath = join(repoRoot, 'security-headers.conf');
   const docsOutPath = join(repoRoot, 'security-headers-docs.conf');
-  const staticOutPath = join(repoRoot, 'public', '_headers');
   writeFileSync(outPath, headers.nginx);
   writeFileSync(docsOutPath, headers.nginxDocs);
-  writeFileSync(staticOutPath, headers.staticHeaders);
   console.log(
     `[security-headers] wrote ${outPath} with ${headers.scriptSources.length} script-src / ${headers.connectOrigins.length} connect-src source(s)`
   );
   console.log(`[security-headers] wrote ${docsOutPath} (docs CSP)`);
-  console.log(`[security-headers] wrote ${staticOutPath}`);
   const distDir = join(repoRoot, 'dist');
-  if (existsSync(distDir)) {
+  const customHeaders = join(repoRoot, 'public', '_headers');
+  if (existsSync(customHeaders)) {
+    console.log(
+      `[security-headers] kept your own ${customHeaders} for static hosts`
+    );
+  } else if (existsSync(distDir)) {
     const distOutPath = join(distDir, '_headers');
     writeFileSync(distOutPath, headers.staticHeaders);
     console.log(`[security-headers] wrote ${distOutPath}`);

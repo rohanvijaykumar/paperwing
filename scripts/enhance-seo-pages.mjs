@@ -8,6 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const DIST_DIR = path.resolve(__dirname, '../dist');
+const BASE_PATH = (process.env.BASE_URL || '/').replace(/\/$/, '');
 const SITE_URL = (process.env.SITE_URL || 'https://www.bentopdf.com').replace(
   /\/+$/,
   ''
@@ -125,7 +126,8 @@ function rewriteInternalLinks(document, knownSlugs) {
     );
     if (!match) continue;
     if (!knownSlugs.has(match[1])) continue;
-    const target = match[1] === 'index' ? '/' : `/${match[1]}`;
+    const target =
+      match[1] === 'index' ? BASE_PATH || '/' : `${BASE_PATH}/${match[1]}`;
     link.setAttribute('href', `${target}${match[2] || ''}`);
   }
 }

@@ -1,5 +1,6 @@
 {
   "categories": {
+    "favorites": "Favorites",
     "popularTools": "Popular Tools",
     "editAnnotate": "Edit & Annotate",
     "convertToPdf": "Convert to PDF",
@@ -9,6 +10,13 @@
     "securePdf": "Secure PDF",
     "input": "Input",
     "output": "Output"
+  },
+  "favorites": {
+    "add": "Add to favorites",
+    "remove": "Remove from favorites",
+    "hintLabel": "Tip",
+    "hint": "Press and hold a tool to add it to your favorites.",
+    "hideHint": "Hide tip"
   },
   "convertToPdf": "Convert to PDF",
   "pdfMultiTool": {
@@ -42,29 +50,7 @@
   },
   "compressPdf": {
     "name": "Compress PDF",
-    "subtitle": "Reduce the file size of your PDF.",
-    "algorithmLabel": "Compression Algorithm",
-    "condense": "Condense (Recommended)",
-    "photon": "Photon (For Photo-Heavy PDFs)",
-    "condenseInfo": "Condense uses advanced compression: removes dead-weight, optimizes images, subsets fonts. Best for most PDFs.",
-    "photonInfo": "Photon converts pages to images. Use for photo-heavy/scanned PDFs.",
-    "photonWarning": "Warning: Text will become non-selectable and links will stop working.",
-    "levelLabel": "Compression Level",
-    "light": "Light (Preserve Quality)",
-    "balanced": "Balanced (Recommended)",
-    "aggressive": "Aggressive (Smaller Files)",
-    "extreme": "Extreme (Maximum Compression)",
-    "grayscale": "Convert to Grayscale",
-    "grayscaleHint": "Reduces file size by removing color information",
-    "customSettings": "Custom Settings",
-    "customSettingsHint": "Fine-tune compression parameters:",
-    "outputQuality": "Output Quality",
-    "resizeImagesTo": "Resize Images To",
-    "onlyProcessAbove": "Only Process Above",
-    "removeMetadata": "Remove metadata",
-    "subsetFonts": "Subset fonts (remove unused glyphs)",
-    "removeThumbnails": "Remove embedded thumbnails",
-    "compressButton": "Compress PDF"
+    "subtitle": "Reduce the file size of your PDF."
   },
   "pdfEditor": {
     "name": "PDF Editor",
@@ -120,7 +106,7 @@
     "tipRedoZ": "Redo (⇧⌘Z)",
     "tipFileDetails": "File details",
     "tipEditExistingContent": "Edit existing content",
-    "tipWhatTheEditToolTouchesNarrowTheScopeOnBus": "What the Edit tool touches — narrow the scope on busy pages",
+    "tipWhatTheEditToolTouchesNarrowTheScopeOnBus": "What the Edit tool touches. Narrow the scope on busy pages.",
     "tipClickThePageToAddATextBox": "Click the page to add a text box",
     "tipSpellCheckLanguage": "Spell-check language",
     "tipFindAndReplace": "Find & replace",

@@ -577,7 +577,9 @@ describe('Paperwing UI', () => {
     // (Photon: Condense first downloads its engine from a CDN in a browser,
     // which a CI machine can't count on)
     await content.waitForSelector('#process-btn');
-    await content.select('#compression-algorithm', 'photon');
+    // (BentoPDF 2.8.11 has one bundled engine, Hyper Compress, and no choice)
+    if (await content.$('#compression-algorithm'))
+      await content.select('#compression-algorithm', 'photon');
     await content.click('#process-btn');
     await waitFor(
       page,
@@ -893,7 +895,9 @@ describe('Paperwing UI', () => {
     // One run makes one ZIP of both. (Photon: Condense first downloads its
     // engine from a CDN in a browser, which a CI machine can't count on)
     await content.waitForSelector('#process-btn');
-    await content.select('#compression-algorithm', 'photon');
+    // (BentoPDF 2.8.11 has one bundled engine, Hyper Compress, and no choice)
+    if (await content.$('#compression-algorithm'))
+      await content.select('#compression-algorithm', 'photon');
     await content.click('#process-btn');
     // (a slow machine takes a while; if it never comes, say what the tool shows)
     await waitFor(

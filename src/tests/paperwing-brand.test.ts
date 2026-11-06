@@ -35,17 +35,30 @@ describe("Paperwing's name in BentoPDF's pages and code", () => {
     );
   });
 
-  it('rebrands interface strings, keeping keys and copyright', () => {
+  it('rebrands interface strings, keeping copyright', () => {
     expect(
       rebrandStrings({
-        BentoPDF: 'BentoPDF',
+        aboutBentoPDF: 'BentoPDF',
         nested: { title: 'Why BentoPDF?', list: ['BentoPDF', 1, null] },
         footer: '© 2026 BentoPDF. All rights reserved.',
       })
     ).toEqual({
-      BentoPDF: 'Paperwing',
+      aboutBentoPDF: 'Paperwing',
       nested: { title: 'Why Paperwing?', list: ['Paperwing', 1, null] },
       footer: '© 2026 BentoPDF. All rights reserved.',
     });
+  });
+
+  it('rebrands keys that are the English text (ui.json), as the code is', () => {
+    const key = 'A new version of BentoPDF is available. Reload to update?';
+    const branded = rebrandStrings({
+      [key]: 'Er is een nieuwe versie van BentoPDF.',
+    });
+    expect(branded).toEqual({
+      [rebrandCode(key)]: 'Er is een nieuwe versie van Paperwing.',
+    });
+    expect(rebrandCode(key)).toBe(
+      'A new version of Paperwing is available. Reload to update?'
+    );
   });
 });

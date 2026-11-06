@@ -6,6 +6,13 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+### Changed
+
+- **BentoPDF 2.8.11**: measuring distances, perimeters and areas in Edit a PDF (with scale,
+  calibration and snapping), a redesigned PDF Multi Tool that handles very large documents,
+  Compress on BentoPDF's new Hyper Compress engine, and more. See
+  [BentoPDF's release notes](https://github.com/alam00000/bentopdf/releases/tag/v2.8.11).
+
 ### Fixed
 
 - **Highlighted text can be copied.** With a highlight selected, Ctrl+C (⌘C on macOS) copies the
