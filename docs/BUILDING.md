@@ -101,6 +101,17 @@ pwsh desktop/native/win-certs/test-certs.ps1 -Remove -Out certs.json   # deletes
 
 CI does all of this on Windows (`windows-certs` in `tests.yml`) and macOS (`macos.yml`).
 
+### Scanning without a scanner
+
+Create PDF from scanner (`desktop/scan.cjs`) talks to scanners through a helper: on Windows,
+`desktop/scanner/wia.ps1` (Windows' own WIA, through PowerShell); on macOS, `paperwing-scan`
+(`desktop/native/mac-scanner`, Swift on ImageCaptureCore), built with
+`desktop/native/mac-scanner/build.sh` (universal; `--test` runs it) and added to the app by
+`scripts/after-pack.cjs`. Development builds stand in a scanner when `PAPERWING_SCAN_TEST=1` is
+set (`PAPERWING_SCAN_TEST_PAGES` sheets in the feeder, `PAPERWING_SCAN_TEST_ERROR=paper-jam` and the
+like to fail), which `npm run test:scan` and `bench/check-scan.mjs` use. A real scanner is still
+the final test: CI machines have none.
+
 ## Screenshots
 
 The README screenshots (`docs/screenshots/*.png`) are taken from the real interface, using the
