@@ -48,21 +48,25 @@ export function rebrandCode(code) {
 }
 
 /**
- * A translation file (JSON): every string value, copyright lines kept
+ * A translation file (JSON): every string, copyright lines kept. Keys too:
+ * ui.json is keyed by the English text itself, which the code (rebranded
+ * the same way) looks up
  * @param {unknown} json
  * @returns {unknown}
  */
 export function rebrandStrings(json) {
+  /** @type {(v: string) => string} */
+  const name = (v) => (COPYRIGHT.test(v) ? v : v.replace(NAME, 'Paperwing'));
   /** @type {(v: unknown) => unknown} */
   const walk = (v) =>
     typeof v === 'string'
-      ? COPYRIGHT.test(v)
-        ? v
-        : v.replace(NAME, 'Paperwing')
+      ? name(v)
       : Array.isArray(v)
         ? v.map(walk)
         : v && typeof v === 'object'
-          ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]))
+          ? Object.fromEntries(
+              Object.entries(v).map(([k, x]) => [name(k), walk(x)])
+            )
           : v;
   return walk(json);
 }

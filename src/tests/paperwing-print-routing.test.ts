@@ -13,7 +13,16 @@ vi.mock('../reskin/origins', async (original) => ({
 vi.mock('mermaid', () => ({
   default: { initialize: vi.fn(), render: vi.fn() },
 }));
-vi.mock('../js/i18n/i18n', () => ({ applyTranslations: vi.fn() }));
+// English text, as i18n does before a language loads ({{name}} filled in)
+const { fill } = vi.hoisted(() => ({
+  fill: (text: string, params: Record<string, string | number> = {}) =>
+    text.replace(/\{\{(\w+)\}\}/g, (m, k) => String(params[k] ?? m)),
+}));
+vi.mock('../js/i18n/i18n', () => ({
+  applyTranslations: vi.fn(),
+  trText: fill,
+  trHtml: fill,
+}));
 
 // (Made with this page's Uint8Array: TextEncoder's comes from another realm,
 // and a real message's data is always recreated in the page's.)

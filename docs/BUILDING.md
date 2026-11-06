@@ -165,8 +165,8 @@ SHA-512, and a mismatch makes every update fail.
 ```bash
 # upstream = https://github.com/alam00000/bentopdf (fetched without its tags, so BentoPDF's
 # version tags never mix with Paperwing's)
-git fetch upstream refs/tags/v2.8.10:refs/tags/upstream/v2.8.10
-git merge upstream/v2.8.10           # the BentoPDF release you want
+git fetch upstream refs/tags/v2.8.11:refs/tags/upstream/v2.8.11
+git merge upstream/v2.8.11           # the BentoPDF release you want
 npm ci && npx vitest run && (cd desktop && npm run dev)
 ```
 

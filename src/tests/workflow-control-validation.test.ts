@@ -107,7 +107,7 @@ describe('workflow import validation', () => {
         },
         { type: 'NUpNode', controls: { pagesPerSheet: 7 } },
         { type: 'RotateNode', controls: { angle: '45' } },
-        { type: 'CompressNode', controls: { algorithm: 'photon' } },
+        { type: 'CompressNode', controls: { compressionLevel: 'aggressive' } },
       ])
     );
 
@@ -116,9 +116,9 @@ describe('workflow import validation', () => {
     expect(controlValue(redact, 'text')).toBe('secret');
     expect(controlValue(findNode(nodes, 'NUpNode'), 'pagesPerSheet')).toBe(4);
     expect(controlValue(findNode(nodes, 'RotateNode'), 'angle')).toBe('90');
-    expect(controlValue(findNode(nodes, 'CompressNode'), 'algorithm')).toBe(
-      'photon'
-    );
+    expect(
+      controlValue(findNode(nodes, 'CompressNode'), 'compressionLevel')
+    ).toBe('high');
   });
 
   it('keeps only known multi-select values', async () => {

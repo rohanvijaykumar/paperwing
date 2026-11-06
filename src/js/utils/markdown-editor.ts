@@ -1,4 +1,7 @@
-import MarkdownIt from 'markdown-it';
+import MarkdownIt, {
+  type MarkdownIt as MarkdownItParser,
+  type StateInline,
+} from 'markdown-it';
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js/lib/core';
 import javascript from 'highlight.js/lib/languages/javascript';
@@ -17,20 +20,16 @@ import go from 'highlight.js/lib/languages/go';
 import rust from 'highlight.js/lib/languages/rust';
 import yaml from 'highlight.js/lib/languages/yaml';
 import 'highlight.js/styles/github.css';
-import mermaid from 'mermaid';
-import sub from 'markdown-it-sub';
-import sup from 'markdown-it-sup';
-import footnote from 'markdown-it-footnote';
-import deflist from 'markdown-it-deflist';
-import abbr from 'markdown-it-abbr';
-import { full as emoji } from 'markdown-it-emoji';
-import ins from 'markdown-it-ins';
-import mark from 'markdown-it-mark';
-import taskLists from 'markdown-it-task-lists';
-import anchor from 'markdown-it-anchor';
-import tocDoneRight from 'markdown-it-toc-done-right';
-import { applyTranslations } from '../i18n/i18n';
+import type { Mermaid } from 'mermaid';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
+import { fullEmoji } from '@mdit/plugin-emoji';
+import { tasklist } from '@mdit/plugin-tasklist';
+import { katex as katexPlugin } from '@mdit/plugin-katex-slim';
+import { useMarkdownPlugins } from './markdown-plugins';
+import { applyTranslations, trHtml, trText } from '../i18n/i18n';
 import { exportPdfToShell } from '../../reskin/export-pdf';
+import katexCss from 'katex/dist/katex.min.css?inline';
 import type {
   WindowWithLucide,
   WindowWithI18next,
@@ -78,6 +77,37 @@ export type { MarkdownItOptions } from '@/types';
 
 const MIN_TABLE_ZOOM = 0.6;
 const TABLE_BREAK_CLASS = 'md-table-break-anywhere';
+const PREVIEW_SANITIZE_OPTIONS = {
+  ADD_ATTR: ['target'],
+  FORBID_TAGS: ['style', 'form', 'dialog'],
+  FORBID_ATTR: ['popover'],
+};
+const ESCAPED_MATH: ReadonlyArray<[string, string, boolean]> = [
+  ['\\\\[', '\\\\]', true],
+  ['\\\\(', '\\\\)', false],
+  ['\\[', '\\]', true],
+  ['$`', '`$', false],
+];
+
+function escapedMath(state: StateInline, silent: boolean): boolean {
+  for (const [open, close, display] of ESCAPED_MATH) {
+    if (!state.src.startsWith(open, state.pos)) continue;
+    const start = state.pos + open.length;
+    const end = state.src.indexOf(close, start);
+    if (end <= start || end + close.length > state.posMax) return false;
+    if (!silent) {
+      const token = state.push(
+        display ? 'math_display_inline' : 'math_inline',
+        'math',
+        0
+      );
+      token.content = state.src.slice(start, end);
+    }
+    state.pos = end + close.length;
+    return true;
+  }
+  return false;
+}
 
 const DEFAULT_MARKDOWN = `# Welcome to BentoPDF Markdown Editor
 
@@ -132,6 +162,32 @@ def fibonacci(n):
 | Tables | ✓ | With alignment |
 | Emoji | ✓ | :white_check_mark: |
 | Mermaid | ✓ | Diagrams! |
+| Math | ✓ | LaTeX via KaTeX |
+
+## Math
+
+Inline math with dollar signs like $E = mc^2$, or with brackets like \\(a^2 + b^2 = c^2\\).
+
+Display math with double dollar signs:
+
+$$
+\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}
+$$
+
+Or with square brackets:
+
+\\[
+x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
+\\]
+
+Or in a math code block:
+
+\`\`\`math
+\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}
+\\begin{pmatrix} x \\\\ y \\end{pmatrix}
+=
+\\begin{pmatrix} ax + by \\\\ cx + dy \\end{pmatrix}
+\`\`\`
 
 ## Mermaid Diagrams
 
@@ -266,13 +322,13 @@ Start editing to see the magic happen!
 
 export class MarkdownEditor {
   private container: HTMLElement;
-  private md: MarkdownIt;
+  private md: MarkdownItParser;
   private editor: HTMLTextAreaElement | null = null;
   private preview: HTMLElement | null = null;
   private onBack?: () => void;
   private syncScroll: boolean = false;
   private isSyncing: boolean = false;
-  private mermaidInitialized: boolean = false;
+  private mermaid: Promise<Mermaid> | null = null;
   private mdOptions: MarkdownItOptions = {
     html: true,
     breaks: false,
@@ -284,7 +340,6 @@ export class MarkdownEditor {
     this.container = container;
     this.onBack = options.onBack;
 
-    this.initMermaid();
     this.md = this.createMarkdownIt();
     this.configureLinkRenderer();
 
@@ -297,18 +352,26 @@ export class MarkdownEditor {
     }
   }
 
-  private initMermaid(): void {
-    if (!this.mermaidInitialized) {
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: 'default',
-        securityLevel: 'strict',
-        htmlLabels: false,
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-      });
-      this.mermaidInitialized = true;
-    }
+  private loadMermaid(): Promise<Mermaid> {
+    this.mermaid ??= import('mermaid').then(
+      ({ default: mermaid }) => {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'default',
+          look: 'classic',
+          securityLevel: 'strict',
+          htmlLabels: false,
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+        });
+        return mermaid;
+      },
+      (error: unknown) => {
+        this.mermaid = null;
+        throw error;
+      }
+    );
+    return this.mermaid;
   }
 
   private configureLinkRenderer(): void {
@@ -339,52 +402,6 @@ export class MarkdownEditor {
 
   private render(): void {
     this.container.innerHTML = `
-      <div class="md-editor light-mode">
-        <div class="md-editor-wrapper">
-          <div class="md-editor-header">
-            <div class="md-editor-actions">
-              <input type="file" accept=".md,.markdown,.txt" id="mdFileInput" style="display: none;" />
-              <button class="md-editor-btn md-editor-btn-secondary" id="mdUpload">
-                <i data-lucide="upload"></i>
-                <span data-i18n="tools:markdownToPdf.btnUpload">Select</span>
-              </button>
-              <div class="theme-toggle">
-                <i data-lucide="moon" width="16" height="16"></i>
-                <div class="theme-toggle-slider active" id="themeToggle"></div>
-                <i data-lucide="sun" width="16" height="16"></i>
-              </div>
-              <button class="md-editor-btn md-editor-btn-secondary" id="mdSyncScroll" title="Toggle sync scroll">
-                <i data-lucide="git-compare"></i>
-                <span data-i18n="tools:markdownToPdf.btnSyncScroll">Sync Scroll</span>
-              </button>
-              <button class="md-editor-btn md-editor-btn-secondary" id="mdSettings">
-                <i data-lucide="settings"></i>
-                <span data-i18n="tools:markdownToPdf.btnSettings">Settings</span>
-              </button>
-              <button class="md-editor-btn md-editor-btn-primary" id="mdExport">
-                <i data-lucide="download"></i>
-                <span data-i18n="tools:markdownToPdf.btnExportPdf">Export PDF</span>
-              </button>
-            </div>
-          </div>
-          
-          <div class="md-editor-main">
-            <div class="md-editor-pane">
-              <div class="md-editor-pane-header">
-                <span data-i18n="tools:markdownToPdf.paneMarkdown">Markdown</span>
-              </div>
-              <textarea class="md-editor-textarea" id="mdTextarea" spellcheck="false"></textarea>
-            </div>
-            <div class="md-editor-pane">
-              <div class="md-editor-pane-header">
-                <span data-i18n="tools:markdownToPdf.panePreview">Preview</span>
-              </div>
-              <div class="md-editor-preview" id="mdPreview"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      
       <!-- Settings Modal (hidden by default) -->
       <div class="md-editor-modal-overlay" id="mdSettingsModal" style="display: none;">
         <div class="md-editor-modal">
@@ -423,6 +440,52 @@ export class MarkdownEditor {
           </div>
         </div>
       </div>
+      <div class="md-editor light-mode">
+        <div class="md-editor-wrapper">
+          <div class="md-editor-header">
+            <div class="md-editor-actions">
+              <input type="file" accept=".md,.markdown,.txt" id="mdFileInput" style="display: none;" />
+              <button class="md-editor-btn md-editor-btn-secondary" id="mdUpload">
+                <i data-lucide="upload"></i>
+                <span data-i18n="tools:markdownToPdf.btnUpload">Select</span>
+              </button>
+              <div class="theme-toggle">
+                <i data-lucide="moon" width="16" height="16"></i>
+                <div class="theme-toggle-slider active" id="themeToggle"></div>
+                <i data-lucide="sun" width="16" height="16"></i>
+              </div>
+              <button class="md-editor-btn md-editor-btn-secondary" id="mdSyncScroll" title="${trHtml('Toggle sync scroll')}">
+                <i data-lucide="git-compare"></i>
+                <span data-i18n="tools:markdownToPdf.btnSyncScroll">Sync Scroll</span>
+              </button>
+              <button class="md-editor-btn md-editor-btn-secondary" id="mdSettings">
+                <i data-lucide="settings"></i>
+                <span data-i18n="tools:markdownToPdf.btnSettings">Settings</span>
+              </button>
+              <button class="md-editor-btn md-editor-btn-primary" id="mdExport">
+                <i data-lucide="download"></i>
+                <span data-i18n="tools:markdownToPdf.btnExportPdf">Export PDF</span>
+              </button>
+            </div>
+          </div>
+          
+          <div class="md-editor-main">
+            <div class="md-editor-pane">
+              <div class="md-editor-pane-header">
+                <span data-i18n="tools:markdownToPdf.paneMarkdown">Markdown</span>
+              </div>
+              <textarea class="md-editor-textarea" id="mdTextarea" spellcheck="false"></textarea>
+            </div>
+            <div class="md-editor-pane">
+              <div class="md-editor-pane-header">
+                <span data-i18n="tools:markdownToPdf.panePreview">Preview</span>
+              </div>
+              <div class="md-editor-preview" id="mdPreview"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
     `;
 
     this.editor = document.getElementById('mdTextarea') as HTMLTextAreaElement;
@@ -647,9 +710,9 @@ export class MarkdownEditor {
     }
   }
 
-  private createMarkdownIt(): MarkdownIt {
+  private createMarkdownIt(): MarkdownItParser {
     // Use preset if commonmark or zero
-    let md: MarkdownIt;
+    let md: MarkdownItParser;
     if (this.currentPreset === 'commonmark') {
       md = new MarkdownIt('commonmark');
     } else if (this.currentPreset === 'zero') {
@@ -677,17 +740,26 @@ export class MarkdownEditor {
 
     // Apply plugins only for default preset (plugins may not work well with commonmark/zero)
     if (this.currentPreset === 'default') {
-      md.use(sub) // Subscript: ~text~ -> <sub>text</sub>
-        .use(sup) // Superscript: ^text^ -> <sup>text</sup>
-        .use(footnote) // Footnotes: [^1] and [^1]: footnote text
-        .use(deflist) // Definition lists
-        .use(abbr) // Abbreviations: *[abbr]: full text
-        .use(emoji) // Emoji: :smile: -> 😄
-        .use(ins) // Inserted text: ++text++ -> <ins>text</ins>
-        .use(mark) // Marked text: ==text== -> <mark>text</mark>
-        .use(taskLists, { enabled: true, label: true, labelAfter: true }) // Task lists: - [x] done
-        .use(anchor, { permalink: false }) // Header anchors
-        .use(tocDoneRight); // Table of contents: ${toc}
+      useMarkdownPlugins(md)
+        .use(fullEmoji) // Emoji: :smile: -> 😄
+        .use(tasklist, {
+          disabled: false,
+          label: false,
+          containerClass: 'contains-task-list',
+        }) // Task lists: - [x] done
+        .use(katexPlugin, {
+          delimiters: 'all' as const,
+          mathFence: true,
+          throwOnError: false,
+        });
+      md.inline.ruler.before('escape', 'math_escaped', escapedMath);
+      md.renderer.rules.math_display_inline = (tokens, idx) =>
+        katex.renderToString(tokens[idx].content, {
+          displayMode: true,
+          throwOnError: false,
+          strict: (code: string) =>
+            code === 'newLineInDisplayMode' ? 'ignore' : 'warn',
+        });
     }
 
     return md;
@@ -704,9 +776,7 @@ export class MarkdownEditor {
 
     const markdown = this.editor.value;
     const html = this.md.render(markdown);
-    this.preview.innerHTML = DOMPurify.sanitize(html, {
-      ADD_ATTR: ['target'],
-    });
+    this.preview.innerHTML = DOMPurify.sanitize(html, PREVIEW_SANITIZE_OPTIONS);
     this.renderMermaidDiagrams();
   }
 
@@ -725,6 +795,7 @@ export class MarkdownEditor {
       if (pre && code.trim()) {
         try {
           const id = `mermaid-diagram-${i}-${Date.now()}`;
+          const mermaid = await this.loadMermaid();
           const { svg } = await mermaid.render(id, code.trim());
 
           const wrapper = document.createElement('div');
@@ -744,7 +815,9 @@ export class MarkdownEditor {
           console.error('Mermaid rendering error:', error);
           const errorDiv = document.createElement('div');
           errorDiv.className = 'mermaid-error';
-          errorDiv.textContent = `Mermaid Error: ${(error as Error).message}`;
+          errorDiv.textContent = trText('Mermaid Error: {{error}}', {
+            error: (error as Error).message,
+          });
           pre.replaceWith(errorDiv);
         }
       }
@@ -760,12 +833,6 @@ export class MarkdownEditor {
 
   public getContent(): string {
     return this.editor?.value || '';
-  }
-
-  public getHtml(): string {
-    return DOMPurify.sanitize(this.md.render(this.getContent()), {
-      ADD_ATTR: ['target'],
-    });
   }
 
   private fitTablesToPage(printing: boolean): void {
@@ -801,7 +868,9 @@ export class MarkdownEditor {
     window.print();
   }
 
-  private getStyledHtml(content: string = this.getHtml()): string {
+  private getStyledHtml(
+    content: string = this.preview?.innerHTML ?? ''
+  ): string {
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -1037,6 +1106,7 @@ export class MarkdownEditor {
       font-size: 0.9em;
     }
   </style>
+  <style>${katexCss}</style>
 </head>
 <body>
 ${content}
