@@ -7,11 +7,21 @@
  * - Windows: adds the File Explorer thumbnail provider built by
  *   native/win-thumbnails/build.ps1 (registered by build/installer.nsh).
  *   Release builds set PAPERWING_REQUIRE_THUMBNAILS=1 so it can't be left out.
+ * - macOS: adds the scanner helper built by native/mac-scanner/build.sh.
+ *   Release builds set PAPERWING_REQUIRE_SCANNER=1 so it can't be left out.
  */
-const { cpSync, existsSync, mkdirSync, rmSync, statSync } = require('node:fs');
+const {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  statSync,
+} = require('node:fs');
 const { join } = require('node:path');
 
 const THUMBNAILS = join(__dirname, '..', 'native', 'win-thumbnails', 'out');
+const SCANNER = join(__dirname, '..', 'native', 'mac-scanner', 'out');
 
 function addThumbnailProvider(appOutDir) {
   const files = ['PaperwingThumbnails.dll', 'pdfium.dll'];
@@ -31,6 +41,27 @@ function addThumbnailProvider(appOutDir) {
   console.log('  • added the File Explorer thumbnail provider');
 }
 
+function addScannerHelper(appOutDir, productName) {
+  const helper = join(SCANNER, 'paperwing-scan');
+  if (!existsSync(helper)) {
+    const msg = 'Scanner helper not built (run native/mac-scanner/build.sh)';
+    if (process.env.PAPERWING_REQUIRE_SCANNER) throw new Error(msg);
+    console.warn(`  • ${msg}; packaging without it`);
+    return;
+  }
+  const dest = join(
+    appOutDir,
+    `${productName}.app`,
+    'Contents',
+    'Resources',
+    'scanner'
+  );
+  mkdirSync(dest, { recursive: true });
+  cpSync(helper, join(dest, 'paperwing-scan'));
+  chmodSync(join(dest, 'paperwing-scan'), 0o755);
+  console.log('  • added the scanner helper');
+}
+
 const UNUSED = {
   win32: ['dxcompiler.dll', 'dxil.dll'],
 };
@@ -38,8 +69,11 @@ const UNUSED = {
 exports.default = async function afterPack({
   appOutDir,
   electronPlatformName,
+  packager,
 }) {
   if (electronPlatformName === 'win32') addThumbnailProvider(appOutDir);
+  if (electronPlatformName === 'darwin')
+    addScannerHelper(appOutDir, packager.appInfo.productFilename);
   let saved = 0;
   for (const name of UNUSED[electronPlatformName] ?? []) {
     const p = join(appOutDir, name);

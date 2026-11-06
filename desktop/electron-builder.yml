@@ -11,6 +11,7 @@ files:
   - main.cjs
   - preload.cjs
   - print.cjs
+  - scan.cjs
   - engines.json
   - package.json
 
@@ -58,6 +59,10 @@ afterPack: scripts/after-pack.cjs
 win:
   # Platform icons come from build/icon.svg (scripts/gen-icons.mjs)
   icon: build/icon.ico
+  # The scanner helper (WIA through PowerShell; see scan.cjs)
+  extraResources:
+    - from: scanner/wia.ps1
+      to: scanner/wia.ps1
   target:
     - target: nsis
       arch: [x64]

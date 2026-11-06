@@ -37,6 +37,52 @@ export interface PrintResult {
   message?: string;
 }
 
+export interface Scanner {
+  id: string;
+  name: string;
+}
+
+/** What a scanner's flatbed or document feeder can do */
+export interface ScanSource {
+  id: 'flatbed' | 'feeder';
+  /** Both sides at once (a feeder) */
+  duplex: boolean;
+  resolutions: number[];
+  colors: ('color' | 'gray' | 'bw')[];
+  /** The largest area it scans, in inches */
+  width: number;
+  height: number;
+}
+
+export interface ScanRequest {
+  source: 'flatbed' | 'feeder';
+  duplex: boolean;
+  color: 'color' | 'gray' | 'bw';
+  dpi: number;
+  /** The paper, in inches */
+  width: number;
+  height: number;
+}
+
+export type ScanError =
+  | 'feeder-empty'
+  | 'paper-jam'
+  | 'busy'
+  | 'offline'
+  | 'cover-open'
+  | 'warming-up'
+  | 'no-scanner'
+  | 'cancelled'
+  | 'invalid'
+  | 'failed';
+
+export interface ScanResult {
+  ok: boolean;
+  pages?: number;
+  error?: ScanError;
+  message?: string;
+}
+
 export interface DesktopBridge {
   platform: string;
   ready(): Promise<void>;
@@ -113,6 +159,30 @@ export interface DesktopBridge {
     error?: string;
     message?: string;
   }>;
+  /** The scanners connected or on the network */
+  scanners?(): Promise<{
+    ok: boolean;
+    scanners: Scanner[];
+    error?: ScanError;
+    message?: string;
+  }>;
+  /** What a scanner can do */
+  scannerCaps?(id: string): Promise<{
+    ok: boolean;
+    sources?: ScanSource[];
+    error?: ScanError;
+    message?: string;
+  }>;
+  /** Scans; each page arrives through onScanPage as it's scanned */
+  scan?(id: string, request: ScanRequest): Promise<ScanResult>;
+  /** Stops the scan (the page being scanned may still arrive) */
+  cancelScan?(): Promise<boolean>;
+  onScanPage?(
+    callback: (
+      data: Uint8Array,
+      info: { index: number; dpi: number; mime: string }
+    ) => void
+  ): () => void;
   onOpenFile(callback: (file: DesktopFile) => void): () => void;
   /** The window is about to close; call confirmClose() to let it */
   onCloseRequested?(callback: () => void): () => void;

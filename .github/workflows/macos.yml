@@ -50,6 +50,17 @@ jobs:
       - name: Unit tests
         run: npm run test:run
 
+      # Apple's ImageCaptureCore, through the Swift helper: it must build
+      # (universal) and, with no scanner attached, list none
+      - name: Scanner helper
+        if: ${{ !cancelled() }}
+        run: bash desktop/native/mac-scanner/build.sh --test
+
+      - name: Scanning tests
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: npm run test:scan
+
       - name: Build the web app
         working-directory: desktop
         run: npm run build:web
@@ -136,6 +147,11 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: desktop
         run: node bench/check-copy-text.mjs
+
+      - name: Create PDF from scanner
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-scan.mjs
 
       - name: 1.2 interface bench
         if: ${{ !cancelled() }}
