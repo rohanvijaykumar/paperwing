@@ -33,6 +33,7 @@ import { fillable, type FieldState, type LiveField } from './form-model';
 import type { PrintBridge } from './print';
 import type { Presentation } from './present';
 import { showModal } from './modal';
+import type { ScanBridge } from './scan';
 import {
   type AvailableUpdate,
   checkForUpdates,
@@ -4729,6 +4730,16 @@ function createMenuItems(): MenuItem[] {
     'email-to-pdf': 'From email',
   };
   return [
+    // (desktop app only: the shell talks to the scanner)
+    ...(desktop?.scan
+      ? [
+          {
+            label: 'From scanner',
+            icon: icon('scan', 18),
+            onClick: (): void => void scanToPdf(),
+          },
+        ]
+      : []),
     ...ids.map((id) => {
       const t = getTool(id)!;
       return {
@@ -4769,6 +4780,15 @@ $('#menu-btn').addEventListener('click', (e) => {
       icon: icon('plus', 16),
       onClick: () => showMenu($('#create-btn'), createMenuItems()),
     },
+    ...(desktop?.scan
+      ? [
+          {
+            label: 'Create PDF from scanner…',
+            icon: icon('scan', 16),
+            onClick: (): void => void scanToPdf(),
+          },
+        ]
+      : []),
     {
       label: 'Reopen closed document',
       shortcut: sc('reopen'),
@@ -5017,6 +5037,67 @@ function showAbout() {
     ),
     'dlg-about'
   );
+}
+
+/* Create PDF from scanner ---------------------------------------------- */
+
+let scanningNow = false;
+
+/** Scans (scan.ts): the pages become a new document, or go at the end of
+ *  the open one; Recognize text opens Scan & OCR on the result */
+async function scanToPdf() {
+  if (!desktop?.scan || scanningNow || document.querySelector('.dlg-backdrop'))
+    return;
+  scanningNow = true;
+  const doc = activeDoc();
+  const canAppend = doc && !doc.loading && !doc.fullTool ? doc : null;
+  try {
+    const { showScanDialog } = await import('./scan');
+    const result = await showScanDialog(desktop as ScanBridge, {
+      appendTo: canAppend?.name ?? null,
+      isMac,
+    });
+    if (!result) return;
+    const pageWord = result.pages === 1 ? 'page' : 'pages';
+    let target: Tab | undefined;
+    if (result.output === 'append' && canAppend && tabs.includes(canAppend)) {
+      const last = Math.max(
+        0,
+        (canAppend.page.total || viewer.pageInfo(canAppend.id)?.total || 1) - 1
+      );
+      activate(canAppend.id);
+      const scanned = result.pdf.slice().buffer;
+      await changePages(
+        canAppend,
+        (b) => insertPagesFrom(b, last, scanned),
+        last + 2,
+        `Added ${result.pages} scanned ${pageWord} to ${canAppend.name}`
+      );
+      target = canAppend;
+    } else {
+      const now = new Date();
+      const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}.${String(now.getMinutes()).padStart(2, '0')}`;
+      const name = uniqueTabName(`Scan ${stamp}.pdf`);
+      const file = new File([result.pdf as BlobPart], name, {
+        type: 'application/pdf',
+      });
+      target = await openDocument(file, {}, undefined, undefined, {});
+      if (!target) {
+        saveBlob(file, name);
+        return;
+      }
+      savePrompt(
+        target,
+        `Scanned ${result.pages} ${pageWord} into ${name}. It isn't saved yet`
+      );
+    }
+    if (result.ocr && target && tabs.includes(target)) {
+      const ocrTool = getTool('ocr-pdf');
+      if (ocrTool) await openToolOnDoc(target, ocrTool);
+    }
+  } finally {
+    scanningNow = false;
+  }
 }
 
 /* What's new ---------------------------------------------------------- */
@@ -5796,6 +5877,15 @@ function paletteCommands(): PaletteItem[] {
       icon: icon('theme', 16),
       run: () => setThemePref('system'),
     },
+    ...(desktop?.scan
+      ? [
+          {
+            label: 'Create PDF from scanner',
+            icon: icon('scan', 16),
+            run: (): void => void scanToPdf(),
+          },
+        ]
+      : []),
     { label: 'Keyboard shortcuts', icon: icon('help', 16), run: showShortcuts },
     {
       label: "What's new in Paperwing",
@@ -6267,6 +6357,7 @@ if (desktop) {
     if (command === 'about') return showAbout();
     if (command === 'shortcuts') return showShortcuts();
     if (command === 'whatsNew') return void showWhatsNew();
+    if (command === 'scan') return void scanToPdf();
     if (command === 'undo' || command === 'redo') {
       // Inside a tool, undo belongs to the tool (as with forwarded keys):
       // it undoes typing in the focused field

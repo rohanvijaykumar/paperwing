@@ -63,6 +63,15 @@ contextBridge.exposeInMainWorld('paperwing', {
     saveId: (name, data) =>
       ipcRenderer.invoke('paperwing:certs-save-id', name, data),
   },
+  scanners: () => ipcRenderer.invoke('paperwing:scanners'),
+  scannerCaps: (id) => ipcRenderer.invoke('paperwing:scanner-caps', id),
+  scan: (id, options) => ipcRenderer.invoke('paperwing:scan', id, options),
+  cancelScan: () => ipcRenderer.invoke('paperwing:scan-cancel'),
+  onScanPage: (callback) => {
+    const listener = (_e, data, info) => callback(data, info);
+    ipcRenderer.on('paperwing:scan-page', listener);
+    return () => ipcRenderer.removeListener('paperwing:scan-page', listener);
+  },
   confirmClose: () => ipcRenderer.invoke('paperwing:confirm-close'),
   requestClose: () => ipcRenderer.invoke('paperwing:request-close'),
   onCloseRequested: (callback) => {

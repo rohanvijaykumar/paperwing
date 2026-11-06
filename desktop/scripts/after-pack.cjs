@@ -11,6 +11,8 @@
  *   Digital IDs) built by native/win-certs/build.ps1 or
  *   native/mac-certs/build.sh, outside the app archive in resources/certs.
  *   Release builds set PAPERWING_REQUIRE_CERTS=1 so it can't be left out.
+ * - macOS: adds the scanner helper built by native/mac-scanner/build.sh.
+ *   Release builds set PAPERWING_REQUIRE_SCANNER=1 so it can't be left out.
  */
 const {
   chmodSync,
@@ -23,6 +25,7 @@ const {
 const { join } = require('node:path');
 
 const THUMBNAILS = join(__dirname, '..', 'native', 'win-thumbnails', 'out');
+const SCANNER = join(__dirname, '..', 'native', 'mac-scanner', 'out');
 
 function addThumbnailProvider(appOutDir) {
   const files = ['PaperwingThumbnails.dll', 'pdfium.dll'];
@@ -68,6 +71,27 @@ function addCertsHelper(appOutDir, platform, productName) {
   console.log('  • added the certificate helper');
 }
 
+function addScannerHelper(appOutDir, productName) {
+  const helper = join(SCANNER, 'paperwing-scan');
+  if (!existsSync(helper)) {
+    const msg = 'Scanner helper not built (run native/mac-scanner/build.sh)';
+    if (process.env.PAPERWING_REQUIRE_SCANNER) throw new Error(msg);
+    console.warn(`  • ${msg}; packaging without it`);
+    return;
+  }
+  const dest = join(
+    appOutDir,
+    `${productName}.app`,
+    'Contents',
+    'Resources',
+    'scanner'
+  );
+  mkdirSync(dest, { recursive: true });
+  cpSync(helper, join(dest, 'paperwing-scan'));
+  chmodSync(join(dest, 'paperwing-scan'), 0o755);
+  console.log('  • added the scanner helper');
+}
+
 const UNUSED = {
   win32: ['dxcompiler.dll', 'dxil.dll'],
 };
@@ -78,6 +102,8 @@ exports.default = async function afterPack({
   packager,
 }) {
   if (electronPlatformName === 'win32') addThumbnailProvider(appOutDir);
+  if (electronPlatformName === 'darwin')
+    addScannerHelper(appOutDir, packager.appInfo.productFilename);
   if (electronPlatformName === 'win32' || electronPlatformName === 'darwin')
     addCertsHelper(
       appOutDir,
