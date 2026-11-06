@@ -17,6 +17,7 @@ import type {
   Scanner,
 } from './desktop';
 import { icon } from './icons';
+import { showModal } from './modal';
 
 export type ScanBridge = Required<
   Pick<
@@ -798,7 +799,8 @@ export function showScanDialog(
         confirmDiscard = false;
       });
 
-    document.body.append(backdrop);
+    // (modal: the page behind is inert, focus comes back when it closes)
+    showModal(backdrop);
     enable();
     void loadScanners();
     scanner.focus();
