@@ -107,6 +107,20 @@ async function openApp(scheme = 'light') {
   await waitFor(page, () => 'ready' in document.documentElement.dataset);
 }
 
+/** The app without the documents earlier tests left in the session. (The
+ *  session is cleared in the new page before the app's code runs: clearing
+ *  it in the old one races the old page saving it again as it unloads) */
+async function openFresh(scheme = 'light') {
+  const { identifier } = await page.evaluateOnNewDocument(() =>
+    localStorage.removeItem('paperwing:session')
+  );
+  try {
+    await openApp(scheme);
+  } finally {
+    await page.removeScriptToEvaluateOnNewDocument(identifier);
+  }
+}
+
 /** Drop a PDF onto the window like a user would, without waiting for it */
 async function dropBytes(name, b64) {
   await page.evaluate(
@@ -756,9 +770,7 @@ describe('Paperwing UI', () => {
     });
   });
   test('asks for the password of a protected PDF', async () => {
-    // Start without the documents earlier tests left in the session
-    await page.evaluate(() => localStorage.removeItem('paperwing:session'));
-    await openApp();
+    await openFresh();
     const prompt = () =>
       waitFor(page, () =>
         document.querySelector('.dlg[aria-label="Password"] .dlg-input')
@@ -802,8 +814,7 @@ describe('Paperwing UI', () => {
   });
 
   test('tool frames follow the theme, and only tool frames are listened to', async () => {
-    await page.evaluate(() => localStorage.removeItem('paperwing:session'));
-    await openApp('light');
+    await openFresh('light');
     await dropPdf('Report.pdf');
     await page.evaluate(() =>
       [...document.querySelectorAll('.lp-tool')]
@@ -918,8 +929,7 @@ The tool shows: ${shown}`);
   });
 
   test('shows saved form values and checkbox marks, and keeps them as fields', async () => {
-    await page.evaluate(() => localStorage.removeItem('paperwing:session'));
-    await openApp();
+    await openFresh();
     await dropBytes(
       'Filled.pdf',
       await formPdf({ text: 'SAVED VALUE', checked: true })
