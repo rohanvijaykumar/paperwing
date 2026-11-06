@@ -46,6 +46,7 @@ import {
   findShortcut,
   formatCombo,
   keysFor,
+  matchesCombo,
   SHORTCUTS,
   type KeyInput,
 } from './keymap';
@@ -4923,6 +4924,28 @@ function passwordDialog(name: string, wrong: boolean): Promise<string | null> {
     input.focus();
   });
 }
+
+viewer.onTextCopied = (tabId) => {
+  if (tabId === activeId) toast('Copied the highlighted text');
+};
+
+// Ctrl+C with a highlight (underline, strikethrough, squiggly) selected and
+// no text selected copies the text it marks (#38); a text selection is the
+// viewer's to copy. (Capture: the viewer takes Ctrl+C for itself, copying
+// nothing for a highlight)
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (e.isComposing || e.repeat) return;
+    if (!matchesCombo(e, 'Ctrl+C', isMac) || isEditable(deepTarget(e))) return;
+    const tab = activeDoc();
+    if (!tab || !viewer.canCopyMarkupText(tab.id)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void viewer.copyMarkupText(tab.id);
+  },
+  true
+);
 
 viewer.passwordPrompt = (tabId, wrong) =>
   passwordDialog(

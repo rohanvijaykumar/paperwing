@@ -126,6 +126,11 @@ jobs:
         working-directory: desktop
         run: node bench/check-qol.mjs
 
+      - name: Copying highlighted text
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-copy-text.mjs
+
       - name: 1.2 interface bench
         if: ${{ !cancelled() }}
         working-directory: desktop
