@@ -46,6 +46,7 @@ import {
   findShortcut,
   formatCombo,
   keysFor,
+  matchesCombo,
   SHORTCUTS,
   type KeyInput,
 } from './keymap';
@@ -3927,7 +3928,7 @@ async function exportDoc(tab: Tab, doing: string): Promise<ArrayBuffer | null> {
   }
 }
 
-/** Save a document; resolves true if it was written somewhere */
+/** Save a document; resolves true only when a file write has completed */
 async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
   await settleForms([tab]);
   // Saving over a file another app has saved since: ask first
@@ -4009,12 +4010,13 @@ async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
   } catch (e) {
     if ((e as DOMException)?.name === 'AbortError') return false;
     console.error(e);
+    toast(`Couldn't save ${tab.name}. Your changes are still open.`);
+    return false;
   }
-  // No file system access (plain browser): download a copy instead
+  // A download cannot confirm that the file reached disk; keep unsaved state.
   saveBlob(blob, tab.name);
-  tab.savedVersion = version;
-  renderTabs();
-  return true;
+  toast('Downloaded a copy. Verify it before closing this tab.');
+  return false;
 }
 
 $('#save-btn').addEventListener('click', () => {
@@ -4923,6 +4925,28 @@ function passwordDialog(name: string, wrong: boolean): Promise<string | null> {
     input.focus();
   });
 }
+
+viewer.onTextCopied = (tabId) => {
+  if (tabId === activeId) toast('Copied the highlighted text');
+};
+
+// Ctrl+C with a highlight (underline, strikethrough, squiggly) selected and
+// no text selected copies the text it marks (#38); a text selection is the
+// viewer's to copy. (Capture: the viewer takes Ctrl+C for itself, copying
+// nothing for a highlight)
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (e.isComposing || e.repeat) return;
+    if (!matchesCombo(e, 'Ctrl+C', isMac) || isEditable(deepTarget(e))) return;
+    const tab = activeDoc();
+    if (!tab || !viewer.canCopyMarkupText(tab.id)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void viewer.copyMarkupText(tab.id);
+  },
+  true
+);
 
 viewer.passwordPrompt = (tabId, wrong) =>
   passwordDialog(

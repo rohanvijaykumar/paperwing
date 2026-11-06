@@ -8,7 +8,14 @@
  *
  * Chrome/Chromium is located automatically, or set CHROME_PATH.
  */
-import { after, before, describe, test } from 'node:test';
+import {
+  after,
+  afterEach,
+  before,
+  beforeEach,
+  describe,
+  test,
+} from 'node:test';
 import assert from 'node:assert/strict';
 import { copyFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -75,6 +82,12 @@ async function waitFor(page, fn, arg, timeout = 15000) {
     await sleep(150);
   }
 }
+
+/** The workspace shows a tool once it says it's ready (its files are in): a
+ *  click before that lands on the loading screen, not the tool. Waits until
+ *  no tool is still loading. */
+const toolsShown = (page) =>
+  waitFor(page, () => !document.querySelector('.frame-body.is-loading'));
 
 // Shortcuts use ⌘ on macOS, Ctrl elsewhere
 const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -560,7 +573,11 @@ describe('Paperwing UI', () => {
       undefined,
       20000
     );
+    await toolsShown(page);
+    // (Photon: Condense first downloads its engine from a CDN in a browser,
+    // which a CI machine can't count on)
     await content.waitForSelector('#process-btn');
+    await content.select('#compression-algorithm', 'photon');
     await content.click('#process-btn');
     await waitFor(
       page,
@@ -872,6 +889,7 @@ describe('Paperwing UI', () => {
       !names.includes('sample.pdf') && !names.includes('Second.pdf'),
       `files not opened as tabs (${names.join(', ')})`
     );
+    await toolsShown(page);
     // One run makes one ZIP of both. (Photon: Condense first downloads its
     // engine from a CDN in a browser, which a CI machine can't count on)
     await content.waitForSelector('#process-btn');
@@ -1107,6 +1125,7 @@ The tool shows: ${shown}`);
       text.dispatchEvent(new Event('input'));
     });
     const tabsBefore = (await tabNames()).length;
+    await toolsShown(page);
     await tool.click('#mdExport');
     await waitFor(tool, () => window.__printed === 1);
     await sleep(800);
@@ -1136,5 +1155,121 @@ The tool shows: ${shown}`);
     );
     await sleep(800);
     assert.deepEqual(await page.evaluate(() => window.__commands), []);
+  });
+
+  describe('browser saving', () => {
+    let context;
+    let previousPage;
+    beforeEach(async () => {
+      previousPage = page;
+      context = await browser.createBrowserContext();
+      page = await context.newPage();
+      await page.setViewport({ width: 1366, height: 860 });
+    });
+    afterEach(async () => {
+      await context?.close();
+      page = previousPage;
+    });
+    async function openUnsavedPdf() {
+      await openApp();
+      await dropPdf('Unsaved.pdf');
+      await page.keyboard.press('d');
+      const box = await page.$eval('#viewer-host', (el) => {
+        const rect = el.getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 3 };
+      });
+      await page.mouse.move(box.x - 40, box.y);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 40, box.y + 30, { steps: 8 });
+      await page.mouse.up();
+      await page.keyboard.press('Escape');
+      await waitFor(page, () => document.querySelector('#tabs .tab.is-dirty'));
+      await page.evaluate(() => {
+        window.__downloads = 0;
+        document.addEventListener(
+          'click',
+          (event) => {
+            if (event.target?.closest?.('a[download]')) {
+              window.__downloads++;
+              event.preventDefault();
+            }
+          },
+          true
+        );
+      });
+    }
+
+    async function saveBeforeClosing() {
+      await page.click('#tabs .tab.is-active .tab-close');
+      await waitFor(page, () =>
+        document.querySelector('.dlg[role="alertdialog"]')
+      );
+      await page.click('.dlg-actions .accent-btn');
+    }
+
+    test('failed browser writes keep the document open and unsaved without downloading', async () => {
+      await openUnsavedPdf();
+      for (const failure of ['createWritable', 'write', 'close']) {
+        await page.evaluate((failure) => {
+          document.querySelectorAll('.toast').forEach((el) => el.remove());
+          const failAt = (step) => {
+            if (step === failure)
+              throw new DOMException('Write denied', 'NotAllowedError');
+          };
+          window.showSaveFilePicker = async () => ({
+            name: 'Unsaved.pdf',
+            queryPermission: async () => 'granted',
+            createWritable: async () => {
+              failAt('createWritable');
+              return {
+                write: async () => failAt('write'),
+                close: async () => failAt('close'),
+              };
+            },
+          });
+        }, failure);
+        await saveBeforeClosing();
+        await waitFor(
+          page,
+          () =>
+            window.__downloads > 0 ||
+            [...document.querySelectorAll('.toast')].some((el) =>
+              el.textContent.includes("Couldn't save")
+            )
+        );
+        assert.equal(await page.evaluate(() => window.__downloads), 0, failure);
+        assert.ok(await page.$('#tabs .tab.is-active.is-dirty'), failure);
+      }
+      // A completed write still allows Save in the close dialog to close the tab.
+      await page.evaluate(() => {
+        window.showSaveFilePicker = async () => ({
+          name: 'Unsaved.pdf',
+          queryPermission: async () => 'granted',
+          createWritable: async () => ({
+            write: async () => {},
+            close: async () => {},
+          }),
+        });
+      });
+      await saveBeforeClosing();
+      await waitFor(page, () => !document.querySelector('#tabs .tab'));
+    });
+
+    test('download-only browser saves retain unsaved changes and the close guard', async () => {
+      await openUnsavedPdf();
+      await page.evaluate(() => {
+        window.showSaveFilePicker = undefined;
+      });
+      await saveBeforeClosing();
+      await waitFor(page, () => window.__downloads === 1);
+      assert.ok(await page.$('#tabs .tab.is-active.is-dirty'));
+      assert.equal(await page.evaluate(() => window.__downloads), 1);
+      await page.click('#tabs .tab.is-active .tab-close');
+      await waitFor(page, () =>
+        document.querySelector('.dlg[role="alertdialog"]')
+      );
+      await page.click('.dlg-actions .quiet-btn'); // explicitly discard the copy
+      await waitFor(page, () => !document.querySelector('#tabs .tab'));
+    });
   });
 });
