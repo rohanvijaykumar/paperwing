@@ -50,6 +50,15 @@ jobs:
       - name: Unit tests
         run: npm run test:run
 
+      - name: Build the web app
+        working-directory: desktop
+        run: npm run build:web
+
+      - name: Print tests
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: npm run test:print
+
       # Apple's ImageCaptureCore, through the Swift helper: it must build
       # (universal) and, with no scanner attached, list none
       - name: Scanner helper
@@ -60,15 +69,6 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: desktop
         run: npm run test:scan
-
-      - name: Build the web app
-        working-directory: desktop
-        run: npm run build:web
-
-      - name: Print tests
-        if: ${{ !cancelled() }}
-        working-directory: desktop
-        run: npm run test:print
 
       # Signing with Digital IDs in the Keychain (desktop/native/mac-certs):
       # the Swift helper must build (universal) and pass its own test; then

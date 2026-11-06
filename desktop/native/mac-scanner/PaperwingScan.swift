@@ -77,12 +77,14 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
 
   func start() {
     browser.delegate = self
-    browser.browsedDeviceTypeMask = ICDeviceTypeMask(
-      rawValue: ICDeviceTypeMask.scanner.rawValue
-        | ICDeviceLocationTypeMask.local.rawValue
-        | ICDeviceLocationTypeMask.shared.rawValue
-        | ICDeviceLocationTypeMask.bonjour.rawValue
-    )
+    // Scanners connected by USB, shared, and on the network (Bonjour)
+    browser.browsedDeviceTypeMask =
+      ICDeviceTypeMask(
+        rawValue: ICDeviceTypeMask.scanner.rawValue
+          | ICDeviceLocationTypeMask.local.rawValue
+          | ICDeviceLocationTypeMask.shared.rawValue
+          | ICDeviceLocationTypeMask.bonjour.rawValue
+      ) ?? .scanner
     browser.start()
     switch command {
     case "list":
