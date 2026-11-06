@@ -83,6 +83,12 @@ async function waitFor(page, fn, arg, timeout = 15000) {
   }
 }
 
+/** The workspace shows a tool once it says it's ready (its files are in): a
+ *  click before that lands on the loading screen, not the tool. Waits until
+ *  no tool is still loading. */
+const toolsShown = (page) =>
+  waitFor(page, () => !document.querySelector('.frame-body.is-loading'));
+
 // Shortcuts use ⌘ on macOS, Ctrl elsewhere
 const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
 
@@ -567,7 +573,11 @@ describe('Paperwing UI', () => {
       undefined,
       20000
     );
+    await toolsShown(page);
+    // (Photon: Condense first downloads its engine from a CDN in a browser,
+    // which a CI machine can't count on)
     await content.waitForSelector('#process-btn');
+    await content.select('#compression-algorithm', 'photon');
     await content.click('#process-btn');
     await waitFor(
       page,
@@ -879,15 +889,7 @@ describe('Paperwing UI', () => {
       !names.includes('sample.pdf') && !names.includes('Second.pdf'),
       `files not opened as tabs (${names.join(', ')})`
     );
-    // The workspace shows the tool once it says its files are in: a click
-    // before that lands on the loading screen, not the tool
-    await waitFor(
-      page,
-      () =>
-        !document.querySelector(
-          '#left-panel .lp:not([hidden]) .frame-body.is-loading'
-        )
-    );
+    await toolsShown(page);
     // One run makes one ZIP of both. (Photon: Condense first downloads its
     // engine from a CDN in a browser, which a CI machine can't count on)
     await content.waitForSelector('#process-btn');
@@ -1123,6 +1125,7 @@ The tool shows: ${shown}`);
       text.dispatchEvent(new Event('input'));
     });
     const tabsBefore = (await tabNames()).length;
+    await toolsShown(page);
     await tool.click('#mdExport');
     await waitFor(tool, () => window.__printed === 1);
     await sleep(800);
