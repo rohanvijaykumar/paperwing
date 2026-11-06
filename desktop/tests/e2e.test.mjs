@@ -879,6 +879,15 @@ describe('Paperwing UI', () => {
       !names.includes('sample.pdf') && !names.includes('Second.pdf'),
       `files not opened as tabs (${names.join(', ')})`
     );
+    // The workspace shows the tool once it says its files are in: a click
+    // before that lands on the loading screen, not the tool
+    await waitFor(
+      page,
+      () =>
+        !document.querySelector(
+          '#left-panel .lp:not([hidden]) .frame-body.is-loading'
+        )
+    );
     // One run makes one ZIP of both. (Photon: Condense first downloads its
     // engine from a CDN in a browser, which a CI machine can't count on)
     await content.waitForSelector('#process-btn');
