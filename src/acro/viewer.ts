@@ -193,6 +193,8 @@ export interface DocView {
 const PASSWORD_REQUIRED = 4;
 /** PDFium's annotation subtype for form widgets */
 const WIDGET = 20;
+/** Annotations that mark text: highlight, underline, squiggly, strikethrough */
+const TEXT_MARKUP = new Set([9, 10, 11, 12]);
 
 /** A form field's widget on a page, as PDFium reads it */
 export interface PageWidget {
@@ -259,6 +261,8 @@ export class Viewer {
   /** Takes the document the print dialog prepared (its page range and
    *  annotation choice applied) instead of the viewer's own print frame */
   printTo?: (tabId: string, pdf: Uint8Array) => void;
+  /** A highlight's text was copied (its menu, or Ctrl+C) */
+  onTextCopied?: (tabId: string) => void;
   /** Tabs closed while their document was loading */
   private cancelled = new Set<string>();
   /** The tab last shown, so it can get the viewer back after a discard */
@@ -309,6 +313,7 @@ export class Viewer {
       } as any) as EmbedPdfContainer;
       this.registry = await (this.container as any).registry;
       this.hookFormDrawing();
+      this.addCopyText();
       skinViewerDialogs(this.host);
       requestAnimationFrame(() => skinViewerDialogs(this.host));
       performance.mark('pw:engine-ready');
@@ -645,6 +650,130 @@ export class Viewer {
   /** Every page drawn for a document in the list leaves out its fields;
    *  the viewer's own page thumbnails keep them (they ask with the page's
    *  rotation, which page and tile drawings don't) */
+  /** A highlight (underline, strikethrough, squiggly) selected in the tab,
+   *  with no text selected: Ctrl+C copies the text it marks */
+  canCopyMarkupText(tabId: string): boolean {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return false;
+    const selected = this.cap('selection')
+      .forDocument(id)
+      ?.getFormattedSelection?.();
+    return !selected?.length && !!this.selectedMarkup(id);
+  }
+
+  /** Copies the text the selected highlight marks; false if there's none */
+  async copyMarkupText(tabId: string): Promise<boolean> {
+    const id = this.docIds.get(tabId);
+    const text = id ? await this.markupText(id) : null;
+    if (!text) return false;
+    await navigator.clipboard.writeText(text);
+    this.onTextCopied?.(tabId);
+    return true;
+  }
+
+  private selectedMarkup(docId: string): any | null {
+    const selected = this.cap('annotation')
+      .forDocument(docId)
+      ?.getSelectedAnnotation?.();
+    return selected && TEXT_MARKUP.has(selected.object?.type)
+      ? selected.object
+      : null;
+  }
+
+  /** The text a highlight marks: what the viewer noted when it was made from
+   *  a selection, else the characters under it (one made in another app) */
+  private async markupText(docId: string): Promise<string | null> {
+    const markup = this.selectedMarkup(docId);
+    if (!markup) return null;
+    const noted = markup.custom?.text;
+    if (typeof noted === 'string' && noted.trim()) return noted.trim();
+    const doc = this.cap('document-manager').getDocument(docId);
+    const page = doc?.pages?.[markup.pageIndex];
+    if (!page) return null;
+    const engine = (this.registry as any).getEngine();
+    const glyphs: {
+      origin: { x: number; y: number };
+      size: { width: number; height: number };
+      tightOrigin?: { x: number; y: number };
+      tightSize?: { width: number; height: number };
+    }[] = await engine.getPageGlyphs(doc, page).toPromise();
+    const areas: {
+      origin: { x: number; y: number };
+      size: { width: number; height: number };
+    }[] = markup.segmentRects?.length ? markup.segmentRects : [markup.rect];
+    // The characters whose middle is in one of the marked areas
+    const inside = (x: number, y: number) =>
+      areas.some(
+        (r) =>
+          x >= r.origin.x - 1 &&
+          x <= r.origin.x + r.size.width + 1 &&
+          y >= r.origin.y - 1 &&
+          y <= r.origin.y + r.size.height + 1
+      );
+    let first = -1;
+    let last = -1;
+    glyphs.forEach((g, i) => {
+      const o = g.tightOrigin ?? g.origin;
+      const z = g.tightSize ?? g.size;
+      if (!z.width && !z.height) return;
+      if (!inside(o.x + z.width / 2, o.y + z.height / 2)) return;
+      if (first < 0) first = i;
+      last = i;
+    });
+    if (first < 0) return null;
+    const [text]: string[] = await engine
+      .getTextSlices(doc, [
+        {
+          pageIndex: page.index,
+          charIndex: first,
+          charCount: last - first + 1,
+        },
+      ])
+      .toPromise();
+    return text?.trim() || null;
+  }
+
+  /** "Copy text" in a highlight's menu (Comment, Link, Style, Delete): the
+   *  viewer has no way to copy a highlight's text (#38) */
+  private addCopyText() {
+    const commands = this.cap('commands');
+    const ui = this.cap('ui');
+    if (!commands?.registerCommand || !ui?.mergeSchema) return;
+    commands.registerCommand({
+      id: 'paperwing:copy-markup-text',
+      label: 'Copy text',
+      icon: 'copy',
+      categories: ['annotation', 'annotation-copy-text'],
+      visible: ({ documentId }: { documentId: string }) =>
+        !!this.selectedMarkup(documentId),
+      action: ({ documentId }: { documentId: string }) => {
+        const tabId = this.tabFor(documentId);
+        if (tabId) void this.copyMarkupText(tabId);
+      },
+    });
+    const schema = ui.getSchema();
+    const menu = schema?.selectionMenus?.annotation;
+    if (!menu) return;
+    ui.mergeSchema({
+      selectionMenus: {
+        ...schema.selectionMenus,
+        annotation: {
+          ...menu,
+          items: [
+            {
+              type: 'command-button',
+              id: 'copy-markup-text',
+              commandId: 'paperwing:copy-markup-text',
+              variant: 'icon',
+              categories: ['annotation', 'annotation-copy-text'],
+            },
+            ...menu.items,
+          ],
+        },
+      },
+    });
+  }
+
   private hookFormDrawing() {
     const render = (this.registry as any)?.getPlugin?.('render');
     if (!render) return;

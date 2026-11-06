@@ -6,6 +6,13 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Highlighted text can be copied.** With a highlight selected, Ctrl+C (⌘C on macOS) copies the
+  text it marks, and its menu has **Copy text**; the same for underline, strikethrough and
+  squiggly. A highlight made in another app is read from the page. Reported by u/WildAd9195 on
+  Reddit ([#38](https://github.com/rohanvijaykumar/paperwing/issues/38)).
+
 ## [1.2.4] — 2026-10-31
 
 ### Added
