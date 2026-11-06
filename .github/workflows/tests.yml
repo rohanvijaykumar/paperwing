@@ -163,3 +163,19 @@ jobs:
         if: ${{ always() }}
         shell: powershell
         run: desktop/native/win-certs/test-certs.ps1 -Remove -Out "$env:RUNNER_TEMP\certs.json"
+
+  # Scanning in the desktop shell (desktop/scan.cjs), and its Windows helper
+  # (desktop/scanner/wia.ps1) run for real: with no scanner, it lists none
+  windows-scanner:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Scanning tests
+        run: node --test desktop/tests/scan.test.mjs

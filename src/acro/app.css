@@ -2550,3 +2550,66 @@ body.is-dragging-page * {
 .dlg-appearance .sas-preview-wrap {
   margin-bottom: 6px;
 }
+/* Create PDF from scanner (scan.ts) */
+.dlg.dlg-scan {
+  width: min(520px, calc(100vw - 32px));
+}
+.sd-settings .pref-row {
+  min-height: 40px;
+}
+.sd-scanner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sd-scanner .pref-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sd-scanner select {
+  max-width: 260px;
+}
+.sd-none {
+  margin: 4px 0 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--hover-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.sd-quality-scale {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sd-quality-scale small {
+  color: var(--text-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.sd-quality {
+  width: 140px;
+  accent-color: var(--accent);
+}
+.sd-strip {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 2px;
+  padding: 8px;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: var(--hover-soft);
+}
+.sd-thumb {
+  flex: none;
+  height: 96px;
+  border-radius: 3px;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.12),
+    0 1px 3px rgb(0 0 0 / 0.12);
+  background: #fff;
+}
+.sd-status {
+  min-height: 1.4em;
+  margin: 8px 0 0;
+}

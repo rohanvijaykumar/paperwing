@@ -11,6 +11,7 @@ const {
   Menu,
   dialog,
   ipcMain,
+  nativeImage,
   nativeTheme,
   net,
   protocol,
@@ -33,6 +34,7 @@ const {
   windowHandleOf,
 } = require('./certs.cjs');
 const dns = require('node:dns/promises');
+const { createScanning } = require('./scan.cjs');
 
 /** PAPERWING_TRACE=1 prints startup timings (ms since the process started) */
 const trace = process.env.PAPERWING_TRACE
@@ -1190,6 +1192,81 @@ ipcMain.handle('paperwing:certs-fetch', async (e, url, init) => {
     : { status: res.status, contentType: res.contentType, body: res.body };
 });
 
+// Scanning (see scan.cjs): the page's scan dialog lists the scanners and
+// what each can do, then scans; each page comes back as it's scanned
+let scanning = null;
+const getScanning = () =>
+  (scanning ??= createScanning({
+    isPackaged: app.isPackaged,
+    wiaScript: app.isPackaged
+      ? path.join(process.resourcesPath, 'scanner', 'wia.ps1')
+      : path.join(__dirname, 'scanner', 'wia.ps1'),
+    macHelper: app.isPackaged
+      ? path.join(process.resourcesPath, 'scanner', 'paperwing-scan')
+      : path.join(__dirname, 'native', 'mac-scanner', 'out', 'paperwing-scan'),
+    tempDir: app.getPath('temp'),
+    makeTestPage: testScanPage,
+  }));
+
+/** The stand-in scanner's page n (development builds, PAPERWING_SCAN_TEST):
+ *  white paper with a band in the scan's color mode and n blocks for its
+ *  number, at up to 100 dpi so it stays small (its real size goes with it) */
+function testScanPage(opts, n) {
+  const dpi = Math.min(opts.dpi, 100);
+  const w = Math.round(opts.width * dpi);
+  const h = Math.round(opts.height * dpi);
+  const px = Buffer.alloc(w * h * 4, 255); // BGRA, white
+  const band = { color: [200, 90, 30], gray: [120, 120, 120], bw: [0, 0, 0] }[
+    opts.color
+  ];
+  const fill = (x0, y0, x1, y1, [b, g, r]) => {
+    for (let y = Math.max(0, y0); y < Math.min(h, y1); y++)
+      for (let x = Math.max(0, x0); x < Math.min(w, x1); x++) {
+        const o = (y * w + x) * 4;
+        px[o] = b;
+        px[o + 1] = g;
+        px[o + 2] = r;
+      }
+  };
+  fill(0, 0, w, Math.round(h * 0.08), band);
+  const s = Math.round(dpi * 0.4);
+  for (let k = 0; k < n; k++)
+    fill(
+      s + k * s * 1.5,
+      Math.round(h * 0.15),
+      s * 2 + k * s * 1.5,
+      Math.round(h * 0.15) + s,
+      [0, 0, 0]
+    );
+  return {
+    data: nativeImage.createFromBitmap(px, { width: w, height: h }).toPNG(),
+    dpi,
+  };
+}
+
+ipcMain.handle('paperwing:scanners', (e) => {
+  if (!senderIsApp(e)) return { ok: false, scanners: [] };
+  return getScanning().list();
+});
+
+ipcMain.handle('paperwing:scanner-caps', (e, id) => {
+  if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
+  return getScanning().capabilities(id);
+});
+
+ipcMain.handle('paperwing:scan', (e, id, options) => {
+  if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
+  const wc = e.sender;
+  return getScanning().scan(id, options, (data, info) => {
+    if (!wc.isDestroyed()) wc.send('paperwing:scan-page', data, info);
+  });
+});
+
+ipcMain.handle('paperwing:scan-cancel', (e) => {
+  if (!senderIsApp(e)) return false;
+  return getScanning().cancel();
+});
+
 // Home ▸ Clear recent also clears the OS's list
 ipcMain.handle('paperwing:clear-recent-documents', (e) => {
   if (senderIsApp(e)) clearRecent();
@@ -1547,6 +1624,7 @@ function buildMenu() {
             submenu: [{ role: 'clearRecentDocuments' }],
           },
           item('Create PDF…', 'Cmd+N', 'create'),
+          item('Create PDF from Scanner…', undefined, 'scan'),
           item('Reopen Closed Document', 'Shift+Cmd+T', 'reopen'),
           { type: 'separator' },
           item('Save', 'Cmd+S', 'save'),
