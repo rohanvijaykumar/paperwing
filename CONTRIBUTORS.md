@@ -13,6 +13,11 @@ shows BentoPDF's contributors. They're credited in BentoPDF's repository and in 
   ([#19](https://github.com/rohanvijaykumar/paperwing/pull/19), 1.2.3); saved form values show in
   the viewer ([#25](https://github.com/rohanvijaykumar/paperwing/pull/25), 1.2.4); how printing
   works in the desktop app ([#24](https://github.com/rohanvijaykumar/paperwing/pull/24), 1.2.4)
+- [@BronzeKnuckles](https://github.com/BronzeKnuckles): dialogs take and keep keyboard focus, for
+  keyboard and screen-reader users ([#33](https://github.com/rohanvijaykumar/paperwing/pull/33));
+  lint in CI ([#32](https://github.com/rohanvijaykumar/paperwing/pull/32))
+- [@Rian199](https://github.com/Rian199): a failed save in the browser no longer counts as saved
+  ([#36](https://github.com/rohanvijaykumar/paperwing/pull/36))
 
 ## Bug reports
 

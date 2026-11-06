@@ -15,6 +15,14 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ### Fixed
 
+- **Dialogs work with the keyboard and screen readers.** A dialog takes focus when it opens, Tab
+  stays inside it, screen readers announce it, and closing it (or a menu) returns focus to where
+  you were. By [@BronzeKnuckles](https://github.com/BronzeKnuckles)
+  ([#33](https://github.com/rohanvijaykumar/paperwing/pull/33)).
+- In a browser, a save that fails (or only downloads a copy) no longer marks the document saved, so
+  closing it still asks first. By [@Rian199](https://github.com/Rian199)
+  ([#36](https://github.com/rohanvijaykumar/paperwing/pull/36)).
+
 - **Highlighted text can be copied.** With a highlight selected, Ctrl+C (⌘C on macOS) copies the
   text it marks, and its menu has **Copy text**; the same for underline, strikethrough and
   squiggly. A highlight made in another app is read from the page. Reported by u/WildAd9195 on
