@@ -2309,10 +2309,13 @@ body.is-dragging-page * {
   font-size: 13px;
   line-height: 1.45;
 }
-.sd-quality-scale {
-  display: flex;
+.pref-row .sd-quality-scale {
+  flex-direction: row;
   align-items: center;
   gap: 8px;
+}
+.sd-quality-row {
+  align-items: center;
 }
 .sd-quality-scale small {
   color: var(--text-3);

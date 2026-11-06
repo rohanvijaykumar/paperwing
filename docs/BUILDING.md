@@ -71,6 +71,17 @@ node bench/check-results.mjs <a.pdf>   # tool results open unsaved, recovery aft
 `check-tools.mjs` takes optional name filters (`node bench/check-tools.mjs out Timestamp`) and
 writes `report.json` plus a screenshot of each tool, for reviewing toolbars and layout.
 
+### Scanning without a scanner
+
+Create PDF from scanner (`desktop/scan.cjs`) talks to scanners through a helper: on Windows,
+`desktop/scanner/wia.ps1` (Windows' own WIA, through PowerShell); on macOS, `paperwing-scan`
+(`desktop/native/mac-scanner`, Swift on ImageCaptureCore), built with
+`desktop/native/mac-scanner/build.sh` (universal; `--test` runs it) and added to the app by
+`scripts/after-pack.cjs`. Development builds stand in a scanner when `PAPERWING_SCAN_TEST=1` is
+set (`PAPERWING_SCAN_TEST_PAGES` sheets in the feeder, `PAPERWING_SCAN_TEST_ERROR=paper-jam` and the
+like to fail), which `npm run test:scan` and `bench/check-scan.mjs` use. A real scanner is still
+the final test: CI machines have none.
+
 ## Screenshots
 
 The README screenshots (`docs/screenshots/*.png`) are taken from the real interface, using the
