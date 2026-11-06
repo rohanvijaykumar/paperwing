@@ -8,6 +8,13 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ### Added
 
+- **Create a PDF from a scanner**, as in Acrobat: Create ▸ From scanner (also in the main menu,
+  the command palette and the macOS menu bar). Choose the scanner, flatbed or document feeder (one
+  or both sides), color mode (with Autodetect), resolution, paper and file size; then scan more
+  pages, scan the reverse sides of a one-sided stack, or finish. The pages become a new document,
+  or go at the end of the open one, and can be made searchable with Scan & OCR. Works with the
+  scanners Windows (WIA) and macOS (Image Capture) know, network scanners included. Suggested by
+  [@Lehnemann](https://github.com/Lehnemann) ([#35](https://github.com/rohanvijaykumar/paperwing/issues/35)).
 - **Sign with a certificate installed on your computer**, as in Acrobat: All tools ▸ Use a
   certificate ▸ **Digitally sign**, drag a box on the page, choose a Digital ID, choose how the
   signature looks, and Sign. The list shows the certificates in the Windows certificate store and
