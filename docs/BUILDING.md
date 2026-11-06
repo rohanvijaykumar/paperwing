@@ -85,6 +85,13 @@ cd desktop && PAPERWING_URL=http://localhost:4173 npm run docs:screenshots   # o
 `hero` also makes `social-preview.png`, the image GitHub shows when the repository is shared. GitHub
 uses it only once it's uploaded in the repository's **Settings ▸ General ▸ Social preview**.
 
+`forms`, `print` and `full-screen` show what only the desktop app has (the print dialog is the
+desktop shell's), so they come from the real app instead:
+
+```bash
+cd desktop && npm run build:web && npm run docs:screenshots:desktop   # or only some: forms print
+```
+
 ## Packaging
 
 | Command (in `desktop/`) | Output in `desktop/release/`                                           |

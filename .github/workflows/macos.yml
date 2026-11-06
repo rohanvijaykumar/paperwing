@@ -2,9 +2,15 @@ name: macOS
 
 # The desktop app on a Mac: the unit tests, the print tests, every bench
 # check (real Electron, real mouse and keyboard), the end-to-end tests, and
-# a real print to a virtual printer that prints to a file.
+# a real print to a virtual network printer. Changes that can't affect the
+# app (documentation, screenshots and the scripts that make them) skip it.
 on:
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'desktop/scripts/gen-*screenshots.mjs'
+      - 'LICENSE'
   workflow_dispatch:
 
 permissions:
