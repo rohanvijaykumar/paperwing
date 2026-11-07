@@ -581,6 +581,9 @@ interface Tab {
   scriptDismissed?: boolean;
   /** Use a certificate's bar is showing (desktop app) */
   certBar?: boolean;
+  /** Saving or signing this signed document with changes was allowed (its
+   *  signatures no longer valid): not asked again */
+  signaturesDropped?: boolean;
 }
 
 const isDirty = (t: Tab) => t.version !== t.savedVersion;
@@ -1332,6 +1335,7 @@ async function startDigitalSign(tab: Tab): Promise<void> {
   if (tab.loading || drawingBox) return;
   const certs = desktop?.certs;
   const flow = await certsFlow();
+  if (!(await mayDropSignatures(tab, 'sign'))) return;
   const current = await docBytesAsIs(tab, 'sign');
   if (current && (await flow.lockedBySignature(new Uint8Array(current)))) {
     toast(
@@ -4137,22 +4141,11 @@ async function docBytesAsIs(
 ): Promise<ArrayBuffer | null> {
   await settleForms([tab]);
   if (!isDirty(tab) && tab.diskHash) {
-    try {
-      const data = tab.path
-        ? await desktop?.readFile(tab.path)
-        : tab.handle
-          ? new Uint8Array(await (await tab.handle.getFile()).arrayBuffer())
-          : null;
-      if (data) {
-        const bytes = new Uint8Array(data);
-        const [was, now] = await Promise.all([
-          tab.diskHash,
-          fingerprint(bytes),
-        ]);
-        if (was && was === now) return bytes.buffer;
-      }
-    } catch {
-      // (gone or unreadable: what's shown)
+    // (gone or unreadable: what's shown)
+    const bytes = await bytesOnDisk(tab);
+    if (bytes) {
+      const [was, now] = await Promise.all([tab.diskHash, fingerprint(bytes)]);
+      if (was && was === now) return bytes.buffer;
     }
   }
   return exportDoc(tab, doing);
@@ -4170,9 +4163,86 @@ async function exportDoc(tab: Tab, doing: string): Promise<ArrayBuffer | null> {
   }
 }
 
+/** The file as it is on disk (or null) */
+async function bytesOnDisk(tab: Tab): Promise<Uint8Array<ArrayBuffer> | null> {
+  try {
+    if (tab.path) {
+      const data = await desktop?.readFile(tab.path);
+      return data ? new Uint8Array(data) : null;
+    }
+    if (tab.handle)
+      return new Uint8Array(await (await tab.handle.getFile()).arrayBuffer());
+  } catch {
+    // (gone or unreadable)
+  }
+  return null;
+}
+
+/** A signature dictionary's byte range is in the file */
+function hasSignatures(bytes: Uint8Array): boolean {
+  const marker = [...'/ByteRange'].map((c) => c.charCodeAt(0));
+  outer: for (let i = bytes.indexOf(marker[0]); i >= 0; ) {
+    for (let k = 1; k < marker.length; k++)
+      if (bytes[i + k] !== marker[k]) {
+        i = bytes.indexOf(marker[0], i + 1);
+        continue outer;
+      }
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Changes to a signed document are saved by writing it anew, which leaves
+ * its signatures invalid (Acrobat adds them after the signed version
+ * instead). Like Acrobat, ask first: before saving (`save`, `save-as`) or
+ * signing (`sign`) a signed document that has changes. True to go ahead
+ * (`copy`: save as a copy instead).
+ */
+async function mayDropSignatures(
+  tab: Tab,
+  doing: 'save' | 'save-as' | 'sign'
+): Promise<boolean | 'copy'> {
+  if (!isDirty(tab) || tab.signaturesDropped) return true;
+  const original = await bytesOnDisk(tab);
+  if (!original || !hasSignatures(original)) return true;
+  if (activeId !== tab.id) activate(tab.id);
+  const choice = await askDialog<'go' | 'copy' | 'cancel'>(
+    doing === 'sign'
+      ? 'Sign a changed document?'
+      : 'Save changes to a signed document?',
+    doing === 'sign'
+      ? `${tab.name} is digitally signed, and it has changes that aren't saved. Signing includes your changes, so the signatures already in it will no longer be valid. To keep them valid, undo your changes first.`
+      : doing === 'save'
+        ? `${tab.name} is digitally signed. Saving your changes writes the document anew, so its signatures will no longer be valid. To keep the signed version as it is, save your changes as a copy.`
+        : `${tab.name} is digitally signed. The copy you save will have your changes, so its signatures will no longer be valid. The signed original stays as it is.`,
+    doing === 'save'
+      ? [
+          { label: 'Cancel', value: 'cancel', kind: 'quiet' },
+          { label: 'Save anyway', value: 'go', kind: 'secondary' },
+          { label: 'Save as a copy…', value: 'copy', kind: 'primary' },
+        ]
+      : [
+          { label: 'Cancel', value: 'cancel', kind: 'quiet' },
+          {
+            label: doing === 'sign' ? 'Sign anyway' : 'Save',
+            value: 'go',
+            kind: 'primary',
+          },
+        ],
+    'cancel'
+  );
+  if (choice === 'cancel') return false;
+  tab.signaturesDropped = true;
+  return choice === 'copy' ? 'copy' : true;
+}
+
 /** Save a document; resolves true only when a file write has completed */
 async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
   await settleForms([tab]);
+  const signed = await mayDropSignatures(tab, saveAs ? 'save-as' : 'save');
+  if (!signed) return false;
+  if (signed === 'copy') saveAs = true;
   // Saving over a file another app has saved since: ask first
   if (!saveAs && (tab.path || tab.handle)) {
     const choice = await confirmOverwrite(tab);
