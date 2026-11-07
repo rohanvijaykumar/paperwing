@@ -1,0 +1,23 @@
+<Project>
+  <!-- Shared by paperwing-scan (x64), paperwing-twain32 (x86) and the tests.
+       .NET Framework 4.8 is part of Windows 10 and 11, so users install nothing. -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Company>Paperwing</Company>
+    <Product>Paperwing</Product>
+    <Copyright>Copyright © 2026 Rohan Vijaykumar</Copyright>
+    <Version>1.3.0</Version>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>
