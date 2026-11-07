@@ -28,7 +28,6 @@ import {
   BUILTIN_PRESETS,
   COLOR_LABELS,
   OUTPUT_KEYS,
-  PAPERS,
   SCANNER_KEYS,
   buildRequest,
   chooseDevice,
@@ -128,6 +127,7 @@ export type ScanOutcome =
       pages: number;
       pdfa: boolean;
       metadata: boolean;
+      compress: boolean;
     }
   | {
       output: 'append';
@@ -487,6 +487,7 @@ export function showScanDialog(
       ['zip', 'ZIP (lossless)'],
     ]);
 
+    const compressAfter = check('Compress after scanning (Compress a PDF)');
     const outputChoice = (value: string, text: string) => {
       const input = el('input', { type: 'radio', name: 'sd-output', value, 'aria-label': text });
       return { input, label: el('label', { class: 'pd-radio' }, input, text) };
@@ -600,7 +601,8 @@ export function showScanDialog(
         el('span', { class: 'sd-quality-scale' }, el('small', {}, 'Small size'), quality, el('small', {}, 'High quality'))
       ),
       row('Color and grayscale', compression),
-      el('p', { class: 'pd-hint' }, 'Black and white pages: CCITT Group 4 (lossless, and small).')
+      el('p', { class: 'pd-hint' }, 'Black and white pages: CCITT Group 4 (lossless, and small).'),
+      options.mode === 'create' && compressAfter.label
     );
     const insertRows = el(
       'div',
@@ -761,6 +763,7 @@ export function showScanDialog(
       rotateAll.value = String(settings.rotate);
       quality.value = String(settings.quality);
       compression.value = settings.compression;
+      compressAfter.input.checked = settings.compressAfter;
       outNew.input.checked = settings.output === 'new';
       outAppend.input.checked = settings.output === 'append';
       outMultiple.input.checked = settings.output === 'multiple';
@@ -807,6 +810,7 @@ export function showScanDialog(
       settings.rotate = Number(rotateAll.value) as ScanSettings['rotate'];
       settings.quality = Number(quality.value);
       settings.compression = compression.value as ScanSettings['compression'];
+      settings.compressAfter = compressAfter.input.checked;
       settings.output = outMultiple.input.checked
         ? 'multiple'
         : outAppend.input.checked
@@ -1239,6 +1243,8 @@ export function showScanDialog(
         off();
         offStatus();
       }
+      // (clean-up runs in a worker; the slow filters can take a few seconds a page)
+      if (got.some((p) => !p.url)) status.textContent = 'Cleaning up the pages…';
       await processing;
       if (closed) return;
       busy = '';
@@ -1440,7 +1446,14 @@ export function showScanDialog(
           return close({ output: 'append', pdf, pages: list.length, to });
         }
         const pdf = await makePdf(list, 'the PDF');
-        close({ output: 'new', pdf, pages: list.length, pdfa: settings.pdfa, metadata: settings.metadata });
+        close({
+          output: 'new',
+          pdf,
+          pages: list.length,
+          pdfa: settings.pdfa,
+          metadata: settings.metadata,
+          compress: settings.compressAfter && settings.output === 'new',
+        });
       } catch (err) {
         status.textContent = `The PDF couldn't be made: ${(err as Error)?.message ?? err}`;
       } finally {
@@ -1750,6 +1763,7 @@ export function showScanDialog(
       rotateAll,
       quality,
       compression,
+      compressAfter.input,
       outNew.input,
       outAppend.input,
       outMultiple.input,

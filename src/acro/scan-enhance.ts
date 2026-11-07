@@ -111,10 +111,13 @@ export function showEnhanceDialog(
 ): Promise<{ run(bytes: ArrayBuffer): Promise<ArrayBuffer> } | null> {
   return new Promise((resolve) => {
     const o = { ...DEFAULT_ENHANCE };
-    const check = (label: string, key: keyof EnhanceOptions) => {
+    const check = (
+      label: string,
+      key: 'deskew' | 'despeckle' | 'edgeShadow' | 'descreen' | 'removeBlank'
+    ) => {
       const input = el('input', { type: 'checkbox', 'aria-label': label });
-      input.checked = o[key] as boolean;
-      input.addEventListener('change', () => ((o as any)[key] = input.checked));
+      input.checked = o[key];
+      input.addEventListener('change', () => (o[key] = input.checked));
       return el('label', { class: 'pd-check' }, input, label);
     };
     const choice = (
@@ -125,7 +128,7 @@ export function showEnhanceDialog(
       const s = el('select', { class: 'pref-select', 'aria-label': label });
       for (const [v, t] of options) s.append(el('option', { value: v }, t));
       s.value = o[key];
-      s.addEventListener('change', () => ((o as any)[key] = s.value));
+      s.addEventListener('change', () => Object.assign(o, { [key]: s.value }));
       return el(
         'label',
         { class: 'pref-row' },

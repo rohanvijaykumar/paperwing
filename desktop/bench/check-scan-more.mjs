@@ -157,7 +157,7 @@ shown = await L.shows(page, [
   'Rotate all pages',
   'File size and quality',
   'Color and grayscale compression',
-  'Black and white compression',
+  'Compress after scanning (Compress a PDF)',
 ]);
 check(Object.values(shown).every(Boolean), 'every clean-up and file size setting', JSON.stringify(shown));
 const deskewOn = await page.evaluate(() => document.querySelector('.dlg-scan input[aria-label="Deskew (straighten crooked pages)"]').checked);
@@ -331,27 +331,59 @@ await sleep(1500);
 const text = await pdfText(await docBytes(page));
 check(/PAPERWING|QUICK|BROWN|PAGE/i.test(text), 'the new document has the scanned text in it', text.slice(0, 120).replace(/\s+/g, ' '));
 
+/* PDF/A, and Compress a PDF after scanning ------------------------------------ */
+await L.openDialog(page);
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Flatbed');
+await L.tick(page, 'Recognize text (OCR)', false);
+await L.tick(page, 'Make PDF/A compliant', true);
+await L.openGroup(page, 'File size');
+await L.tick(page, 'Compress after scanning (Compress a PDF)', true);
+await press(page, 'Scan');
+await L.waitIdle(page);
+await press(page, 'Scan is complete');
+await until(page, () => !document.querySelector('.dlg-scan'), undefined, 30000);
+const pdfaTab = await until(page, () => /^Scan /.test(document.querySelector('#tabs .tab.is-active')?.textContent.trim() ?? '') && !/PDF.A compliant/.test(document.querySelector('#toasts')?.textContent ?? '') ? document.querySelector('#tabs .tab.is-active').textContent : null, undefined, 120000);
+await sleep(2000);
+const pdfaBytes = (await docBytes(page)).toString('latin1');
+check(!!pdfaTab && /pdfaid:part/.test(pdfaBytes), 'Make PDF/A compliant: the new document says it is PDF/A', String(/pdfaid:part.{0,20}/.exec(pdfaBytes)?.[0] ?? (await L.toasts(page))));
+const compressOpen = await until(page, () => [...document.querySelectorAll('.lp-title, .fh-title')].some((t) => /Compress/.test(t.textContent)), undefined, 20000);
+check(!!compressOpen, 'Compress after scanning: Compress a PDF opens on it');
+await click(page, '[aria-label="Back to tools"]');
+await sleep(500);
+
 /* All tools, search, Scan & OCR, Enhance -------------------------------------- */
 await click(page, '#gb-tabs [data-panel="convert"]');
 await sleep(500);
-const convert = await page.evaluate(() => [...document.querySelectorAll('.lp-tool')].map((t) => t.textContent.trim()));
+const convert = await page.evaluate(() =>
+  [...document.querySelectorAll('.lp-tool')].filter((t) => t.offsetParent).map((t) => t.textContent.trim())
+);
 check(convert.includes('Scanner'), 'Convert ▸ Create PDF from: Scanner', JSON.stringify(convert.slice(0, 12)));
 await click(page, '#gb-tabs [data-panel="all"]');
 await sleep(400);
 await click(page, '.lp-section', 'Create a PDF');
 await sleep(300);
-const all = await page.evaluate(() => [...document.querySelectorAll('.lp-tool')].map((t) => t.textContent.trim()));
+const all = await page.evaluate(() =>
+  [...document.querySelectorAll('.lp-tool')].filter((t) => t.offsetParent).map((t) => t.textContent.trim())
+);
 check(all.includes('Scanner'), 'All tools ▸ Create a PDF ▸ Scanner');
 check(all.includes('Scan & OCR'), 'All tools ▸ Scan & OCR');
+/** Types into the tool search that's shown (each tab has its own panel) */
 const search = async (q) => {
-  await page.evaluate(() => {
-    const i = document.querySelector('.lp-search input');
+  const box = await page.evaluate(() => {
+    const i = [...document.querySelectorAll('.lp-search input')].find((x) => x.offsetParent);
     i.value = '';
     i.dispatchEvent(new Event('input', { bubbles: true }));
+    const r = i.getBoundingClientRect();
+    return { x: r.x + 20, y: r.y + r.height / 2 };
   });
-  await page.type('.lp-search input', q);
+  await page.mouse.click(box.x, box.y);
+  await page.keyboard.type(q);
   await sleep(300);
-  return page.evaluate(() => [...document.querySelectorAll('.lp-tool')].map((t) => t.textContent.trim()));
+  return page.evaluate(() =>
+    [...document.querySelectorAll('.lp-tool')].filter((t) => t.offsetParent).map((t) => t.textContent.trim())
+  );
 };
 let found = await search('scanner');
 check(found.includes('Scanner'), 'tool search "scanner": Scanner', JSON.stringify(found));
@@ -404,7 +436,8 @@ writeFileSync(join(watchDir, 'scan 001.png'), img.png);
 const pdf = readFileSync(doc1);
 const half = Math.floor(pdf.length / 2);
 writeFileSync(join(watchDir, 'scan 002.pdf'), pdf.subarray(0, half));
-await sleep(1500);
+await until(page, () => document.querySelectorAll('.dlg-scan .sr-page').length >= 1, undefined, 15000);
+await sleep(2500);
 check((await dialog(page)).thumbs === 1, 'a new picture shows; a half-written PDF waits', `${(await dialog(page)).thumbs}`);
 appendFileSync(join(watchDir, 'scan 002.pdf'), pdf.subarray(half));
 await until(page, () => document.querySelectorAll('.dlg-scan .sr-page').length === 5, undefined, 15000);
@@ -414,14 +447,14 @@ await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.curre
 check((await L.docInfo(page)).pages === 5, 'they make one new document');
 void encodePng;
 
-await L.openDialog(page);
+check(await L.openDialog(page), 'the scan dialog opens again', JSON.stringify(await dialog(page)));
 await click(page, '.dlg-scan .sd-link', 'Add by IP address');
 await until(page, () => document.querySelector('[aria-label="Add a network scanner"]'));
 await page.type('[aria-label="IP address or host name"]', '10.0.0.250');
 await click(page, '[aria-label="Add a network scanner"] .accent-btn', 'Add');
 const refused = await until(page, () => document.querySelector('[aria-label="Add a network scanner"] .sd-status')?.textContent);
 check(/No scanner answered at 10\.0\.0\.250/.test(refused ?? ''), 'an address where nothing answers says so', refused);
-await page.click('[aria-label="IP address or host name"]', { clickCount: 3 });
+await page.$eval('[aria-label="IP address or host name"]', (i) => (i.value = ''));
 await page.type('[aria-label="IP address or host name"]', '192.0.2.44');
 await click(page, '[aria-label="Add a network scanner"] .accent-btn', 'Add');
 await until(page, () => !document.querySelector('[aria-label="Add a network scanner"]'));

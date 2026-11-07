@@ -8,13 +8,38 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ### Added
 
-- **Create a PDF from a scanner**, as in Acrobat: Create ▸ From scanner (also in the main menu,
-  the command palette and the macOS menu bar). Choose the scanner, flatbed or document feeder (one
-  or both sides), color mode (with Autodetect), resolution, paper and file size; then scan more
-  pages, scan the reverse sides of a one-sided stack, or finish. The pages become a new document,
-  or go at the end of the open one, and can be made searchable with Scan & OCR. Works with the
-  scanners Windows (WIA) and macOS (Image Capture) know, network scanners included. Suggested by
+- **Scanning**, as in Acrobat, in a dialog like the print dialog: Create ▸ Scanner, All tools ▸
+  Create a PDF ▸ Scanner, Convert ▸ Create PDF from, Insert pages ▸ From scanner (the page
+  thumbnails' menu), the main menu's Create PDF from scanner ▸ a preset (scans at once; also in the
+  macOS menu bar) and the command palette. Suggested by
   [@Lehnemann](https://github.com/Lehnemann) ([#35](https://github.com/rohanvijaykumar/paperwing/issues/35)).
+  - **Every scanner, listed once**: WIA and TWAIN (64- and 32-bit drivers) on Windows, Image
+    Capture on the Mac, and network scanners without drivers (AirScan / eSCL / Mopria), found
+    automatically or added by IP address. Options ▸ Driver switches how a scanner is reached;
+    also the scanner's own window, TWAIN's transfer method, stop on double-feed and how long to
+    wait for a slow network scanner. For scanners that only work with their own app (ScanSnap),
+    **Import from a scanner app** watches the folder it saves to.
+  - **Presets** (Autodetect color mode, Black and white, Grayscale and Color document, Color
+    photograph, and your own with Save as preset…), settings kept per preset and per scanner.
+  - **Preview** on a flatbed: the document is found and boxed; drag the corners to scan just that.
+  - Flatbed or feeder, front sides or both (Scan reverse sides for one-sided feeders), flip back
+    sides; color mode with threshold, resolution, paper sizes, auto-size and custom sizes,
+    brightness and contrast. Only what the scanner can do is shown; what it can't do itself is done
+    afterwards.
+  - **Clean-up**: deskew (on by default), auto-crop, background removal, descreen, text
+    sharpening, despeckle, remove blank pages (with a sensitivity), edge shadow removal,
+    auto-rotate and rotate all.
+  - **File size**: Small size ↔ High quality; JPEG or ZIP for color and gray, CCITT Group 4 for
+    black and white; Compress after scanning opens Compress a PDF on the result.
+  - After each pass, the pages so far: rotate, delete, drag to reorder, rescan a page, keep a page
+    found blank; then Scan more pages, Scan reverse sides or Scan is complete (your last choice is
+    offered first).
+  - **Output**: a new document ("Scan 2026-11-06 18.30.pdf", unsaved, recovered after a crash),
+    appended to an open document or to any PDF on disk (opened with the pages added, never saved
+    behind your back; Undo takes them out), inserted before or after any page, or saved as several
+    files. Recognize text (OCR) right after scanning, Make PDF/A compliant, Add metadata.
+- **All tools ▸ Scan & OCR** is a start page like Acrobat's: Select a file, Scan a document, or
+  **Enhance scanned pages** (the clean-up on a PDF that's already scanned; Undo takes it back).
 
 ### Changed
 

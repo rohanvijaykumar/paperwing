@@ -62,8 +62,6 @@ const USUAL_DPI = [75, 100, 150, 200, 240, 300, 400, 600, 1200];
 const QUERY_TIMEOUT_MS = 45000;
 /** A scanner that stops answering mid-scan */
 const PAGE_TIMEOUT_MS = 180000;
-/** The scanner's own window waits on the person using it */
-const NATIVE_UI_TIMEOUT_MS = 15 * 60000;
 /** After "cancel", a helper that hasn't stopped is ended */
 const CANCEL_KILL_MS = 10000;
 
@@ -317,6 +315,8 @@ function helperBackend({
   driverFor,
   spawnProcess,
   cancelKillMs = CANCEL_KILL_MS,
+  /** The app window's handle: the scanner's own window opens in front */
+  windowHandle = () => null,
 }) {
   function run(args, onMessage, { timeoutMs, input = false } = {}) {
     let child;
@@ -339,6 +339,9 @@ function helperBackend({
       let timedOut = false;
       const arm = () => {
         clearTimeout(timer);
+        // (null: the scanner's own window waits on the person, for as long
+        // as they take)
+        if (timeoutMs === null) return;
         timer = setTimeout(() => {
           timedOut = true;
           child.kill();
@@ -445,10 +448,11 @@ function helperBackend({
           outDir,
           '-Options',
           Buffer.from(JSON.stringify(options)).toString('base64'),
+          ...(windowHandle() ? ['-Window', String(windowHandle())] : []),
         ],
         onEvent,
         {
-          timeoutMs: options.nativeUi ? NATIVE_UI_TIMEOUT_MS : PAGE_TIMEOUT_MS,
+          timeoutMs: options.nativeUi ? null : PAGE_TIMEOUT_MS,
           input: true,
         }
       );
@@ -691,6 +695,8 @@ function createScanning({
   /** The stand-in scanners (scan-test.cjs), for tests */
   testBackends,
   cancelKillMs,
+  /** () => the app window's native handle, for the scanner's own window */
+  windowHandle,
 }) {
   const testMode = !isPackaged && !!env.PAPERWING_SCAN_TEST;
   const order = DRIVER_ORDER[platform] ?? ['escl'];
@@ -712,6 +718,7 @@ function createScanning({
           command: helpers.scan,
           spawnProcess,
           cancelKillMs,
+          windowHandle,
           // ("api": wia2, wia1, twain64; the x86 helper's TWAIN is twain32)
           driverFor: (s) =>
             s.driver === 'twain'
@@ -729,6 +736,7 @@ function createScanning({
           command: helpers.twain32,
           spawnProcess,
           cancelKillMs,
+          windowHandle,
           driverFor: () => 'twain32',
         });
     } else if (platform === 'darwin' && exists(helpers.scan)) {
@@ -736,6 +744,7 @@ function createScanning({
         command: helpers.scan,
         spawnProcess,
         cancelKillMs,
+        windowHandle,
         driverFor: () => 'ica',
       });
     }
