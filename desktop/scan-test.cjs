@@ -16,6 +16,8 @@
  * PAPERWING_SCAN_TEST_BLANK   pages of a pass that come out blank ("4" when
  *                             scanning both sides, else none; "none")
  * PAPERWING_SCAN_TEST_SKEW    pages fed crooked, 3° ("2"; "none")
+ * PAPERWING_SCAN_TEST_SLOW    a scanner (its name) that takes 30 s to get ready,
+ *                             like a slow or stuck driver
  * PAPERWING_SCAN_TEST_ERROR   an error code, failing at the start, or after
  *                             n pages with code@n (double-feed@2);
  *                             no-scanner and blocked fail the listing
@@ -450,6 +452,8 @@ function createTestBackends({ platform = process.platform, env = process.env } =
       async caps(id) {
         const hit = find(id);
         if (!hit) return { ok: false, error: 'no-scanner' };
+        if (env.PAPERWING_SCAN_TEST_SLOW && env.PAPERWING_SCAN_TEST_SLOW === hit.s.name)
+          await new Promise((r) => setTimeout(r, 30000));
         return { ok: true, msg: hit.s.caps(hit.d) };
       },
       start(command, id, outDir, opts, onEvent) {

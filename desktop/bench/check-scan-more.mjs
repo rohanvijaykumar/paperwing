@@ -517,4 +517,38 @@ const names = await page.evaluate(() => [...document.querySelectorAll('#tabs .ta
 check(!!recovered && names.some((n) => /^Scan \d{4}/.test(n)), 'after a crash, the unsaved scans come back', JSON.stringify(names));
 await app.close();
 
+/* A scanner slow to get ready (a stuck driver) doesn't hold the dialog -- */
+app = await L.start({ PAPERWING_SCAN_TEST_SLOW: 'Paperwing Test Scanner' });
+page = app.page;
+const openSlow = async () => {
+  await click(page, '#create-btn');
+  await until(page, () => document.querySelector('.menu .menu-item'));
+  await click(page, '.menu .menu-item', 'From scanner');
+  // (whichever scanner it starts on, the slow one is chosen)
+  await until(page, () => document.querySelector('.dlg-scan select[aria-label="Scanner"] option'));
+  await until(page, () => !document.querySelector('.dlg-scan select[aria-label="Scanner"]').disabled);
+  if ((await dialog(page)).scanner !== 'Paperwing Test Scanner') await choose(page, 'Scanner', 'Paperwing Test Scanner');
+  return until(page, () => /Getting the scanner ready/.test(document.querySelector('.dlg-scan .sd-status')?.textContent ?? ''));
+};
+check(!!(await openSlow()), 'a slow scanner: "Getting the scanner ready…"');
+await press(page, 'Cancel');
+check(!!(await until(page, () => !document.querySelector('.dlg-scan'), undefined, 3000)), 'Cancel closes the dialog while it waits');
+check(!!(await openSlow()), 'opened again, still waiting for the slow scanner');
+const free = await page.evaluate(() => {
+  const d = document.querySelector('.dlg-scan');
+  const link = [...d.querySelectorAll('.sd-link')].find((b) => b.textContent.startsWith('Add by IP'));
+  return !d.querySelector('select[aria-label="Scanner"]').disabled && !!link && !link.disabled;
+});
+check(free, 'meanwhile another scanner can be chosen, or one added by IP address');
+await choose(page, 'Scanner', 'Paperwing Test Feeder');
+check(!!(await L.waitReady(page, 8000)), 'another scanner is ready without waiting for the slow one');
+await sleep(31000); // (the slow scanner's late answer arrives)
+const after = await dialog(page);
+check(
+  after?.scanner === 'Paperwing Test Feeder' && !!after.colors && !after.colors.includes('Color'),
+  "the slow scanner's late answer doesn't replace the chosen one's (the feeder's gray and B&W only)",
+  JSON.stringify({ scanner: after?.scanner, colors: after?.colors })
+);
+await app.close();
+
 L.finish();

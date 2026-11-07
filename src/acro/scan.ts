@@ -375,6 +375,8 @@ export function showScanDialog(
     let device: ScanDevice | undefined;
     let caps: ScanCaps | null = null;
     let busy: '' | 'list' | 'caps' | 'preview' | 'scan' | 'finish' = '';
+    /** Counts capability requests, so only the latest one's answer is used */
+    let capsRequest = 0;
     let closed = false;
     let pages: Page[] = [];
     /** The last pass's pages (fronts, for Scan reverse sides) */
@@ -956,6 +958,12 @@ export function showScanDialog(
         previewBtn,
       ])
         lock(c);
+      // A scanner still getting ready (a slow or stuck driver can take up to
+      // a minute) mustn't hold the dialog: another scanner, Refresh, Add by
+      // IP address and Options stay available meanwhile
+      if (busy === 'caps')
+        for (const c of [preset, scanner, refreshBtn, addBtn, optionsBtn, folderBtn])
+          c.disabled = false;
       // Pages scanned go together: the scanner stays the same
       if (pages.length) scanner.disabled = refreshBtn.disabled = addBtn.disabled = true;
       const ready = !!caps && !!device;
@@ -1097,7 +1105,9 @@ export function showScanDialog(
 
     async function loadCaps() {
       if (!entry) return;
+      const asked = ++capsRequest;
       device = chooseDevice(entry.devices, settings.driver);
+      caps = null;
       busy = 'caps';
       enable();
       status.textContent = 'Getting the scanner ready…';
@@ -1105,8 +1115,9 @@ export function showScanDialog(
         await bridge
           .scannerCaps(device!.id)
           .catch((err: unknown) => ({ ok: false, error: 'failed', message: String(err) }));
-      if (closed) return;
-      busy = '';
+      // (another scanner or driver was chosen meanwhile: this answer is stale)
+      if (closed || asked !== capsRequest) return;
+      if (busy === 'caps') busy = '';
       caps = r.ok ? (r.caps ?? null) : null;
       status.textContent = r.ok ? '' : scanErrorMessage(r.error, r.message, options.isMac);
       // A new scanner: its glass preview no longer applies
@@ -1489,7 +1500,9 @@ export function showScanDialog(
         await bridge.cancelScan().catch(() => false);
         return;
       }
-      if (busy) return;
+      // (looking for scanners or getting one ready doesn't keep the dialog
+      // open: a stuck driver would; its late answer is ignored once closed)
+      if (busy === 'finish') return;
       // Scanned pages aren't thrown away on one click
       if (pages.length && !confirmDiscard) {
         confirmDiscard = true;
