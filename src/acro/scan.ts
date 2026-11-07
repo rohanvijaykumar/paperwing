@@ -1250,6 +1250,11 @@ export function showScanDialog(
       let result: ScanResult;
       try {
         result = await bridge.scan(device.id, request);
+        // The answer can overtake the last pages on their way: wait for
+        // every page the shell sent
+        const sent = Math.min(result.pages ?? 0, wanted);
+        for (let k = 0; got.length < sent && k < 100; k++)
+          await new Promise((r) => setTimeout(r, 50));
       } catch (err) {
         result = { ok: false, error: 'failed', message: String((err as Error)?.message ?? err) };
       } finally {
