@@ -86,50 +86,130 @@ export interface CertsBridge {
   saveId?(name: string, data: Uint8Array): Promise<boolean>;
 }
 
-export interface Scanner {
+/** How a scanner is reached (desktop/scan.cjs) */
+export type ScanDriver = 'twain' | 'wia' | 'escl' | 'twain32' | 'wia1' | 'ica';
+
+/** One way to reach a scanner (Options ▸ Driver) */
+export interface ScanDevice {
+  /** "<driver>:<the helper's id>" */
   id: string;
+  driver: ScanDriver;
+  label: string;
   name: string;
 }
 
-/** What a scanner's flatbed or document feeder can do */
-export interface ScanSource {
-  id: 'flatbed' | 'feeder';
-  /** Both sides at once (a feeder) */
-  duplex: boolean;
-  resolutions: number[];
-  colors: ('color' | 'gray' | 'bw')[];
-  /** The largest area it scans, in inches */
-  width: number;
-  height: number;
+/** One physical scanner, however many drivers reach it (best first) */
+export interface Scanner {
+  key: string;
+  name: string;
+  make: string;
+  model: string;
+  connection: 'usb' | 'network' | 'unknown';
+  devices: ScanDevice[];
 }
 
+export interface ScanRange {
+  min: number;
+  max: number;
+  step: number;
+  default: number;
+}
+
+/** What a scanner's flatbed or document feeder can do (sizes in inches) */
+export interface ScanSource {
+  id: 'flatbed' | 'feeder';
+  /** Both sides in one pass (a feeder) */
+  duplex: boolean;
+  resolutions: number[];
+  /** Set when any resolution in a range works (a custom value) */
+  resolutionRange: ScanRange | null;
+  colors: ('color' | 'gray' | 'bw')[];
+  maxWidth: number;
+  maxHeight: number;
+  minWidth: number;
+  minHeight: number;
+  canPreview: boolean;
+  paperSizes: { name: string; width: number; height: number }[];
+  autoSize: boolean;
+  autoDeskew: boolean;
+  autoCrop: boolean;
+  blankPageSkip: boolean;
+  doubleFeed: boolean;
+  invert: boolean;
+  brightness: ScanRange | null;
+  contrast: ScanRange | null;
+  threshold: ScanRange | null;
+  feederLoaded: boolean | null;
+}
+
+export interface ScanCaps {
+  driver: ScanDriver;
+  /** It has a window of its own (TWAIN, WIA) */
+  nativeUi: boolean;
+  sources: ScanSource[];
+}
+
+/** What the scanner is asked for (the contract's scan options; absent:
+ *  the scanner's default) */
 export interface ScanRequest {
   source: 'flatbed' | 'feeder';
   duplex: boolean;
   color: 'color' | 'gray' | 'bw';
   dpi: number;
-  /** The paper, in inches */
-  width: number;
-  height: number;
+  area?: { x: number; y: number; width: number; height: number };
+  paper?: { width: number; height: number } | 'auto';
+  brightness?: number;
+  contrast?: number;
+  threshold?: number;
+  autoDeskew?: boolean;
+  blankPageSkip?: boolean;
+  doubleFeedStop?: boolean;
+  invert?: boolean;
+  nativeUi?: boolean;
+  transfer?: 'native' | 'memory';
+  /** Seconds a slow network scanner gets */
+  timeout?: number;
 }
 
 export type ScanError =
-  | 'feeder-empty'
-  | 'paper-jam'
-  | 'busy'
-  | 'offline'
-  | 'cover-open'
-  | 'warming-up'
   | 'no-scanner'
-  | 'cancelled'
+  | 'offline'
+  | 'busy'
+  | 'paper-jam'
+  | 'feeder-empty'
+  | 'double-feed'
+  | 'cover-open'
+  | 'unsupported'
+  | 'blocked'
   | 'invalid'
   | 'failed';
 
 export interface ScanResult {
   ok: boolean;
   pages?: number;
+  /** Stopped by Cancel (the pages before it came) */
+  cancelled?: boolean;
   error?: ScanError;
   message?: string;
+}
+
+/** A page as the scanner sent it */
+export interface ScanPageInfo {
+  index: number;
+  dpi: number;
+  /** Pixels */
+  width?: number;
+  height?: number;
+  side: 'front' | 'back';
+  mime: string;
+}
+
+/** A file a scanner's own app saved in the watched folder */
+export interface ScanImport {
+  name: string;
+  path: string;
+  data: Uint8Array;
+  mime: string;
 }
 
 export interface DesktopBridge {
@@ -210,30 +290,53 @@ export interface DesktopBridge {
   }>;
   /** Certificates installed on this computer (Windows and macOS) */
   certs?: CertsBridge;
-  /** The scanners connected or on the network */
+  /** The scanners connected or on the network, one entry each */
   scanners?(): Promise<{
     ok: boolean;
     scanners: Scanner[];
     error?: ScanError;
     message?: string;
   }>;
-  /** What a scanner can do */
-  scannerCaps?(id: string): Promise<{
+  /** A network scanner that doesn't announce itself, by its address */
+  addScanner?(address: string): Promise<{
     ok: boolean;
-    sources?: ScanSource[];
+    scanner?: Scanner;
     error?: ScanError;
     message?: string;
   }>;
+  /** What one device (ScanDevice.id) can do */
+  scannerCaps?(id: string): Promise<{
+    ok: boolean;
+    caps?: ScanCaps;
+    error?: ScanError;
+    message?: string;
+  }>;
+  /** A quick low-resolution scan of the whole glass */
+  scanPreview?(
+    id: string,
+    request: ScanRequest
+  ): Promise<ScanResult & { page?: ScanPageInfo & { data: Uint8Array } }>;
   /** Scans; each page arrives through onScanPage as it's scanned */
   scan?(id: string, request: ScanRequest): Promise<ScanResult>;
-  /** Stops the scan (the page being scanned may still arrive) */
+  /** Stops the scan after the page being scanned, and lets the scanner go */
   cancelScan?(): Promise<boolean>;
   onScanPage?(
-    callback: (
-      data: Uint8Array,
-      info: { index: number; dpi: number; mime: string }
-    ) => void
+    callback: (data: Uint8Array, info: ScanPageInfo) => void
   ): () => void;
+  onScanStatus?(callback: (message: string) => void): () => void;
+  /** Watches a chosen folder for scans a scanner's own app saves (null
+   *  stops) */
+  watchScanFolder?(
+    dir: string | null
+  ): Promise<{ ok: boolean; error?: string; message?: string }>;
+  onScanImport?(callback: (file: ScanImport) => void): () => void;
+  /** Asks for a folder; new files may then be saved into it */
+  chooseFolder?(title?: string): Promise<{ path: string; name: string } | null>;
+  /** Saves new PDFs into a chosen folder (never over a file) */
+  saveFiles?(
+    dir: string,
+    files: { name: string; data: Uint8Array }[]
+  ): Promise<{ path: string; name: string }[] | null>;
   onOpenFile(callback: (file: DesktopFile) => void): () => void;
   /** The window is about to close; call confirmClose() to let it */
   onCloseRequested?(callback: () => void): () => void;

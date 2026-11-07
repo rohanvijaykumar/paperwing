@@ -1,8 +1,8 @@
 /**
- * Scanning in the main process (scan.cjs), with a stand-in for the scanner
- * helper (wia.ps1 / paperwing-scan): what it prints is scripted, so these
- * run without a scanner. desktop/scanner/wia.ps1 itself is run once, for
- * real, on Windows: with no scanner attached it must list none.
+ * Scanning in the main process (scan.cjs): the helpers are stood in for (what
+ * they print is scripted), so these run without a scanner: the contract,
+ * merging one scanner seen by several drivers, cancel, errors, the folder
+ * a scanner's own app saves to, and the stand-in scanners the benches use.
  *
  *   npm run test:scan
  */
@@ -10,12 +10,16 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { inflateSync } from 'node:zlib';
 
 const require = createRequire(import.meta.url);
 const {
@@ -23,38 +27,83 @@ const {
   checkScanOptions,
   parseLine,
   cleanCaps,
+  mergeScanners,
+  watchFolder,
+  DRIVER_ORDER,
 } = require('../scan.cjs');
+const { createTestBackends } = require('../scan-test.cjs');
+
+const TMP = process.env.BENCH_TMP || tmpdir();
+const temp = (name) => mkdtempSync(join(TMP, `pw-scan-${name}-`));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** The share of dark pixels in one of the stand-in's PNGs (8-bit, unfiltered) */
+function darkShare(png) {
+  const buf = Buffer.from(png);
+  const width = buf.readUInt32BE(16);
+  const channels = buf[25] === 2 ? 3 : 1;
+  const idat = [];
+  for (let o = 8; o < buf.length; ) {
+    const len = buf.readUInt32BE(o);
+    if (buf.toString('latin1', o + 4, o + 8) === 'IDAT')
+      idat.push(buf.subarray(o + 8, o + 8 + len));
+    o += len + 12;
+  }
+  const raw = inflateSync(Buffer.concat(idat));
+  const row = width * channels + 1;
+  let dark = 0;
+  let all = 0;
+  for (let o = 0; o < raw.length; o += row)
+    for (let x = 1; x < row; x += channels) {
+      all++;
+      if (raw[o + x] < 128) dark++;
+    }
+  return dark / all;
+}
 
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAC0lEQVR4nGP4DwYAFPIF+6QNfF4AAAAASUVORK5CYII=',
   'base64'
 );
 
-/** A helper that prints `lines` (pages written as real files) and exits */
-function fakeHelper(script) {
+/**
+ * Stands in for the helper programs. script(args, child) yields steps:
+ * a page number (a real file is written), { wait }, { exit }, { untilCancel }
+ * or a message object. What the scanner was sent on stdin is recorded.
+ */
+function fakeHelpers(script) {
   const calls = [];
   const spawnProcess = (cmd, args) => {
-    calls.push({ cmd, args });
+    const call = { cmd, args, stdin: '' };
+    calls.push(call);
     const child = new EventEmitter();
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
+    child.stdin = new PassThrough();
+    child.stdin.on('data', (d) => (call.stdin += d));
     child.killed = false;
     child.kill = () => {
+      if (child.killed) return;
       child.killed = true;
       setImmediate(() => child.emit('close', null));
     };
     const outDir = args[args.indexOf('-OutDir') + 1];
     setImmediate(async () => {
-      for (const step of script(args)) {
+      for (const step of script(args, call)) {
         if (child.killed) return;
-        if (step.page) {
-          const file = join(outDir, `page-${step.page}.png`);
+        if (typeof step === 'number') {
+          const file = join(outDir, `page-${step}.png`);
           writeFileSync(file, PNG);
           child.stdout.write(
-            `${JSON.stringify({ type: 'page', file, dpi: 200 })}\n`
+            `${JSON.stringify({ type: 'page', file, dpi: 200, side: step % 2 ? 'front' : 'back' })}\n`
           );
         } else if (step.wait) {
-          await new Promise((r) => setTimeout(r, step.wait));
+          const end = Date.now() + step.wait;
+          while (Date.now() < end && !child.killed) await sleep(10);
+        } else if (step.untilCancel) {
+          while (!call.stdin.includes('cancel') && !child.killed)
+            await sleep(10);
+          if (step.untilCancel === 'ignore') continue;
         } else if (step.exit !== undefined) {
           child.stdout.end();
           child.emit('close', step.exit);
@@ -70,29 +119,56 @@ function fakeHelper(script) {
   return { spawnProcess, calls };
 }
 
-const scanning = (script, extra = {}) => {
-  const fake = fakeHelper(script);
+/** A real (empty) file standing for a helper program */
+const helperFile = (dir, name) => {
+  const p = join(dir, name);
+  writeFileSync(p, '');
+  return p;
+};
+
+function windows(script, extra = {}) {
+  const dir = temp('win');
+  const fake = fakeHelpers(script);
   const s = createScanning({
     platform: 'win32',
-    wiaScript: 'C:/fake/wia.ps1',
-    tempDir: mkdtempSync(join(tmpdir(), 'pw-scan-test-')),
+    helpers: {
+      scan: helperFile(dir, 'paperwing-scan.exe'),
+      twain32: helperFile(dir, 'paperwing-twain32.exe'),
+    },
+    tempDir: dir,
     spawnProcess: fake.spawnProcess,
     env: {},
     ...extra,
   });
   return { s, calls: fake.calls };
-};
+}
 
-const OPTS = {
-  source: 'feeder',
-  duplex: false,
-  color: 'gray',
-  dpi: 200,
-  width: 8.5,
-  height: 11,
+const listed = (scanners) => ({ type: 'scanners', scanners });
+const CAPS = {
+  type: 'caps',
+  driver: 'wia',
+  nativeUi: true,
+  sources: [
+    {
+      id: 'feeder',
+      duplex: true,
+      resolutions: [100, 200, 300],
+      colors: ['color', 'gray', 'bw'],
+      maxWidth: 8.5,
+      maxHeight: 14,
+      canPreview: false,
+      paperSizes: [{ name: 'Letter', width: 8.5, height: 11 }],
+      doubleFeed: true,
+      brightness: { min: -1000, max: 1000, step: 1, default: 0 },
+      contrast: null,
+      threshold: null,
+      feederLoaded: true,
+    },
+  ],
 };
+const OPTS = { source: 'feeder', duplex: false, color: 'gray', dpi: 200 };
 
-describe('the helper protocol', () => {
+describe('the contract', () => {
   test('one JSON object per line; anything else is ignored', () => {
     assert.deepEqual(parseLine('{"type":"done"}\r'), { type: 'done' });
     assert.equal(parseLine('WARNING: something'), null);
@@ -100,296 +176,579 @@ describe('the helper protocol', () => {
     assert.equal(parseLine('{"no":"type"}'), null);
   });
 
-  test('scan options are checked', () => {
+  test('scan options: only what the contract knows, absent stays absent', () => {
     assert.deepEqual(checkScanOptions({ source: 'flatbed', duplex: true }), {
       source: 'flatbed',
       duplex: false, // only a feeder scans both sides
       color: 'color',
       dpi: 300,
-      width: 8.5,
-      height: 11,
     });
+    assert.deepEqual(
+      checkScanOptions({
+        source: 'feeder',
+        duplex: true,
+        color: 'bw',
+        dpi: 300,
+        paper: { width: 8.5, height: 11 },
+        threshold: 140,
+        brightness: -20,
+        doubleFeedStop: true,
+        transfer: 'memory',
+        nativeUi: false,
+        timeout: 60,
+        somethingElse: 1,
+      }),
+      {
+        source: 'feeder',
+        duplex: true,
+        color: 'bw',
+        dpi: 300,
+        paper: { width: 8.5, height: 11 },
+        threshold: 140,
+        brightness: -20,
+        doubleFeedStop: true,
+        transfer: 'memory',
+        nativeUi: false,
+        timeout: 60,
+      }
+    );
+    // An area wins over a paper size; "auto" is the scanner finding it
+    assert.deepEqual(
+      checkScanOptions({
+        area: { x: 1, y: 1.2, width: 6, height: 8 },
+        paper: 'auto',
+      }).area,
+      { x: 1, y: 1.2, width: 6, height: 8 }
+    );
+    assert.equal(checkScanOptions({ paper: 'auto' }).paper, 'auto');
     for (const bad of [
       null,
       { source: 'camera' },
       { color: 'sepia' },
-      { dpi: 30 },
+      { dpi: 10 },
       { dpi: 300.5 },
-      { width: 40 },
+      { paper: { width: 80, height: 11 } },
+      { area: { x: 0, y: 0, width: 0, height: 5 } },
       { duplex: 'yes' },
+      { brightness: 'up' },
+      { transfer: 'file' },
+      { timeout: 1 },
     ])
-      assert.throws(
-        () => checkScanOptions(bad),
-        TypeError,
-        JSON.stringify(bad)
-      );
+      assert.throws(() => checkScanOptions(bad), TypeError, JSON.stringify(bad));
   });
 
   test('capabilities are cleaned up to what the dialog can offer', () => {
-    assert.deepEqual(
-      cleanCaps([
-        {
-          id: 'flatbed',
-          resolutions: [600, 150, 150, 9999, '300'],
-          colors: ['color', 'infrared'],
-          width: 8.5,
-          height: 11.7,
-          duplex: true,
-        },
-        { id: 'film' },
-        null,
-      ]),
-      [
-        {
-          id: 'flatbed',
-          duplex: false,
-          resolutions: [150, 300, 600],
-          colors: ['color'],
-          width: 8.5,
-          height: 11.7,
-        },
-      ]
+    const caps = cleanCaps(
+      {
+        nativeUi: true,
+        sources: [
+          {
+            id: 'flatbed',
+            duplex: true, // a flatbed can't
+            resolutions: { min: 100, max: 600, step: 50 },
+            colors: ['gray', 'bw', 'sepia'],
+            maxWidth: 8.5,
+            maxHeight: 11.7,
+            canPreview: true,
+            paperSizes: [
+              { name: 'A4', width: 8.27, height: 11.69 },
+              { name: 'broken' },
+            ],
+            threshold: { min: 0, max: 255, step: 1, default: 128 },
+            brightness: { min: 5, max: 5 },
+          },
+          { id: 'camera' },
+        ],
+      },
+      'twain'
     );
+    assert.equal(caps.driver, 'twain');
+    assert.equal(caps.nativeUi, true);
+    assert.equal(caps.sources.length, 1);
+    const [s] = caps.sources;
+    assert.equal(s.duplex, false);
+    // A range: the usual resolutions within it, on its steps
+    assert.deepEqual(s.resolutions, [100, 150, 200, 300, 400, 600]);
+    assert.deepEqual(s.resolutionRange, {
+      min: 100,
+      max: 600,
+      step: 50,
+      default: 350,
+    });
+    assert.deepEqual(s.colors, ['gray', 'bw']);
+    assert.deepEqual(s.paperSizes, [{ name: 'A4', width: 8.27, height: 11.69 }]);
+    assert.deepEqual(s.threshold, { min: 0, max: 255, step: 1, default: 128 });
+    assert.equal(s.brightness, null); // an empty range is none
+    assert.equal(s.canPreview, true);
+    assert.equal(s.feederLoaded, null);
   });
 });
 
-describe('scanners and what they can do', () => {
-  test('lists the scanners the helper finds, through PowerShell on Windows', async () => {
-    const { s, calls } = scanning(() => [
-      {
-        type: 'scanners',
-        scanners: [{ id: 'dev-1', name: 'Office scanner' }, { name: 'no id' }],
-      },
-      { exit: 0 },
-    ]);
-    assert.deepEqual(await s.list(), {
-      ok: true,
-      scanners: [{ id: 'dev-1', name: 'Office scanner' }],
-    });
-    assert.equal(calls[0].cmd, 'powershell.exe');
-    assert.ok(calls[0].args.includes('C:/fake/wia.ps1'));
-    assert.equal(calls[0].args.at(-1), 'list');
+describe('one entry per scanner', () => {
+  const found = [
+    { driver: 'wia', scanner: { id: 'w1', name: 'Brother MFC (WIA)', deviceKey: 'BROTHER-123', connection: 'usb' } },
+    { driver: 'twain', scanner: { id: 't1', name: 'Brother MFC', deviceKey: 'brother-123 ' } },
+    { driver: 'escl', scanner: { id: 'e1', name: 'Brother MFC (network)', deviceKey: 'brother-123', connection: 'network' } },
+    { driver: 'twain32', scanner: { id: 'old', name: 'Old Scanner', deviceKey: 'old-1' } },
+    { driver: 'wia1', scanner: { id: 'old-wia', name: 'Old Scanner (WIA)', deviceKey: 'old-1' } },
+    { driver: 'wia', scanner: { id: 'nokey', name: 'Another Scanner' } },
+    { driver: 'wia', scanner: { name: 'no id' } },
+  ];
+
+  test('Windows: TWAIN-64 > WIA 2 > eSCL > TWAIN-32 > WIA 1, the rest as alternatives', () => {
+    const entries = mergeScanners(found, DRIVER_ORDER.win32);
+    assert.deepEqual(
+      entries.map((e) => [e.name, e.devices.map((d) => d.id)]),
+      [
+        ['Another Scanner', ['wia:nokey']],
+        ['Brother MFC', ['twain:t1', 'wia:w1', 'escl:e1']],
+        ['Old Scanner', ['twain32:old', 'wia1:old-wia']],
+      ]
+    );
+    const brother = entries[1];
+    assert.equal(brother.connection, 'usb');
+    assert.deepEqual(
+      brother.devices.map((d) => d.label),
+      ['TWAIN', 'WIA', 'Network (eSCL)']
+    );
   });
 
-  test('a helper that fails says why', async () => {
-    const { s } = scanning(() => [
-      { type: 'error', code: 'busy', message: 'In use' },
-      { exit: 2 },
-    ]);
-    assert.deepEqual(await s.capabilities('dev-1'), {
-      ok: false,
-      error: 'busy',
-      message: 'In use',
-    });
+  test('Mac: eSCL > Image Capture', () => {
+    const entries = mergeScanners(
+      [
+        { driver: 'ica', scanner: { id: 'i', name: 'HP Envy', deviceKey: 'hp-1' } },
+        { driver: 'escl', scanner: { id: 'e', name: 'HP Envy (AirScan)', deviceKey: 'hp-1', connection: 'network' } },
+      ],
+      DRIVER_ORDER.darwin
+    );
+    assert.equal(entries.length, 1);
+    assert.deepEqual(entries[0].devices.map((d) => d.driver), ['escl', 'ica']);
+    assert.equal(entries[0].name, 'HP Envy (AirScan)');
   });
 
-  test('reads what a scanner can do', async () => {
-    const { s, calls } = scanning(() => [
-      {
-        type: 'caps',
-        sources: [
-          { id: 'feeder', duplex: true, resolutions: [300], colors: ['gray'] },
-        ],
-      },
-      { exit: 0 },
-    ]);
-    const r = await s.capabilities('dev-1');
+  test('lists every helper at once, merged; one failing helper is no failure', async () => {
+    const { s, calls } = windows((args, call) =>
+      call.cmd.endsWith('twain32.exe')
+        ? [{ type: 'error', code: 'failed', message: 'no 32-bit drivers' }, { exit: 1 }]
+        : [
+            listed([
+              { id: 'w', name: 'Canon LiDE', driver: 'wia', deviceKey: 'canon' },
+              { id: 't', name: 'Canon LiDE', driver: 'twain', deviceKey: 'canon' },
+            ]),
+            { exit: 0 },
+          ]
+    );
+    const r = await s.list();
     assert.equal(r.ok, true);
-    assert.equal(r.sources[0].duplex, true);
-    assert.deepEqual(calls[0].args.slice(-3), ['caps', '-DeviceId', 'dev-1']);
+    assert.equal(r.scanners.length, 1);
+    assert.deepEqual(r.scanners[0].devices.map((d) => d.id), ['twain:t', 'wia:w']);
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0].args, ['list']);
   });
 
-  test('no helper on this platform: no scanners', async () => {
-    const { s } = scanning(() => [], { platform: 'linux' });
-    assert.equal((await s.list()).ok, false);
+  test('every helper failing says why; a helper that can\'t start is "blocked"', async () => {
+    const dir = temp('blocked');
+    const s = createScanning({
+      platform: 'win32',
+      helpers: { scan: helperFile(dir, 'paperwing-scan.exe') },
+      tempDir: dir,
+      env: {},
+      spawnProcess: () => {
+        throw new Error('This program is blocked by group policy');
+      },
+    });
+    const r = await s.list();
+    assert.equal(r.ok, false);
+    assert.equal(r.error, 'blocked');
+    assert.match(r.message, /group policy/);
+  });
+
+  test('no helpers (and no network scanning): no scanners, no error', async () => {
+    const s = createScanning({ platform: 'linux', env: {} });
+    assert.deepEqual(await s.list(), { ok: true, scanners: [], drivers: [] });
+  });
+
+  test('capabilities go to the helper that lists the device', async () => {
+    const { s, calls } = windows(() => [CAPS, { exit: 0 }]);
+    const r = await s.capabilities('twain32:old-1');
+    assert.equal(r.ok, true);
+    assert.equal(r.caps.driver, 'twain32');
+    assert.equal(r.caps.sources[0].doubleFeed, true);
+    assert.ok(calls[0].cmd.endsWith('paperwing-twain32.exe'));
+    assert.deepEqual(calls[0].args, ['caps', '-Id', 'old-1']);
+    assert.equal((await s.capabilities('nonsense')).error, 'no-scanner');
+    assert.equal((await s.capabilities('ica:x')).error, 'no-scanner');
   });
 });
 
 describe('scanning', () => {
-  test('each page arrives as it is scanned, and the files go', async () => {
-    const { s, calls } = scanning(() => [
-      { page: 1 },
-      { page: 2 },
-      { type: 'done' },
-      { exit: 0 },
-    ]);
-    const got = [];
-    const r = await s.scan('dev-1', OPTS, (data, info) => got.push(info));
-    assert.deepEqual(r, { ok: true, pages: 2 });
-    assert.deepEqual(got, [
-      { index: 1, dpi: 200, mime: 'image/png' },
-      { index: 2, dpi: 200, mime: 'image/png' },
-    ]);
-    const options = calls[0].args[calls[0].args.indexOf('-Options') + 1];
-    assert.deepEqual(
-      JSON.parse(Buffer.from(options, 'base64').toString()),
-      OPTS
-    );
-  });
-
-  test('a feeder running empty after some pages is how it ends', async () => {
-    const { s } = scanning(() => [
-      { page: 1 },
-      { type: 'error', code: 'feeder-empty', message: 'Out of paper' },
-      { exit: 2 },
-    ]);
-    const r = await s.scan('dev-1', OPTS, () => {});
-    assert.equal(r.ok, true);
-    assert.equal(r.pages, 1);
-  });
-
-  test('an empty feeder before any page is an error, with the reason', async () => {
-    const { s } = scanning(() => [
-      { type: 'error', code: 'feeder-empty', message: 'Out of paper' },
-      { exit: 2 },
-    ]);
-    const r = await s.scan('dev-1', OPTS, () => {});
-    assert.equal(r.ok, false);
-    assert.equal(r.error, 'feeder-empty');
-  });
-
-  test('a jam keeps the pages scanned before it', async () => {
-    const { s } = scanning(() => [
-      { page: 1 },
-      { type: 'error', code: 'paper-jam', message: 'Jammed' },
-      { exit: 2 },
-    ]);
-    const got = [];
-    const r = await s.scan('dev-1', OPTS, (d) => got.push(d));
-    assert.equal(r.error, 'paper-jam');
-    assert.equal(r.pages, 1);
-    assert.equal(got.length, 1);
-  });
-
-  test('an unknown error code is "failed"; a crash says so', async () => {
-    let r = await scanning(() => [
-      { type: 'error', code: 'gremlins' },
-      { exit: 2 },
-    ]).s.scan('dev-1', OPTS, () => {});
-    assert.equal(r.error, 'failed');
-    r = await scanning(() => ['Unhandled exception', { exit: 3 }]).s.scan(
-      'dev-1',
-      OPTS,
-      () => {}
-    );
-    assert.equal(r.ok, false);
-  });
-
-  test('one scan at a time; cancel stops it', async () => {
-    const { s } = scanning(() => [
-      { page: 1 },
-      { wait: 300 },
-      { page: 2 },
-      { type: 'done' },
+  test('each page arrives as it is scanned; the options go base64 JSON; files go', async () => {
+    const { s, calls } = windows(() => [
+      { type: 'status', message: 'Warming up' },
+      1,
+      2,
+      { type: 'done', pages: 2 },
       { exit: 0 },
     ]);
     const pages = [];
-    const first = s.scan('dev-1', OPTS, (d) => pages.push(d));
-    assert.equal((await s.scan('dev-1', OPTS, () => {})).error, 'busy');
-    await new Promise((r) => setTimeout(r, 100));
-    assert.equal(s.cancel(), true);
-    const r = await first;
-    assert.equal(r.error, 'cancelled');
-    assert.equal(pages.length, 1);
-    assert.equal(s.cancel(), false);
+    const status = [];
+    const r = await s.scan(
+      'wia:dev',
+      { ...OPTS, duplex: true },
+      (data, info) => pages.push({ data, info }),
+      (m) => status.push(m)
+    );
+    assert.deepEqual(r, { ok: true, pages: 2 });
+    assert.deepEqual(status, ['Warming up']);
+    assert.equal(pages.length, 2);
+    assert.deepEqual(
+      pages.map((p) => [p.info.index, p.info.side, p.info.mime, p.info.dpi]),
+      [
+        [1, 'front', 'image/png', 200],
+        [2, 'back', 'image/png', 200],
+      ]
+    );
+    const args = calls[0].args;
+    assert.deepEqual(args.slice(0, 3), ['scan', '-Id', 'dev']);
+    assert.deepEqual(
+      JSON.parse(Buffer.from(args[args.indexOf('-Options') + 1], 'base64').toString()),
+      { source: 'feeder', duplex: true, color: 'gray', dpi: 200 }
+    );
   });
 
-  test('bad options never reach the helper', async () => {
-    const { s, calls } = scanning(() => [{ exit: 0 }]);
-    assert.equal(
-      (await s.scan('dev-1', { dpi: 5 }, () => {})).error,
-      'invalid'
+  test('only files in its own folder are read', async () => {
+    const { s } = windows(() => [
+      { type: 'page', file: '../../secret.png', dpi: 100 },
+      { type: 'done', pages: 1 },
+      { exit: 0 },
+    ]);
+    const pages = [];
+    await s.scan('wia:dev', OPTS, (d) => pages.push(d));
+    assert.equal(pages.length, 0);
+  });
+
+  test('the feeder running empty after some pages is how it ends', async () => {
+    const { s } = windows(() => [1, 2, { type: 'error', code: 'feeder-empty' }, { exit: 1 }]);
+    assert.deepEqual(await s.scan('wia:dev', OPTS, () => {}), { ok: true, pages: 2 });
+  });
+
+  test('errors keep their code and the pages before them', async () => {
+    for (const code of ['feeder-empty', 'paper-jam', 'double-feed', 'cover-open', 'offline', 'unsupported']) {
+      const { s } = windows(() =>
+        code === 'feeder-empty'
+          ? [{ type: 'error', code, message: 'm' }, { exit: 1 }]
+          : [1, { type: 'error', code, message: 'm' }, { exit: 1 }]
+      );
+      const r = await s.scan('wia:dev', OPTS, () => {});
+      assert.equal(r.ok, false, code);
+      assert.equal(r.error, code);
+      assert.equal(r.pages, code === 'feeder-empty' ? 0 : 1);
+    }
+  });
+
+  test('an unknown code is "failed"; a crash says so', async () => {
+    let { s } = windows(() => [{ type: 'error', code: 'cosmic-rays' }, { exit: 1 }]);
+    assert.equal((await s.scan('wia:dev', OPTS, () => {})).error, 'failed');
+    ({ s } = windows(() => [1, { exit: 3 }]));
+    const r = await s.scan('wia:dev', OPTS, () => {});
+    assert.equal(r.ok, false);
+    assert.equal(r.error, 'failed');
+    assert.equal(r.pages, 1);
+  });
+
+  test('cancel: "cancel" on stdin, the helper stops after the page and says so', async () => {
+    const { s, calls } = windows(() => [
+      1,
+      { untilCancel: true },
+      2,
+      { type: 'done', pages: 2, cancelled: true },
+      { exit: 0 },
+    ]);
+    const pages = [];
+    const scanning = s.scan('wia:dev', OPTS, (d) => {
+      pages.push(d);
+      if (pages.length === 1) s.cancel();
+    });
+    const r = await scanning;
+    assert.deepEqual(r, { ok: true, pages: 2, cancelled: true });
+    assert.equal(calls[0].stdin, 'cancel\n');
+    assert.equal(s.cancel(), false); // nothing left to cancel
+  });
+
+  test('cancel: a helper that ignores it is ended (after 10 s; here sooner)', async () => {
+    const { s } = windows(
+      () => [1, { untilCancel: 'ignore' }, { wait: 60000 }, { exit: 0 }],
+      { cancelKillMs: 100 }
     );
-    assert.equal((await s.scan('', OPTS, () => {})).error, 'invalid');
+    const started = Date.now();
+    const r = await s.scan('wia:dev', OPTS, () => s.cancel());
+    assert.deepEqual(r, { ok: true, pages: 1, cancelled: true });
+    assert.ok(Date.now() - started < 5000);
+  });
+
+  test('one job at a time; the scanner is free again afterwards', async () => {
+    const { s } = windows(() => [{ wait: 100 }, 1, { type: 'done' }, { exit: 0 }]);
+    const first = s.scan('wia:dev', OPTS, () => {});
+    const second = await s.scan('wia:dev', OPTS, () => {});
+    assert.equal(second.error, 'busy');
+    assert.equal((await s.preview('wia:dev', { source: 'flatbed' })).error, 'busy');
+    assert.equal((await first).ok, true);
+    assert.equal((await s.scan('wia:dev', OPTS, () => {})).ok, true);
+  });
+
+  test('bad options and unknown devices never reach a helper', async () => {
+    const { s, calls } = windows(() => [{ exit: 0 }]);
+    assert.equal((await s.scan('wia:dev', { ...OPTS, dpi: 3 }, () => {})).error, 'invalid');
+    assert.equal((await s.scan('mystery', OPTS, () => {})).error, 'no-scanner');
     assert.equal(calls.length, 0);
+  });
+
+  test('preview: one low-resolution page of the glass', async () => {
+    const { s, calls } = windows(() => [1, { type: 'done', pages: 1 }, { exit: 0 }]);
+    const r = await s.preview('wia:dev', { source: 'flatbed', color: 'color', dpi: 600 });
+    assert.equal(r.ok, true);
+    assert.equal(r.page.mime, 'image/png');
+    const args = calls[0].args;
+    assert.equal(args[0], 'preview');
+    // (never at full resolution)
+    assert.equal(
+      JSON.parse(Buffer.from(args[args.indexOf('-Options') + 1], 'base64').toString()).dpi,
+      150
+    );
+  });
+
+  test('a helper that stops answering is "offline"', async () => {
+    // (the helper's timeouts are long; a helper that can't start is quick)
+    const dir = temp('gone');
+    const s = createScanning({
+      platform: 'darwin',
+      helpers: { scan: helperFile(dir, 'paperwing-scan') },
+      tempDir: dir,
+      env: {},
+      spawnProcess: () => {
+        const child = new EventEmitter();
+        child.stdout = new PassThrough();
+        child.stderr = new PassThrough();
+        child.kill = () => {};
+        setImmediate(() => child.emit('error', new Error('ENOENT')));
+        return child;
+      },
+    });
+    const r = await s.scan('ica:x', OPTS, () => {});
+    assert.equal(r.ok, false);
+    assert.equal(r.error, 'blocked');
   });
 });
 
-describe('the stand-in scanner (development builds)', () => {
-  const testPage = (opts, n) => ({
-    data: PNG,
-    dpi: Math.min(opts.dpi, 100),
-    n,
+describe('network scanners added by address', () => {
+  test('goes to escl.cjs; nonsense addresses never do', async () => {
+    const seen = [];
+    // (escl.cjs's own calls, answering with the contract's messages)
+    const escl = {
+      list: async () => ({ type: 'scanners', scanners: [] }),
+      add: async (host) => {
+        seen.push(host);
+        return {
+          type: 'scanners',
+          scanners: [{ id: `http://${host}/eSCL`, name: 'Office scanner', deviceKey: 'uuid-1', connection: 'network' }],
+        };
+      },
+      caps: async () => ({ type: 'error', code: 'offline' }),
+      scan: () => ({ cancel() {}, done: new Promise(() => {}) }),
+      preview: () => ({ cancel() {}, done: Promise.resolve() }),
+    };
+    const s = createScanning({ platform: 'win32', escl, env: {} });
+    const r = await s.addByAddress(' 192.168.1.40:8080 ');
+    assert.equal(r.ok, true);
+    assert.equal(r.scanner.name, 'Office scanner');
+    assert.equal(r.scanner.devices[0].id, 'escl:http://192.168.1.40:8080/eSCL');
+    for (const bad of ['', 'http://x', 'a b', '1.2.3.4/../x', 'x'.repeat(300)])
+      assert.equal((await s.addByAddress(bad)).error, 'invalid', bad);
+    assert.deepEqual(seen, ['192.168.1.40:8080']);
+    assert.equal((await s.capabilities('escl:x')).error, 'offline');
   });
-  const make = (env) =>
+
+  test('a network scanner gone silent longer than the chosen wait is "offline"', async () => {
+    let cancelled = false;
+    const escl = {
+      list: async () => ({ type: 'scanners', scanners: [] }),
+      caps: async () => ({ type: 'caps', sources: [] }),
+      scan: (id, opts, outDir, onEvent) => {
+        let end;
+        const done = new Promise((r) => (end = r));
+        onEvent({ type: 'status', message: 'Starting' });
+        return {
+          cancel() {
+            cancelled = true;
+            end(onEvent({ type: 'done', pages: 0, cancelled: true }));
+          },
+          done,
+        };
+      },
+    };
+    const s = createScanning({ platform: 'win32', escl, env: {}, tempDir: temp('escl') });
+    // (the shortest wait the dialog allows is 5 s)
+    const started = Date.now();
+    const r = await s.scan('escl:x', { ...OPTS, timeout: 5 }, () => {});
+    assert.equal(cancelled, true);
+    assert.equal(r.error, 'offline');
+    assert.ok(Date.now() - started >= 4900);
+  });
+});
+
+describe('import from a scanner app (a watched folder)', () => {
+  test('hands over each new file once it is completely written', async () => {
+    const dir = temp('watch');
+    writeFileSync(join(dir, 'old.pdf'), '%PDF-1.4\n%%EOF\n'); // there before: not new
+    const got = [];
+    const w = watchFolder(dir, (f) => got.push(f), { settleMs: 80, pollMs: 100 });
+    await w.ready;
+    // A PDF written in pieces, slowly, like a scanner app saving
+    const file = join(dir, 'scan 1.pdf');
+    writeFileSync(file, '%PDF-1.7\n');
+    for (let k = 0; k < 4; k++) {
+      await sleep(60);
+      appendFileSync(file, `${k} 0 obj\n<<>>\nendobj\n`);
+    }
+    await sleep(400);
+    assert.equal(got.length, 0, 'not before it ends like a PDF');
+    appendFileSync(file, 'trailer\n<<>>\n%%EOF\n');
+    // An image too, and a file that isn't one
+    writeFileSync(join(dir, 'photo.jpg'), Buffer.from([0xff, 0xd8, 1, 2, 3, 0xff, 0xd9]));
+    writeFileSync(join(dir, 'notes.txt'), 'hello');
+    const end = Date.now() + 5000;
+    while (got.length < 2 && Date.now() < end) await sleep(50);
+    await sleep(300);
+    w.close();
+    assert.deepEqual(got.map((f) => f.name).sort(), ['photo.jpg', 'scan 1.pdf']);
+    const pdf = got.find((f) => f.name === 'scan 1.pdf');
+    assert.equal(Buffer.from(pdf.data).toString(), readFileSync(file, 'utf8'));
+  });
+
+  test('a half-written JPEG waits for its end marker', async () => {
+    const dir = temp('watch-jpg');
+    const got = [];
+    const w = watchFolder(dir, (f) => got.push(f), { settleMs: 60, pollMs: 100 });
+    await w.ready;
+    writeFileSync(join(dir, 'p.jpeg'), Buffer.from([0xff, 0xd8, 9, 9, 9]));
+    await sleep(500);
+    assert.equal(got.length, 0);
+    appendFileSync(join(dir, 'p.jpeg'), Buffer.from([0xff, 0xd9]));
+    const end = Date.now() + 3000;
+    while (!got.length && Date.now() < end) await sleep(40);
+    w.close();
+    assert.equal(got.length, 1);
+  });
+
+  test('only folders: watching stops on null', async () => {
+    const s = createScanning({ platform: 'win32', env: {} });
+    assert.equal((await s.watch(join(temp('nf'), 'missing'), () => {})).ok, false);
+    assert.equal((await s.watch(temp('ok'), () => {})).ok, true);
+    assert.equal((await s.watch(null)).ok, true);
+  });
+});
+
+describe('the stand-in scanners (development builds)', () => {
+  const standIn = (env = {}, platform = 'win32') =>
     createScanning({
-      platform: 'win32',
-      isPackaged: false,
+      platform,
       env: { PAPERWING_SCAN_TEST: '1', ...env },
-      tempDir: mkdtempSync(join(tmpdir(), 'pw-scan-test-')),
-      makeTestPage: testPage,
+      tempDir: temp('standin'),
     });
 
-  test('a feeder of 3 sheets, both sides: 6 pages', async () => {
-    const got = [];
-    const r = await make({}).scan(
-      'test:scanner',
-      { ...OPTS, duplex: true },
-      (d, info) => got.push(info)
+  test('three scanners; one reached three ways, one only on the network', async () => {
+    const r = await standIn().list();
+    assert.equal(r.ok, true);
+    const byName = Object.fromEntries(r.scanners.map((e) => [e.name, e]));
+    assert.deepEqual(byName['Paperwing Test Scanner'].devices.map((d) => d.driver), ['twain', 'wia', 'escl']);
+    assert.deepEqual(byName['Paperwing Test Feeder'].devices.map((d) => d.driver), ['twain32', 'wia1']);
+    assert.deepEqual(byName['Paperwing Network Scanner'].devices.map((d) => d.driver), ['escl']);
+    assert.equal(byName['Paperwing Network Scanner'].connection, 'network');
+    const mac = await standIn({}, 'darwin').list();
+    assert.deepEqual(
+      mac.scanners.find((e) => e.key === 'paperwing-test-1').devices.map((d) => d.driver),
+      ['escl', 'ica']
     );
-    assert.deepEqual(r, { ok: true, pages: 6 });
-    assert.equal(got[0].dpi, 100);
   });
 
-  test('can stand in for a failing scanner', async () => {
-    const r = await make({ PAPERWING_SCAN_TEST_ERROR: 'paper-jam' }).scan(
-      'test:scanner',
-      OPTS,
-      () => {}
+  test('a feeder of 3 sheets, both sides: 6 pages, the 4th blank, the 2nd crooked', async () => {
+    const s = standIn();
+    const pages = [];
+    const r = await s.scan(
+      'twain:test-1',
+      { source: 'feeder', duplex: true, color: 'gray', dpi: 100, paper: { width: 8.5, height: 11 } },
+      (data, info) => pages.push({ data, info })
     );
+    assert.deepEqual(r, { ok: true, pages: 6 });
+    assert.deepEqual(pages.map((p) => p.info.side), ['front', 'back', 'front', 'back', 'front', 'back']);
+    assert.deepEqual([pages[0].info.width, pages[0].info.height], [850, 1100]);
+    // The blank page has (next to) no ink; the others have text
+    const ink = pages.map((p) => darkShare(p.data));
+    assert.ok(ink[3] < 0.0005, `blank: ${ink[3]}`);
+    assert.ok(ink.every((v, k) => k === 3 || v > 0.01), JSON.stringify(ink));
+  });
+
+  test('a preview is the whole glass; a scan of an area is just that', async () => {
+    const s = standIn();
+    const p = await s.preview('twain:test-1', { source: 'flatbed', color: 'color', dpi: 50 });
+    assert.equal(p.ok, true);
+    assert.deepEqual([p.page.width, p.page.height], [425, 585]);
+    const pages = [];
+    await s.scan(
+      'twain:test-1',
+      { source: 'flatbed', color: 'color', dpi: 100, area: { x: 1, y: 1, width: 6, height: 8.5 } },
+      (d, info) => pages.push(info)
+    );
+    assert.deepEqual([pages[0].width, pages[0].height], [600, 850]);
+  });
+
+  test('errors, also after some pages; no stop on double-feed when asked not to', async () => {
+    let s = standIn({ PAPERWING_SCAN_TEST_ERROR: 'paper-jam' });
+    let r = await s.scan('twain:test-1', { source: 'feeder', dpi: 100 }, () => {});
     assert.equal(r.error, 'paper-jam');
+    s = standIn({ PAPERWING_SCAN_TEST_ERROR: 'double-feed@2' });
+    r = await s.scan('twain:test-1', { source: 'feeder', dpi: 100, doubleFeedStop: true }, () => {});
+    assert.deepEqual([r.error, r.pages], ['double-feed', 2]);
+    r = await s.scan('twain:test-1', { source: 'feeder', dpi: 100, doubleFeedStop: false }, () => {});
+    assert.deepEqual(r, { ok: true, pages: 3 });
+    assert.equal((await standIn({ PAPERWING_SCAN_TEST_ERROR: 'no-scanner' }).list()).scanners.length, 0);
+    assert.equal((await standIn({ PAPERWING_SCAN_TEST_ERROR: 'blocked' }).list()).error, 'blocked');
+  });
+
+  test('cancel stops after the page being scanned', async () => {
+    const s = standIn({ PAPERWING_SCAN_TEST_PAGES: '10' });
+    const pages = [];
+    const r = await s.scan('wia:test-1', { source: 'feeder', dpi: 75 }, (d) => {
+      pages.push(d);
+      if (pages.length === 2) s.cancel();
+    });
+    assert.equal(r.cancelled, true);
+    assert.ok(r.pages >= 2 && r.pages <= 3, `${r.pages}`);
+  });
+
+  test('add by IP address: documentation addresses answer, others are offline', async () => {
+    const s = standIn();
+    const ok = await s.addByAddress('192.0.2.7');
+    assert.equal(ok.ok, true);
+    assert.equal(ok.scanner.name, 'Network scanner at 192.0.2.7');
+    assert.ok((await s.list()).scanners.some((e) => e.name === 'Network scanner at 192.0.2.7'));
+    assert.equal((await s.addByAddress('10.9.9.9')).error, 'offline');
   });
 
   test('never in a packaged app', async () => {
     const s = createScanning({
-      platform: 'linux',
+      platform: 'win32',
       isPackaged: true,
       env: { PAPERWING_SCAN_TEST: '1' },
     });
     assert.equal(s.testMode, false);
+    assert.deepEqual((await s.list()).scanners, []);
+  });
+
+  test('the stand-in backends speak the contract on their own too', async () => {
+    const b = createTestBackends({ platform: 'win32', env: {} });
+    const caps = await b.twain32.caps('test-2');
+    assert.equal(caps.ok, true);
+    assert.deepEqual(cleanCaps(caps.msg, 'twain32').sources[0].colors, ['gray', 'bw']);
   });
 });
-
-describe(
-  'wia.ps1, for real (Windows)',
-  { skip: process.platform !== 'win32' },
-  () => {
-    const script = fileURLToPath(
-      new URL('../scanner/wia.ps1', import.meta.url)
-    );
-    const ps = (...args) => {
-      try {
-        return execFileSync(
-          'powershell.exe',
-          [
-            '-NoProfile',
-            '-NonInteractive',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-STA',
-            '-File',
-            script,
-            ...args,
-          ],
-          { encoding: 'utf8', windowsHide: true }
-        );
-      } catch (err) {
-        return err.stdout;
-      }
-    };
-
-    test('lists the scanners (as JSON, whether or not there are any)', () => {
-      const msg = parseLine(ps('list'));
-      assert.equal(msg?.type, 'scanners');
-      assert.ok(Array.isArray(msg.scanners));
-    });
-
-    test('a scanner that is not there is reported as such', () => {
-      assert.deepEqual(parseLine(ps('caps', '-DeviceId', 'not-a-scanner')), {
-        type: 'error',
-        code: 'no-scanner',
-        message: 'Scanner not found',
-      });
-    });
-  }
-);

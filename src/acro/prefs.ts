@@ -28,6 +28,9 @@ export interface Prefs {
   quickbarTools: Record<string, string>;
   /** The version last run, to say what's new after an update */
   seenVersion: string;
+  /** Scanning's presets, per-scanner choices and last choices (scan.ts
+   *  checks what it reads back) */
+  scan: unknown;
 }
 
 const KEY = 'paperwing:prefs';
@@ -46,6 +49,7 @@ const DEFAULTS: Prefs = {
   quickbarTools: {},
   defaultZoom: 'automatic',
   seenVersion: '',
+  scan: {},
 };
 
 /** Has Paperwing run here before (anything stored, as of this launch) */
