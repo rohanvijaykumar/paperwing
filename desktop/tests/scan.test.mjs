@@ -38,6 +38,32 @@ const temp = (name) => mkdtempSync(join(TMP, `pw-scan-${name}-`));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The share of dark pixels in one of the stand-in's PNGs (8-bit, unfiltered) */
+/** A PNG's pixels (8-bit gray or RGB, no filters: the stand-in's own) */
+function pngPixels(png) {
+  const buf = Buffer.from(png);
+  const width = buf.readUInt32BE(16);
+  const height = buf.readUInt32BE(20);
+  const channels = buf[25] === 2 ? 3 : 1;
+  const chunks = [];
+  for (let o = 8; o < buf.length; ) {
+    const len = buf.readUInt32BE(o);
+    if (buf.toString('latin1', o + 4, o + 8) === 'IDAT') chunks.push(buf.subarray(o + 8, o + 8 + len));
+    o += 12 + len;
+  }
+  const raw = inflateSync(Buffer.concat(chunks));
+  const px = Buffer.alloc(width * height * channels);
+  for (let y = 0; y < height; y++)
+    raw.copy(px, y * width * channels, y * (width * channels + 1) + 1, (y + 1) * (width * channels + 1));
+  return { width, height, channels, px };
+}
+const pngChannels = (png) => pngPixels(png).channels;
+function rgbAt(png, x, y) {
+  const { width, channels, px } = pngPixels(png);
+  const o = (y * width + x) * channels;
+  return channels === 3 ? [px[o], px[o + 1], px[o + 2]] : [px[o], px[o], px[o]];
+}
+const grayValues = (png) => [...pngPixels(png).px];
+
 function darkShare(png) {
   const buf = Buffer.from(png);
   const width = buf.readUInt32BE(16);
@@ -722,14 +748,80 @@ describe('the stand-in scanners (development builds)', () => {
     const s = standIn();
     const p = await s.preview('twain:test-1', { source: 'flatbed', color: 'color', dpi: 50 });
     assert.equal(p.ok, true);
-    assert.deepEqual([p.page.width, p.page.height], [425, 585]);
+    assert.deepEqual([p.page.width, p.page.height], [425, 700]);
     const pages = [];
     await s.scan(
       'twain:test-1',
       { source: 'flatbed', color: 'color', dpi: 100, area: { x: 1, y: 1, width: 6, height: 8.5 } },
-      (d, info) => pages.push(info)
+      (d, info) => pages.push({ d, info })
     );
-    assert.deepEqual([pages[0].width, pages[0].height], [600, 850]);
+    assert.deepEqual([pages[0].info.width, pages[0].info.height], [600, 850]);
+    // The chart's orange square (glass 1.5, 2.2 in) is 0.5, 1.2 in into the area
+    assert.deepEqual(rgbAt(pages[0].d, 70, 140), [245, 140, 20]);
+  });
+
+  /** A scan of the glass's area (x 2, y 3, 4 × 4 in) as each kind of driver
+   *  sends it, and what's at (0.1, 0.1) in of it */
+  async function areaScan(env) {
+    const pages = [];
+    await standIn(env).scan(
+      'twain:test-1',
+      { source: 'flatbed', color: 'color', dpi: 50, area: { x: 2, y: 3, width: 4, height: 4 } },
+      (d, info) => pages.push({ d, info })
+    );
+    return pages[0];
+  }
+
+  test("drivers' quirks on request: one ignoring where an area starts, one ignoring the area", async () => {
+    const exact = await areaScan({});
+    assert.deepEqual([exact.info.width, exact.info.height], [200, 200]);
+    // Like the TWAIN sample: the area's size, from the glass's corner (the
+    // orange square, 1.5-1.9 in across and 2.2-2.6 in down, which the area
+    // asked for doesn't reach)
+    assert.notDeepEqual(rgbAt(exact.d, 85, 120), [245, 140, 20]);
+    const offset = await areaScan({ PAPERWING_SCAN_TEST_IGNORE_OFFSET: '1' });
+    assert.deepEqual([offset.info.width, offset.info.height], [200, 200]);
+    assert.deepEqual(rgbAt(offset.d, 85, 120), [245, 140, 20]);
+    // The whole glass, whatever was asked
+    const whole = await areaScan({ PAPERWING_SCAN_TEST_IGNORE_AREA: '1' });
+    assert.deepEqual([whole.info.width, whole.info.height], [425, 700]);
+  });
+
+  test('resolution, color mode, brightness and contrast are what was asked for', async () => {
+    const one = async (opts, env = {}) => {
+      const pages = [];
+      await standIn(env).scan(
+        'twain:test-1',
+        { source: 'flatbed', dpi: 100, paper: { width: 8.5, height: 11 }, ...opts },
+        (d, info) => pages.push({ d, info })
+      );
+      return pages[0];
+    };
+    const at300 = await one({ color: 'gray', dpi: 300 });
+    assert.deepEqual([at300.info.width, at300.info.height, at300.info.dpi], [2550, 3300, 300]);
+    // Above the stand-in's limit it says what it really scanned at
+    const capped = await one({ color: 'gray', dpi: 300 }, { PAPERWING_SCAN_TEST_MAX_DPI: '100' });
+    assert.deepEqual([capped.info.width, capped.info.dpi], [850, 100]);
+    const gray = await one({ color: 'gray' });
+    assert.equal(pngChannels(gray.d), 1);
+    const color = await one({ color: 'color' });
+    assert.equal(pngChannels(color.d), 3);
+    const bw = await one({ color: 'bw', threshold: 128 });
+    assert.ok(grayValues(bw.d).every((v) => v === 0 || v === 255));
+    const mean = (png) => grayValues(png).reduce((a, b) => a + b, 0) / grayValues(png).length;
+    assert.ok(mean((await one({ color: 'gray', brightness: -50 })).d) < mean(gray.d) - 30);
+  });
+
+  test('turned over: a one-sided pass after the fronts brings the backs, last sheet first', async () => {
+    const s = standIn({ PAPERWING_SCAN_TEST_STACK: 'turn' });
+    const sides = [];
+    const pass = () =>
+      s.scan('twain:test-1', { source: 'feeder', duplex: false, color: 'gray', dpi: 50 }, (d, info) =>
+        sides.push(info.side)
+      );
+    await pass();
+    await pass();
+    assert.deepEqual(sides, ['front', 'front', 'front', 'back', 'back', 'back']);
   });
 
   test('errors, also after some pages; no stop on double-feed when asked not to', async () => {

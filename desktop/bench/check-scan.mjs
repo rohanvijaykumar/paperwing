@@ -58,8 +58,8 @@ check(
   'its resolutions',
   JSON.stringify(d?.dpi)
 );
-check(d?.papers?.[0] === 'Auto-detect' && d.papers.includes('Whole glass') && d.papers.includes('Custom size') && !d.papers.includes('Legal'),
-  'paper: auto-detect (it can), sizes that fit the glass, whole glass, custom',
+check(d?.papers?.[0] === 'Auto-detect' && d.papers.includes('Whole glass') && d.papers.includes('Custom size') && d.papers.includes('Legal') && !d.papers.includes('Tabloid'),
+  'paper: auto-detect (it can), sizes that fit the 8.5 × 14 in glass, whole glass, custom',
   JSON.stringify(d?.papers));
 check(d?.previewTab && d.buttons.includes('Preview'), 'a flatbed that can preview: Preview');
 check(d && d.sides === null, 'no Pages (sides) for the flatbed');
@@ -156,9 +156,9 @@ await sleep(1500);
 let info = await L.docInfo(page);
 check(!!doc && info.pages === 2, 'Scan is complete: a new document "Scan <date> <time>.pdf" with both pages', JSON.stringify(info));
 check(info.dirty, "it isn't saved yet (closing asks)");
-// The box was about 5.9 × 7.8 in after the drag: the page is that size
+// The box was about 5.8 × 11.8 in after the drag: the page is that size
 check(
-  info.size && info.size.width > 360 && info.size.width < 470 && info.size.height > 470 && info.size.height < 600,
+  info.size && info.size.width > 360 && info.size.width < 470 && info.size.height > 780 && info.size.height < 900,
   'its pages are the size of the box, not the whole glass',
   JSON.stringify(info.size)
 );
@@ -171,7 +171,17 @@ check(d?.scanner === 'Paperwing Test Scanner', 'with the scanner used last', d?.
 await choose(page, 'Source', 'Document feeder');
 d = await dialog(page);
 check(d?.sides?.join() === 'Front sides,Both sides', 'Pages: front sides or both, for the feeder', JSON.stringify(d?.sides));
-check(!d?.previewTab, 'no preview for a feeder');
+check(
+  d?.buttons.includes('Preview') && (await page.evaluate(() => [...document.querySelectorAll('.dlg-scan .dlg-actions button')].find((b) => b.textContent === 'Preview')?.disabled)),
+  'a feeder can’t preview: Preview is unavailable'
+);
+await click(page, '.dlg-scan .sd-tabs .pd-seg-btn', 'Preview');
+check(
+  /A document feeder can.t preview pages\. To preview, put the page on the glass and choose Flatbed\./.test(
+    await page.evaluate(() => document.querySelector('.dlg-scan .sp-message')?.textContent ?? '')
+  ),
+  'and the preview pane says why, and what to do instead'
+);
 await choose(page, 'Pages', 'Front sides');
 await press(page, 'Scan');
 await L.waitIdle(page);

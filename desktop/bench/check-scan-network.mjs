@@ -45,8 +45,10 @@ const added = await until(page, () => !document.querySelector('[aria-label="Add 
 check(!!added, 'Add by IP address: the pretend scanner answers');
 await L.waitReady(page, 30000);
 let d = await dialog(page);
+// (a computer with a real scanner, or the TWAIN sample, lists that too)
+const standIns = ['Paperwing Test Scanner', 'Paperwing Test Feeder', 'Paperwing Network Scanner'];
 check(
-  / \(network\)$/.test(d?.scanner ?? '') && d.scanners.length === 2,
+  / \(network\)$/.test(d?.scanner ?? '') && !d.scanners.some((s) => standIns.includes(s)),
   'it is added and chosen (and no stand-in scanners)',
   JSON.stringify(d?.scanners)
 );
