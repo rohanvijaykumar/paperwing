@@ -84,6 +84,23 @@ async function thumb(page, n) {
   }, n);
 }
 
+/** Right-click on a thumbnail, then Insert pages from scanner… (asked
+ *  again if the menu didn't open: the viewer may still be settling) */
+let lastMenu = [];
+async function fromPageMenu(at) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.mouse.click(at.x, at.y, { button: 'right' });
+    await until(page, () => document.querySelector('.popover .menu-item'), undefined, 5000);
+    lastMenu = await page.evaluate(() =>
+      [...document.querySelectorAll('.popover .menu-item')].map((b) => b.textContent.trim())
+    );
+    if (await click(page, '.popover .menu-item', 'Insert pages from scanner')) return true;
+    await page.keyboard.press('Escape');
+    await sleep(1000);
+  }
+  return false;
+}
+
 const pageSizes = async (page) => PDFDocument.load(await docBytes(page)).then((d) => d.getPages().map((p) => Math.round(p.getWidth())));
 
 const doc1 = await fixture('Four pages.pdf');
@@ -246,9 +263,7 @@ await page.evaluate(() => document.querySelector('#right-rail [data-panel="sideb
 await sleep(2500);
 const t2 = await thumb(page, 2);
 check(!!t2, 'page thumbnails shown');
-await page.mouse.click(t2.x, t2.y, { button: 'right' });
-await until(page, () => document.querySelector('.popover .menu-item'));
-check(await click(page, '.popover .menu-item', 'Insert pages from scanner'), "the page's menu: Insert pages from scanner…");
+check(await fromPageMenu(t2), "the page's menu: Insert pages from scanner…", lastMenu.join(' | '));
 await L.waitReady(page);
 d = await dialog(page);
 check(d.title === 'Insert pages from scanner', 'the dialog says what it will do');
@@ -268,9 +283,7 @@ await press(page, 'Scan is complete');
 await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 5, undefined, 30000);
 let sizes = await pageSizes(page);
 check(sizes.join() === '595,595,612,595,595', 'the scanned (Letter) page is page 3', sizes.join());
-await page.mouse.click(t2.x, t2.y, { button: 'right' });
-await until(page, () => document.querySelector('.popover .menu-item'));
-await click(page, '.popover .menu-item', 'Insert pages from scanner');
+await fromPageMenu(t2);
 await L.waitReady(page);
 await choose(page, 'Location', 'Before');
 await choose(page, 'Page', 'First');
