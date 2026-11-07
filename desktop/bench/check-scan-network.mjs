@@ -44,7 +44,11 @@ const added = await until(page, () => !document.querySelector('[aria-label="Add 
 check(!!added, 'Add by IP address: the pretend scanner answers');
 await L.waitReady(page, 30000);
 let d = await dialog(page);
-check(/Pretend Office Scanner/.test(d?.scanner ?? ''), 'it is added and chosen', d?.scanner);
+check(
+  / \(network\)$/.test(d?.scanner ?? '') && d.scanners.length === 2,
+  'it is added and chosen (and no stand-in scanners)',
+  JSON.stringify(d?.scanners)
+);
 check(JSON.stringify(d?.sources) === JSON.stringify(['Flatbed', 'Document feeder']), 'its flatbed and feeder, as it says', JSON.stringify(d?.sources));
 await click(page, '.dlg-scan .sd-link', 'Options…');
 await until(page, () => document.querySelector('[aria-label="Scanner options"]'));
