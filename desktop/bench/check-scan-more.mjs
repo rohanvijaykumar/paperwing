@@ -284,8 +284,11 @@ await press(page, 'Scan is complete');
 await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 5, undefined, 30000);
 let sizes = await pageSizes(page);
 check(sizes.join() === '595,612,595,595,595', 'the scanned (Letter) page is page 2', sizes.join());
-await fromPageMenu(t1);
-await L.waitReady(page);
+// (the thumbnails are drawn again with the new page: find page 1's again)
+await sleep(1500);
+const t1again = (await thumb(page, 1)) ?? t1;
+check(await fromPageMenu(t1again), "the page's menu again, after inserting", lastMenu.join(' | '));
+check(!!(await L.waitReady(page)), 'Insert pages from scanner opens again');
 await choose(page, 'Location', 'Before');
 await choose(page, 'Page', 'First');
 check(!(await L.shows(page, ['Page number']))['Page number'], 'First: no page number');
