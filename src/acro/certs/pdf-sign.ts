@@ -22,8 +22,8 @@ import { requestTimestamp, type Fetcher } from './tsa';
 export interface SignatureAppearance {
   /** 0-based page */
   page: number;
-  /** Where on the page, as fractions of the page as it's shown (its
-   *  /Rotate applied), from the top left */
+  /** Where on the page, as fractions of its CropBox, unrotated, from the
+   *  top left (see userRect) */
   box: { x: number; y: number; width: number; height: number };
   /** The appearance drawn into the box (PNG) */
   png: Uint8Array;
@@ -70,9 +70,70 @@ export function placeholderSize(
   return bytes * 2;
 }
 
-/** The signature box in zgapdfsigner's terms: points from the top left of
- *  the page as shown (its MediaBox, rotated), from the box as a fraction of
- *  the visible page (its CropBox) */
+export type Rotation = 0 | 90 | 180 | 270;
+
+/**
+ * Where the drawn box lies on the page, in PDF user space [x0, y0, x1, y1]:
+ * the box is in fractions of the page's CropBox, unrotated, from its top
+ * left (the viewer turns pages for display, /Rotate and the view's own
+ * rotation, around a page layer that stays in these coordinates).
+ */
+export function userRect(
+  box: SignatureAppearance['box'],
+  crop: { x: number; y: number; width: number; height: number }
+): [number, number, number, number] {
+  const top = crop.y + crop.height;
+  return [
+    crop.x + box.x * crop.width,
+    top - (box.y + box.height) * crop.height,
+    crop.x + (box.x + box.width) * crop.width,
+    top - box.y * crop.height,
+  ];
+}
+
+/** The page's /Rotate, as 0, 90, 180 or 270 */
+export async function pageRotation(
+  pdf: Uint8Array,
+  index: number
+): Promise<Rotation> {
+  try {
+    const doc = await PDFDocument.load(pdf, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+    });
+    const angle = ((doc.getPage(index).getRotation().angle % 360) + 360) % 360;
+    return ((Math.round(angle / 90) * 90) % 360) as Rotation;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * zgapdfsigner's area (x, y, width, height of the page as shown, measured
+ * with the MediaBox's size, see its calcAreaInf) that puts the signature
+ * field exactly on `rect`
+ */
+export function zgaArea(
+  rect: [number, number, number, number],
+  media: { width: number; height: number },
+  rot: Rotation
+): { x: number; y: number; w: number; h: number } {
+  const [x0, y0, x1, y1] = rect;
+  const { width: W, height: H } = media;
+  switch (rot) {
+    case 90:
+      return { x: y0, y: x0, w: y1 - y0, h: x1 - x0 };
+    case 180:
+      return { x: W - x1, y: y0, w: x1 - x0, h: y1 - y0 };
+    case 270:
+      return { x: H - y1, y: W - x1, w: y1 - y0, h: x1 - x0 };
+    default:
+      return { x: x0, y: H - y1, w: x1 - x0, h: y1 - y0 };
+  }
+}
+
+/** The signature box in zgapdfsigner's terms, for the box drawn on the
+ *  page (any rotation, crop) */
 async function areaOf(
   pdf: Uint8Array,
   appearance: SignatureAppearance
@@ -82,33 +143,13 @@ async function areaOf(
     updateMetadata: false,
   });
   const page = doc.getPage(appearance.page);
-  const rot = (((page.getRotation().angle % 360) + 360) % 360) as
-    | 0
-    | 90
-    | 180
-    | 270;
-  const media = page.getMediaBox();
-  const crop = page.getCropBox();
-  const turned = rot === 90 || rot === 270;
-  // The visible page as shown
-  const shownW = turned ? crop.height : crop.width;
-  const shownH = turned ? crop.width : crop.height;
-  const { x, y, width, height } = appearance.box;
-  let area = {
-    x: x * shownW,
-    y: y * shownH,
-    w: width * shownW,
-    h: height * shownH,
-  };
-  // From the CropBox's corner to the MediaBox's (zgapdfsigner measures
-  // from the MediaBox); upright pages, the usual case for a crop
-  if (rot === 0)
-    area = {
-      ...area,
-      x: area.x + (crop.x - media.x),
-      y: area.y + (media.y + media.height - (crop.y + crop.height)),
-    };
-  return area;
+  const angle = ((page.getRotation().angle % 360) + 360) % 360;
+  const rot = ((Math.round(angle / 90) * 90) % 360) as Rotation;
+  return zgaArea(
+    userRect(appearance.box, page.getCropBox()),
+    page.getMediaBox(),
+    rot
+  );
 }
 
 /** Signs; returns the signed PDF (an incremental update of `pdf`) */

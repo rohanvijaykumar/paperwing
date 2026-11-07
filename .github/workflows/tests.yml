@@ -127,6 +127,15 @@ jobs:
           PW_SCREENS: ${{ runner.temp }}\cert-screens
         run: node bench/check-cert-sign.mjs
 
+      - name: Signing on rotated and cropped pages, and saving byte for byte
+        working-directory: desktop
+        shell: bash
+        env:
+          PW_TEST_CERTS: ${{ runner.temp }}\certs.json
+        run: |
+          node bench/check-cert-placement.mjs
+          node bench/check-save-bytes.mjs
+
       - name: Check the app's signed PDFs with pyHanko and OpenSSL
         shell: bash
         run: |
