@@ -329,7 +329,10 @@ async function open(files, env = {}) {
     return { x: fx0, y: fy0, width: fx1 - fx0, height: fy1 - fy0 };
   };
   u.list = async () => {
-    await until(() => u.visible('#cid-dialog'));
+    if (!(await until(() => u.visible('#cid-dialog'))))
+      throw new Error(
+        `Sign with a Digital ID didn’t open (bar: ${await u.text('#cert-bar')})`
+      );
     await until(
       async () => !/Looking for/.test(await u.text('#cid-dialog .cid-list')),
       30000
@@ -1138,7 +1141,7 @@ sections.pages = async () => {
       file: rot,
       label: 'a box as wide as the page',
       page: 0,
-      box: [0.01, 0.3, 0.99, 0.7],
+      box: [0.01, 0.42, 0.99, 0.58],
     },
     {
       file: rot,
