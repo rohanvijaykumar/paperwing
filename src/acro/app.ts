@@ -584,6 +584,9 @@ interface Tab {
   /** Saving or signing this signed document with changes was allowed (its
    *  signatures no longer valid): not asked again */
   signaturesDropped?: boolean;
+  /** A signed document that isn't on disk (Add a timestamp's result), as it
+   *  came: saved and checked byte for byte while it's unchanged (`version`) */
+  asOpened?: { version: number; file: File };
 }
 
 const isDirty = (t: Tab) => t.version !== t.savedVersion;
@@ -1070,6 +1073,12 @@ async function openDocument(
   if (unsaved) {
     tab.savedVersion = -1; // shows as unsaved; closing asks first
     renderTabs();
+    // (writing a signed document anew would break its signatures)
+    const version = tab.version;
+    void file.arrayBuffer().then((data) => {
+      if (tabs.includes(tab) && hasSignatures(new Uint8Array(data)))
+        tab.asOpened = { version, file };
+    });
     tab.recoveryId ??= await keepRecoveryCopy(file);
     return tab;
   }
@@ -4140,6 +4149,8 @@ async function docBytesAsIs(
   doing: string
 ): Promise<ArrayBuffer | null> {
   await settleForms([tab]);
+  if (tab.asOpened?.version === tab.version)
+    return tab.asOpened.file.arrayBuffer();
   if (!isDirty(tab) && tab.diskHash) {
     // (gone or unreadable: what's shown)
     const bytes = await bytesOnDisk(tab);
@@ -4204,7 +4215,10 @@ async function mayDropSignatures(
   doing: 'save' | 'save-as' | 'sign'
 ): Promise<boolean | 'copy'> {
   if (!isDirty(tab) || tab.signaturesDropped) return true;
-  const original = await bytesOnDisk(tab);
+  if (tab.asOpened?.version === tab.version) return true; // (saved as it came)
+  const original = tab.asOpened
+    ? new Uint8Array(await tab.asOpened.file.arrayBuffer())
+    : await bytesOnDisk(tab);
   if (!original || !hasSignatures(original)) return true;
   if (activeId !== tab.id) activate(tab.id);
   const choice = await askDialog<'go' | 'copy' | 'cancel'>(
@@ -4255,6 +4269,7 @@ async function saveDoc(tab: Tab, saveAs = false): Promise<boolean> {
   const done = (name: string) => {
     tab.savedVersion = version;
     tab.name = name;
+    tab.asOpened = undefined;
     // What's on disk is what's shown now
     tab.diskChanged = tab.diskDismissed = undefined;
     renderDiskBar();
