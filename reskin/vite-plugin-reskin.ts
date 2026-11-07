@@ -13,6 +13,13 @@ import { readdirSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 // (shared with desktop/scripts/build-web.mjs)
 import { rebrand, rebrandCode, rebrandStrings } from './brand.mjs';
+// The desktop app's words (desktop build only; desktop-words.mjs)
+import {
+  desktopCode,
+  desktopHtml,
+  desktopStrings,
+  isDesktopBuild,
+} from './desktop-words.mjs';
 
 const APP_ENTRY = 'app.html';
 
@@ -236,18 +243,20 @@ function patchViewer(
 }
 
 /** The interface strings the pages import (English, bundled): Paperwing's
- * name, before they become code (brand.mjs) */
+ * name, before they become code (brand.mjs), and in the desktop app its
+ * words (desktop-words.mjs) */
 const brandStringsPlugin: Plugin = {
   name: 'paperwing-name-in-strings',
   enforce: 'pre',
   transform(code, id) {
     const file = id.replace(/\\/g, '/').split('?')[0];
-    if (!/\/locales\/.+\.json$/.test(file) || !code.includes('BentoPDF'))
-      return;
-    return {
-      code: JSON.stringify(rebrandStrings(JSON.parse(code))),
-      map: null,
-    };
+    if (!/\/locales\/.+\.json$/.test(file)) return;
+    const desktop = isDesktopBuild() && /\/locales\/en\//.test(file);
+    if (!desktop && !code.includes('BentoPDF')) return;
+    let json = JSON.parse(code);
+    if (code.includes('BentoPDF')) json = rebrandStrings(json);
+    if (desktop) json = desktopStrings(json);
+    return { code: JSON.stringify(json), map: null };
   },
 };
 
@@ -284,16 +293,19 @@ function pagesPlugin(): Plugin {
           __PAPERWING_VERSION__: JSON.stringify(desktopPkg.version),
           __PAPERWING_REPO__: JSON.stringify(desktopPkg.paperwing.repository),
           __PAPERWING_MULTI_FILE_PAGES__: JSON.stringify(multiFilePages(root)),
+          __PAPERWING_DESKTOP__: JSON.stringify(isDesktopBuild()),
         },
       };
     },
 
     transform(code, id) {
       const file = id.replace(/\\/g, '/');
-      // BentoPDF's own code: Paperwing's name where it shows its own (brand.mjs)
+      // BentoPDF's own code: Paperwing's name where it shows its own
+      // (brand.mjs), and in the desktop app its words (desktop-words.mjs)
       if (/\/src\/js\/.*\.[jt]s$/.test(file.split('?')[0])) {
-        const branded = rebrandCode(code);
-        return branded === code ? undefined : { code: branded, map: null };
+        let out = rebrandCode(code);
+        if (isDesktopBuild()) out = desktopCode(out, file.split('?')[0]);
+        return out === code ? undefined : { code: out, map: null };
       }
       const patches = file.includes('/bentopdf-viewer/dist/')
         ? VIEWER_PATCHES
@@ -311,7 +323,8 @@ function pagesPlugin(): Plugin {
         if (ctx.filename.replace(/\\/g, '/').endsWith('/' + APP_ENTRY)) {
           return html;
         }
-        return rebrand(html)
+        const page = rebrand(html);
+        return (isDesktopBuild() ? desktopHtml(page) : page)
           .replace(
             '</head>',
             // (a function, so "$" in the script isn't read as a pattern)

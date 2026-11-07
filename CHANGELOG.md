@@ -12,6 +12,12 @@ All notable changes to Paperwing are documented here. Paperwing follows
   calibration and snapping), a redesigned PDF Multi Tool that handles very large documents,
   Compress on BentoPDF's new Hyper Compress engine, and more. See
   [BentoPDF's release notes](https://github.com/alam00000/bentopdf/releases/tag/v2.8.11).
+- **No more "upload" and "download" in the tools.** The tools came from a website and said
+  "Upload certificate", "Save & Download Signed PDF" and "Runs entirely in your browser", which
+  made it look as if files went to a server. They never did: Paperwing has no server. The tools
+  now say what happens: **Choose** a file, **Save** the result, on your computer. The Download
+  button at the top (and File ▸ Download a copy) is now **Save a copy**. Reported by u/dwbmb on
+  Reddit.
 
 ### Fixed
 

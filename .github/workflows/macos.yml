@@ -147,6 +147,11 @@ jobs:
         working-directory: desktop
         run: node bench/check-branding.mjs
 
+      - name: The desktop app's words (no upload or download)
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-wording.mjs
+
       - name: Update bench
         if: ${{ !cancelled() }}
         working-directory: desktop

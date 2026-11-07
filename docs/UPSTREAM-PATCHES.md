@@ -43,6 +43,28 @@ name anywhere else; `check-tools.mjs` checks what every tool shows in the runnin
 BentoPDF's website content (self-hosting, sponsors, Discord). When a BentoPDF release adds a
 file its tools save under its name, add it to `FILE_NAMES` in `brand.mjs`.
 
+## The desktop app's words in BentoPDF's tools
+
+BentoPDF's tools are written for a website: "Upload certificate", "Save & Download Signed PDF",
+"Runs entirely in your browser". In the desktop app nothing is uploaded or downloaded, so that
+wording made people think their files went to a server. For the desktop build only
+(`PAPERWING_DESKTOP=1`, set by `desktop/scripts/build-web.mjs`), `reskin/desktop-words.mjs`
+rewords them while building, in the same places as the name: the English interface strings
+(values only; the English `ui.json` is never loaded), the tool pages' text and tooltips (not
+their markup or scripts), and the text in `src/js`'s string literals (found with TypeScript's
+parser, so module names, selectors, translation keys, object keys and anything compared against
+are left alone). Upload becomes Choose, Download becomes Save, "downloaded" becomes "created"
+(a PDF result opens in a new tab, not yet on disk), and "in your browser" / "your device"
+become "on your computer". Paperwing's own tooltips (`src/reskin/labels.ts`) do the same through
+`__PAPERWING_DESKTOP__`. The browser build keeps BentoPDF's wording.
+
+Kept as they are, because they're true in the desktop app too: "never uploaded", "no uploads",
+questions like "Is my PDF uploaded?", other tools that "upload your files to a server", and the
+real downloads (the conversion engines and fonts on first use). `check-tools.mjs` lists what
+every tool still shows with upload, download, browser or device in it (`serverWords` in its
+report). When a BentoPDF release adds wording that comes out wrong, add a rule or a kept phrase
+to `desktop-words.mjs` and a case to `src/tests/paperwing-desktop-words.test.ts`.
+
 ## Patches to the viewer package
 
 The EmbedPDF viewer (`bentopdf-viewer`, a BentoPDF dependency) is patched while

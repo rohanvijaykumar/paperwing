@@ -6,6 +6,14 @@
  * they are.
  */
 
+/** Set by the build (reskin/vite-plugin-reskin.ts): the desktop app, where
+ *  a tool's result is saved, not downloaded (reskin/desktop-words.mjs) */
+declare const __PAPERWING_DESKTOP__: boolean | undefined;
+const SAVE =
+  typeof __PAPERWING_DESKTOP__ !== 'undefined' && __PAPERWING_DESKTOP__
+    ? 'Save'
+    : 'Download';
+
 /** Names for particular buttons, by id */
 const BY_ID: Record<string, string> = {
   // Organize pages
@@ -14,7 +22,7 @@ const BY_ID: Record<string, string> = {
   'bulk-duplicate-btn': 'Duplicate selected pages',
   'bulk-split-btn': 'Split after selected pages',
   'bulk-delete-btn': 'Delete selected pages',
-  'bulk-download-btn': 'Download selected pages',
+  'bulk-download-btn': `${SAVE} selected pages`,
   'export-pdf-btn': 'Export the PDF',
   // Prepare a form
   toggleGridBtn: 'Always show grid',
@@ -58,7 +66,7 @@ const BY_ICON: Record<string, string> = {
   'copy-plus': 'Duplicate',
   copy: 'Duplicate',
   scissors: 'Split here',
-  download: 'Download',
+  download: SAVE,
   'zoom-in': 'Zoom in',
   'zoom-out': 'Zoom out',
   'magnifying-glass-plus': 'Zoom in',
