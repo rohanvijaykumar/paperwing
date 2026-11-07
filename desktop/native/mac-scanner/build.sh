@@ -26,7 +26,7 @@ if [[ "${1:-}" == "--test" ]]; then
   echo "$listed"
   echo "$listed" | grep -q '"type":"scanners"' || { echo "list printed no scanners line"; exit 1; }
   set +e
-  "$out/paperwing-scan" caps -DeviceId not-a-scanner > "$out/caps.txt"
+  "$out/paperwing-scan" caps -Id not-a-scanner > "$out/caps.txt"
   code=$?
   set -e
   cat "$out/caps.txt"
