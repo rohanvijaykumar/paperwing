@@ -624,10 +624,7 @@ describe('long-term validation (DSS)', () => {
                 idBlock: { tagClass: 3, tagNumber: 1 },
                 value: [new asn1js.GeneralizedTime({ valueDate: new Date() })],
               })
-            : new asn1js.Primitive({
-                idBlock: { tagClass: 3, tagNumber: 0 },
-                lenBlockLength: 1,
-              }),
+            : new asn1js.Primitive({ idBlock: { tagClass: 3, tagNumber: 0 } }),
           thisUpdate: new Date(),
         })
       );
