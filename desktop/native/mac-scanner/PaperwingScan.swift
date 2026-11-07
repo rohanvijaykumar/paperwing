@@ -127,6 +127,13 @@ func rangeJSON(_ r: ICScannerFeatureRange?) -> Any {
   ]
 }
 
+/// Where pages go (made if it isn't there yet)
+func outDir() -> URL {
+  let dir = URL(fileURLWithPath: named["-outdir"] ?? NSTemporaryDirectory())
+  try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+  return dir
+}
+
 /// Pixel size of an image file
 func imageSize(_ url: URL) -> (Int, Int) {
   guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -494,7 +501,7 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
         x: max(0, min(a.x, full.0 - w)), y: max(0, min(a.y, full.1 - h)), width: w, height: h)
     }
     scanner.transferMode = .fileBased
-    scanner.downloadsDirectory = URL(fileURLWithPath: named["-outdir"] ?? NSTemporaryDirectory())
+    scanner.downloadsDirectory = outDir()
     scanner.documentName = "page"
     scanner.documentUTI = "public.png"
   }
@@ -525,7 +532,7 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
       return finish(
         ["type": "error", "code": "failed", "message": "The scanner sent no preview"], code: 2)
     }
-    let dir = URL(fileURLWithPath: named["-outdir"] ?? NSTemporaryDirectory())
+    let dir = outDir()
     let url = dir.appendingPathComponent("preview.png")
     guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil)
     else {

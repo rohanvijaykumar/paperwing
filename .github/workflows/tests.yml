@@ -54,7 +54,8 @@ jobs:
         run: desktop/native/win-thumbnails/build.ps1 -Test
 
   # Scanning in the desktop shell (desktop/scan.cjs), and its Windows helper
-  # (desktop/scanner/wia.ps1) run for real: with no scanner, it lists none
+  # (desktop/scanner/wia.ps1) run for real: with no scanner, it lists none;
+  # and network scanners (desktop/escl.cjs)
   windows-scanner:
     runs-on: windows-latest
     steps:
@@ -68,3 +69,14 @@ jobs:
 
       - name: Scanning tests
         run: node --test desktop/tests/scan.test.mjs
+
+      # Network scanners without drivers (escl.cjs), against the pretend
+      # eSCL scanner in desktop/tests/fake-escl.mjs
+      - name: Network scanner (eSCL) tests
+        run: node --test desktop/tests/escl.test.mjs
+
+      # Found on the real multicast group, as on a home or office network
+      - name: Network scanner found over multicast DNS
+        env:
+          ESCL_MULTICAST: '1'
+        run: node --test --test-name-pattern="real multicast" desktop/tests/escl.test.mjs

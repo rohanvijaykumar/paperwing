@@ -70,6 +70,19 @@ jobs:
         working-directory: desktop
         run: npm run test:scan
 
+      # Network scanners without drivers (escl.cjs): against the pretend eSCL
+      # scanner, then announced through Bonjour the way a real one is, where
+      # Image Capture (the Swift helper) must find and scan it too
+      # (tests/mac-network-scanner.sh). macOS doesn't let processes on this
+      # runner multicast (Local Network privacy), so there escl.cjs reaches
+      # it by its Bonjour name; Windows CI covers multicast discovery.
+      - name: Network scanner (eSCL) tests
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: |
+          node --test tests/escl.test.mjs
+          bash tests/mac-network-scanner.sh
+
       # A network printer on this machine, set as the default: CUPS (as on any
       # Mac) sends its jobs to 127.0.0.1:9100, the way office printers take
       # them, and a small listener saves each job to a file
