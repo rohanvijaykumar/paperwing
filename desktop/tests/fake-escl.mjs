@@ -14,6 +14,7 @@
  *
  * Options (all optional):
  *   name, uuid, makeAndModel, serverHeader, log (prints each request)
+ *   instance: its multicast DNS name, if not `name`
  *   https: true                       self-signed certificate
  *   platen: false                     no flatbed
  *   adf: { sheets, duplex } | false   a document feeder with sheets in it
@@ -373,7 +374,7 @@ export async function startFakeEscl(options = {}) {
     requests: [],
   };
 
-  const caps = () => {
+  const caps = (hostHeader) => {
     const res = Array.isArray(cfg.resolutions)
       ? `<scan:DiscreteResolutions>${cfg.resolutions
           .map(
@@ -402,6 +403,8 @@ export async function startFakeEscl(options = {}) {
   <pwg:MakeAndModel>${cfg.makeAndModel}</pwg:MakeAndModel>
   <pwg:SerialNumber>PW0001</pwg:SerialNumber>
   <scan:UUID>${cfg.uuid}</scan:UUID>
+  <scan:AdminURI>${scheme}://${hostHeader}/</scan:AdminURI>
+  <scan:IconURI>${scheme}://${hostHeader}/icon.png</scan:IconURI>
   <!-- a comment, as some scanners have -->
   ${cfg.platen ? `<scan:Platen>${input('PlatenInputCaps')}</scan:Platen>` : ''}
   ${
@@ -478,7 +481,7 @@ export async function startFakeEscl(options = {}) {
     if (req.method === 'GET' && route === '/eSCL/ScannerCapabilities') {
       if (hangs('caps')) return;
       if (flaky('caps')) return reply(res, 503);
-      return xmlReply(res, caps());
+      return xmlReply(res, caps(req.headers.host ?? 'localhost'));
     }
     if (req.method === 'GET' && route === '/eSCL/ScannerStatus') {
       if (hangs('status')) return;
@@ -525,6 +528,11 @@ export async function startFakeEscl(options = {}) {
       });
       // An absolute address with the wrong host, as many scanners send
       return reply(res, 201, { Location: `http://localhost:1/eSCL/ScanJobs/${id}` });
+    }
+    // The scanner's picture, which Image Capture shows (and asks for)
+    if (req.method === 'GET' && route === '/icon.png') {
+      res.writeHead(200, { 'Content-Type': 'image/png' });
+      return res.end(encodePng(drawPage(64, 64, { n: 1 })));
     }
     const m = route.match(/^\/eSCL\/ScanJobs\/([\w-]+)(\/NextDocument|\/ScanImageInfo)?$/);
     const job = m && state.jobs.get(m[1]);
@@ -616,7 +624,8 @@ export async function startFakeEscl(options = {}) {
     const loopback = cfg.mdns.port === 0;
     const address = cfg.mdns.address ?? (loopback ? '127.0.0.1' : firstLanAddress());
     const type = `${tls ? '_uscans' : '_uscan'}._tcp.local`;
-    const instance = `${cfg.name}.${type}`;
+    // On a real network, a second scanner of the same name is renamed "(2)"
+    const instance = `${cfg.instance ?? cfg.name}.${type}`;
     const hostName = `paperwing-test-${cfg.uuid.slice(0, 8)}.local`;
     const records = {
       ptr: { name: type, type: TYPE.PTR, ttl: 4500, data: instance },

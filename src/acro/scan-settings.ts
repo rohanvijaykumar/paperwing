@@ -48,6 +48,8 @@ export interface ScanSettings {
   /** -100 to 100 */
   brightness: number;
   contrast: number;
+  /** The scanner's own sharpening, -100 to 100 (shown when it has it) */
+  sharpness: number;
   /* Clean-up */
   deskew: boolean;
   autoCrop: boolean;
@@ -153,6 +155,7 @@ export function defaultSettings(locale = 'en-US'): ScanSettings {
     orientation: 'portrait',
     brightness: 0,
     contrast: 0,
+    sharpness: 0,
     // Acrobat straightens pages unless told not to
     deskew: true,
     autoCrop: false,
@@ -278,6 +281,7 @@ export function cleanSettings(raw: unknown): Partial<ScanSettings> {
   set('orientation', oneOf('orientation', ['portrait', 'landscape']));
   set('brightness', num('brightness', -100, 100));
   set('contrast', num('contrast', -100, 100));
+  set('sharpness', num('sharpness', -100, 100));
   set('background', oneOf('background', LEVELS));
   set('sharpen', oneOf('sharpen', LEVELS));
   set('blankSensitivity', num('blankSensitivity', 0, 100));
@@ -420,6 +424,7 @@ export interface Visibility {
   sides: boolean;
   flipBacks: boolean;
   threshold: boolean;
+  sharpness: boolean;
   customDpi: boolean;
   customSize: boolean;
   orientation: boolean;
@@ -447,6 +452,7 @@ export function visibility(
     sides: source?.id === 'feeder',
     flipBacks: source?.id === 'feeder' && s.sides === 'both',
     threshold: s.color === 'bw',
+    sharpness: !!source?.sharpen,
     customDpi: !!source?.resolutionRange,
     customSize: s.paper === 'custom',
     orientation: s.paper in PAPERS && PAPERS[s.paper].width !== PAPERS[s.paper].height,
@@ -591,6 +597,8 @@ export function buildRequest(
       request.brightness = toRange(s.brightness, source.brightness);
     else plan.brightness = s.brightness;
   }
+  if (s.sharpness && source?.sharpen)
+    request.sharpen = toRange(s.sharpness, source.sharpen);
   if (s.contrast) {
     if (source?.contrast) request.contrast = toRange(s.contrast, source.contrast);
     else plan.contrast = s.contrast;
