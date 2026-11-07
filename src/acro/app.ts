@@ -27,6 +27,7 @@ import {
   type ViewMode,
 } from './viewer';
 import { Thumbnails, thumbUrl } from './thumbnails';
+import { ABOUT_ART } from './edition';
 import { desktop, isMac, key, toFile } from './desktop';
 import type { FormInfo } from './forms';
 import { FormLayer, FormSession, type FormChange } from './form-layer';
@@ -36,7 +37,6 @@ import type { Presentation } from './present';
 import { showModal } from './modal';
 import type { ScanBridge, ScanOutcome } from './scan';
 import { scanName } from './scan-settings';
-import { ABOUT_ART } from './edition';
 import {
   type AvailableUpdate,
   checkForUpdates,
