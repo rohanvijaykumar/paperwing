@@ -1,5 +1,8 @@
 /* BentoPDF desktop shell — Acrobat-style workspace */
 
+/* This release's look for Home and About: colours in edition/edition.css */
+@import './edition/edition.css';
+
 @font-face {
   font-family: 'Source Sans 3';
   font-weight: 400;
@@ -61,10 +64,6 @@
   --toast-fg: #ffffff;
   --toast-link: #8fb0ff;
   --backdrop: rgb(0 0 0 / 0.35);
-  /* Faint brand-tinted wash behind the top of Home */
-  --glow-1: rgb(229 50 45 / 0.07);
-  --glow-2: rgb(151 71 255 / 0.05);
-  --glow-3: rgb(255 166 77 / 0.08);
   --pdf-glyph-bg: #ffffff;
   color-scheme: light;
   accent-color: var(--accent);
@@ -105,9 +104,6 @@
     --toast-bg: #3a3a3a;
     --toast-link: #9db4ff;
     --backdrop: rgb(0 0 0 / 0.6);
-    --glow-1: rgb(255 92 92 / 0.12);
-    --glow-2: rgb(151 71 255 / 0.12);
-    --glow-3: rgb(255 166 77 / 0.08);
     --pdf-glyph-bg: #2a2a2a;
     color-scheme: dark;
   }
@@ -143,9 +139,6 @@
   --toast-bg: #3a3a3a;
   --toast-link: #9db4ff;
   --backdrop: rgb(0 0 0 / 0.6);
-  --glow-1: rgb(255 92 92 / 0.12);
-  --glow-2: rgb(151 71 255 / 0.12);
-  --glow-3: rgb(255 166 77 / 0.08);
   --pdf-glyph-bg: #2a2a2a;
   color-scheme: dark;
 }
@@ -474,6 +467,30 @@ button:disabled {
   background: url('/paperwing.svg') center / 118% no-repeat;
 }
 
+/* The edition's page colour, with its sheen softly behind the top */
+#view-home {
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--home-bg);
+}
+#view-home::before {
+  content: '';
+  position: absolute;
+  inset: 0 -80px auto -80px;
+  z-index: 0;
+  height: 520px;
+  background: var(--home-sheen);
+  filter: blur(46px) saturate(1.15);
+  mask-image: linear-gradient(to bottom, #000 30%, transparent 92%);
+  opacity: var(--home-sheen-opacity);
+  pointer-events: none;
+}
+#view-home > .home-welcome,
+#view-home > .home-body {
+  position: relative;
+  z-index: 1;
+}
+
 .home-welcome {
   flex: none;
   display: flex;
@@ -481,7 +498,7 @@ button:disabled {
   justify-content: space-between;
   height: 48px;
   padding: 0 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--home-welcome-rule);
 }
 .home-brand {
   display: flex;
@@ -530,16 +547,6 @@ button:disabled {
   padding: 20px 28px 40px;
   user-select: text;
 }
-.home-glow {
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 340px;
-  background:
-    radial-gradient(60% 90% at 78% 0%, var(--glow-1), transparent 70%),
-    radial-gradient(45% 80% at 100% 10%, var(--glow-2), transparent 70%),
-    radial-gradient(40% 60% at 60% 0%, var(--glow-3), transparent 70%);
-  pointer-events: none;
-}
 .rec-head,
 .recent-head,
 .rec-row {
@@ -568,12 +575,19 @@ h2 {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.drop-card,
+.rec-card {
+  border: 1px solid transparent;
+  background:
+    var(--home-card-fill) padding-box,
+    var(--home-card-rim) border-box;
+  backdrop-filter: var(--home-card-blur);
+  box-shadow: var(--home-card-shadow);
+}
 .drop-card {
   display: flex;
-  padding: 14px;
+  padding: 13px;
   border-radius: 12px;
-  background: var(--surface);
-  box-shadow: var(--card-shadow);
 }
 .drop-inner {
   flex: 1;
@@ -583,7 +597,7 @@ h2 {
   justify-content: center;
   gap: 6px;
   min-height: 170px;
-  border: 2px dashed var(--border-strong);
+  border: 2px dashed var(--home-drop-border);
   border-radius: 8px;
   text-align: center;
 }
@@ -610,10 +624,8 @@ body.is-dragging .drop-inner {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  padding: 14px;
+  padding: 13px;
   border-radius: 12px;
-  background: var(--surface);
-  box-shadow: var(--card-shadow);
   text-align: left;
 }
 .rec-card:hover {
@@ -712,7 +724,7 @@ body.is-dragging .drop-inner {
   align-items: center;
   min-height: 56px;
   padding: 0 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--home-row-rule);
   cursor: pointer;
 }
 .recent-row:not(.recent-header):hover {
@@ -1686,24 +1698,39 @@ body.is-dragging.is-dropping-pages #drop-overlay {
   display: none;
 }
 
-/* About dialog: the launch screen's red card, with its flight path and
-   wing watermark, in both themes */
+/* About dialog: the edition's picture across the top (edition/), with the
+   details on a frosted-glass panel over its lower part. No outline: a soft
+   shadow and glow set the panel apart from the picture */
 .dlg.dlg-about {
   position: relative;
   overflow: hidden;
-  width: min(560px, calc(100vw - 32px));
-  color: #fff;
-  background:
-    radial-gradient(70% 90% at 85% 15%, #ff6b5e 0%, transparent 60%),
-    radial-gradient(60% 80% at 15% 100%, #5a0a1e 0%, transparent 60%),
-    linear-gradient(135deg, #e8283f 0%, #c8102e 55%, #7d0a24 100%);
-  box-shadow: 0 24px 60px rgb(0 0 0 / 0.35);
+  width: min(620px, calc(100vw - 32px));
+  border-radius: 14px;
+  color: var(--text);
+  background: var(--about-bg);
+  box-shadow: var(--about-shadow);
+}
+.about-art {
+  position: absolute;
+  inset: 0 0 auto 0;
+  pointer-events: none;
+}
+.about-art img {
+  width: 100%;
+  height: auto;
+}
+.about-art-light {
+  display: var(--about-art-light);
+}
+.about-art-dark {
+  display: var(--about-art-dark);
 }
 .dlg-about .dlg-head {
-  position: relative;
-  z-index: 1;
-  justify-content: flex-end;
-  padding: 10px 10px 0;
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  padding: 10px;
 }
 /* The brand lockup is the title; keep it for screen readers */
 .dlg-about .dlg-head h2 {
@@ -1714,56 +1741,73 @@ body.is-dragging.is-dropping-pages #drop-overlay {
   clip-path: inset(50%);
 }
 .dlg-about .dlg-head button {
-  color: #fff;
+  border-radius: 50%;
+  color: var(--about-close);
+  background: var(--about-close-bg);
+  backdrop-filter: blur(8px);
 }
 .dlg-about .dlg-head button:hover {
-  background: rgb(255 255 255 / 0.16);
+  background: var(--about-close-bg-hover);
 }
-.about {
-  padding: 0 28px 24px;
+.dlg-about > .dlg-body.about {
+  position: relative;
+  z-index: 2;
+  margin: 168px 16px 16px;
+  padding: 22px 26px 18px;
+  border-radius: 14px;
+  background: var(--about-glass);
+  backdrop-filter: blur(22px) saturate(1.5);
+  box-shadow: var(--about-glass-shadow);
   font-size: 13.5px;
   line-height: 1.5;
 }
-.about-art {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
+/* Without see-through effects the panel is (nearly) solid */
+@supports not (backdrop-filter: blur(1px)) {
+  .dlg-about > .dlg-body.about {
+    background: var(--about-glass-solid);
+  }
 }
-.about > :not(.about-art) {
-  position: relative;
+@media (prefers-reduced-transparency: reduce) {
+  .dlg-about > .dlg-body.about {
+    background: var(--about-glass-solid);
+    backdrop-filter: none;
+  }
 }
 .about-brand {
   display: flex;
   align-items: center;
   gap: 14px;
-  margin: -6px 0 18px;
+  margin: 0 0 14px;
 }
 .about-logo {
   width: 52px;
   height: 52px;
-  filter: drop-shadow(0 2px 6px rgb(0 0 0 / 0.25));
+  filter: drop-shadow(0 6px 14px rgb(160 10 40 / 0.35));
 }
 .about-name {
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 700;
+  line-height: 1.1;
   letter-spacing: -0.01em;
 }
 .about-version {
-  opacity: 0.85;
+  color: var(--about-text-2);
+  font-weight: 600;
 }
 .about p {
-  color: rgb(255 255 255 / 0.94);
+  color: var(--about-text);
 }
 .about-legal {
   margin-top: 16px !important;
   font-size: 12px;
-  opacity: 0.85;
+}
+.about p.about-legal {
+  color: var(--about-text-2);
 }
 .about a {
-  color: #fff;
+  color: var(--about-link);
   text-decoration: underline;
+  text-decoration-color: var(--about-link-line);
   text-underline-offset: 2px;
 }
 

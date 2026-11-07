@@ -66,6 +66,11 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ### Changed
 
+- **New look for Home and About.** Home has a soft, pearly sheen in the light theme and a deep,
+  iridescent glow in the dark one; the tool cards in dark look as everywhere else in the app. About
+  Paperwing shows a flowing ribbon of colour (one picture for light, one for dark), with the details
+  on frosted glass. The look of each release now lives in one folder (`src/acro/edition/`), so a
+  later release can bring a new one.
 - **BentoPDF 2.8.11**: measuring distances, perimeters and areas in Edit a PDF (with scale,
   calibration and snapping), a redesigned PDF Multi Tool that handles very large documents,
   Compress on BentoPDF's new Hyper Compress engine, and more. See
