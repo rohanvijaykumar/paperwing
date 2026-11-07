@@ -13,7 +13,7 @@ import {
 } from '../acro/scan-pdf';
 import { encodeG4, bitmapRowBytes } from '../acro/scan-g4';
 import { buildPdf } from '../acro/scan';
-import type { ProcessedPage, ScanImage } from '../acro/scan-image';
+import type { ProcessedPage, Rect, ScanImage } from '../acro/scan-image';
 import { decodePdfImages } from './helpers/pdf-images';
 import {
   addNoise,
@@ -43,7 +43,12 @@ function grayImage(
   return { width: w, height: h, channels: 1, data, dpi };
 }
 
-const info = { blank: false, rotation: 0 as const, skew: 0, crop: null };
+const info = {
+  blank: false,
+  rotation: 0 as const,
+  skew: 0,
+  crop: null as Rect | null,
+};
 
 describe('buildScanPdf', () => {
   it('makes one page per image, sized from its resolution', async () => {
