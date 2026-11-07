@@ -29,6 +29,33 @@ export interface SignatureValidationResult {
   cryptoVerificationStatus?: 'verified' | 'failed' | 'unsupported';
   unsupportedAlgorithmReason?: string;
   usesInsecureDigest?: boolean;
+  /** The certificate has expired by now (isExpired: it wasn't valid when
+   *  signed, by the timestamp, or now if there's none) */
+  expiredNow?: boolean;
+  /** The signature's own timestamp */
+  timestamp?: {
+    time: Date;
+    authority: string;
+    valid: boolean;
+    problem?: string;
+  };
+  /** What changed after this signature (when it covers an earlier revision):
+   *  only signing (later signatures, timestamps) or the document itself */
+  laterChanges?: 'none' | 'signing' | 'other';
+  laterChangeDetails?: string[];
+}
+
+/** A document timestamp (Add a timestamp) */
+export interface DocTimestampResult {
+  index: number;
+  valid: boolean;
+  time?: Date;
+  authority: string;
+  coverageStatus: 'full' | 'partial' | 'unknown';
+  isTrusted: boolean;
+  problem?: string;
+  laterChanges?: 'none' | 'signing' | 'other';
+  laterChangeDetails?: string[];
 }
 
 export interface ExtractedSignature {

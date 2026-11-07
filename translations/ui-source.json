@@ -1249,7 +1249,7 @@
   },
   "Certificate Expired": {
     "files": [
-      "logic/validate-signature-pdf-page.ts"
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -1274,6 +1274,18 @@
   "Change background color": {
     "files": [
       "workflow/nodes/registry.ts"
+    ],
+    "fileCount": 1
+  },
+  "Changed after signing": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "Changed after the timestamp": {
+    "files": [
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -2197,6 +2209,12 @@
     ],
     "fileCount": 1
   },
+  "Couldn’t check this signature": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
   "Count": {
     "files": [
       "workflow/nodes/add-blank-page-node.ts"
@@ -2224,6 +2242,12 @@
   "Courier Oblique": {
     "files": [
       "workflow/nodes/control-specs.ts"
+    ],
+    "fileCount": 1
+  },
+  "Covers its version": {
+    "files": [
+      "logic/validate-signature-pdf-page.ts"
     ],
     "fileCount": 1
   },
@@ -2589,6 +2613,12 @@
   "Document properties": {
     "files": [
       "logic/edit-pdf-text-dock.ts"
+    ],
+    "fileCount": 1
+  },
+  "Document timestamp {{n}}": {
+    "files": [
+      "logic/validate-signature-pdf-page.ts"
     ],
     "fileCount": 1
   },
@@ -4433,7 +4463,7 @@
   },
   "Insecure Digest (MD5 / SHA-1)": {
     "files": [
-      "logic/validate-signature-pdf-page.ts"
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -4538,12 +4568,6 @@
     ],
     "fileCount": 1
   },
-  "Invalid Signature": {
-    "files": [
-      "logic/validate-signature-pdf-page.ts"
-    ],
-    "fileCount": 1
-  },
   "Invalid TSA URL. The timestamp authority must be a valid http:// or https:// URL.": {
     "files": [
       "logic/digital-sign-pdf.ts"
@@ -4593,9 +4617,21 @@
     ],
     "fileCount": 1
   },
-  "Invalid: Cryptographic Verification Failed": {
+  "Invalid signature": {
     "files": [
-      "logic/validate-signature-pdf-page.ts"
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "Invalid timestamp": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "Invalid: the document was changed after it was signed": {
+    "files": [
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -4641,6 +4677,18 @@
     ],
     "fileCount": 1
   },
+  "It uses a kind of signature Paperwing can’t check yet ({{reason}}). Open the document in another app that checks signatures.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "It was made with an old method (MD5 or SHA-1) that can be forged. Ask the signer to sign again with a current app.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
   "Italic": {
     "files": [
       "logic/bookmark-pdf.ts"
@@ -4656,6 +4704,12 @@
   "Its digital signatures were removed so it could be compressed. Sign it again if needed.": {
     "files": [
       "logic/compress-pdf-page.ts"
+    ],
+    "fileCount": 1
+  },
+  "Its timestamp can’t be relied on: {{problem}}": {
+    "files": [
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -5216,15 +5270,21 @@
     ],
     "fileCount": 2
   },
-  "Modified After Signing (signed part intact)": {
-    "files": [
-      "logic/validate-signature-pdf-page.ts"
-    ],
-    "fileCount": 1
-  },
   "More": {
     "files": [
       "logic/edit-pdf-text-dock.ts"
+    ],
+    "fileCount": 1
+  },
+  "More signatures or timestamps were added after it; nothing else changed.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "More signatures or timestamps were added after this one; nothing else changed.": {
+    "files": [
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -5632,6 +5692,54 @@
   "Note: Without a separate owner password, the PDF has no usage restrictions.": {
     "files": [
       "logic/protect-pdf-page.ts"
+    ],
+    "fileCount": 1
+  },
+  "Nothing has changed since it was signed, and the signer’s certificate leads to a certificate you trust, but its timestamp can’t be relied on.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "Nothing has changed since it was signed, and the signer’s certificate leads to a certificate you trust.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "Nothing has changed since it was signed, but the certificate was issued by {{issuer}}, which doesn’t lead to a certificate you trust.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "Nothing has changed since it was signed, but the signer’s certificate expired on {{to}}, and there’s no timestamp to prove the signature was made before then.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "Nothing has changed since it was signed, but the signer’s certificate isn’t valid until {{from}}.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "Nothing has changed since it was signed, but the signer’s certificate wasn’t valid when it was timestamped ({{time}}): it’s valid from {{from}} until {{to}}.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "Nothing has changed since it was signed. But the signer made this certificate themselves (it’s self-signed), so anyone could make one with the same name. Trust it only if you know the certificate is theirs, for example by comparing its fingerprint with them.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "Nothing has changed since it was signed. The certificate was issued by {{issuer}}; to check that it’s trustworthy, trust the root certificates in your system’s certificate store, or choose your organization’s certificate, above.": {
+    "files": [
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -6299,6 +6407,12 @@
   "Paper Size": {
     "files": [
       "workflow/nodes/booklet-node.ts"
+    ],
+    "fileCount": 1
+  },
+  "Paperwing couldn’t tell which part of the document this signature covers.": {
+    "files": [
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -7899,7 +8013,7 @@
   },
   "Self-Signed: Signer Identity Not Verified": {
     "files": [
-      "logic/validate-signature-pdf-page.ts"
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -7996,7 +8110,7 @@
   },
   "Signature Intact: Signer Identity Not Verified": {
     "files": [
-      "logic/validate-signature-pdf-page.ts"
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -8015,6 +8129,12 @@
   "Signature scheme {{kind}} not implemented": {
     "files": [
       "logic/validate-signature-pdf.ts"
+    ],
+    "fileCount": 1
+  },
+  "Signature valid, timestamp not": {
+    "files": [
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -8692,6 +8812,12 @@
     ],
     "fileCount": 1
   },
+  "The certificate has expired since, but the timestamp proves it was signed while the certificate was valid.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
   "The compression engine returned an unreadable result.": {
     "files": [
       "utils/compress.ts"
@@ -8756,6 +8882,12 @@
   "The specified page order is incomplete or contains invalid page numbers. Please ensure you provide a new position for every original page.": {
     "files": [
       "logic/organize-pdf-page.ts"
+    ],
+    "fileCount": 1
+  },
+  "The timestamp proves the document existed on {{time}}, but it was changed afterwards: {{changes}}.": {
+    "files": [
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -8825,9 +8957,27 @@
     ],
     "fileCount": 1
   },
+  "This isn’t a timestamp Paperwing can read.": {
+    "files": [
+      "logic/validate-signature-pdf.ts"
+    ],
+    "fileCount": 1
+  },
   "This module is licensed under AGPL-3.0. By configuring it, you agree to its license terms.": {
     "files": [
       "utils/wasm-provider.ts"
+    ],
+    "fileCount": 1
+  },
+  "This signature doesn’t check out ({{error}}). The file may have been tampered with or damaged. Don’t rely on this document.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "This timestamp doesn’t check out: {{problem}} Don’t rely on it.": {
+    "files": [
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -8867,6 +9017,12 @@
     ],
     "fileCount": 1
   },
+  "Time": {
+    "files": [
+      "logic/validate-signature-pdf-page.ts"
+    ],
+    "fileCount": 1
+  },
   "Times Bold": {
     "files": [
       "workflow/nodes/control-specs.ts"
@@ -8900,6 +9056,24 @@
   "Timestamp Failed": {
     "files": [
       "logic/timestamp-pdf-page.ts"
+    ],
+    "fileCount": 1
+  },
+  "Timestamp authority": {
+    "files": [
+      "logic/validate-signature-pdf-page.ts"
+    ],
+    "fileCount": 1
+  },
+  "Timestamp intact: authority not verified": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "Timestamped by {{authority}} on {{time}}.": {
+    "files": [
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -9008,7 +9182,7 @@
     ],
     "fileCount": 1
   },
-  "Trust verification: {{trustVerified}}/{{length}} signatures verified against custom certificate": {
+  "Trust: {{trustVerified}} of {{length}} signers lead to a certificate you trust": {
     "files": [
       "logic/validate-signature-pdf-page.ts"
     ],
@@ -9236,12 +9410,6 @@
     ],
     "fileCount": 1
   },
-  "Unverified: Unsupported Signature Algorithm": {
-    "files": [
-      "logic/validate-signature-pdf-page.ts"
-    ],
-    "fileCount": 1
-  },
   "Updating metadata...": {
     "files": [
       "logic/edit-metadata-page.ts"
@@ -9436,13 +9604,19 @@
   },
   "Valid Signature": {
     "files": [
-      "logic/validate-signature-pdf-page.ts"
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
   "Valid Until": {
     "files": [
       "logic/validate-signature-pdf-page.ts"
+    ],
+    "fileCount": 1
+  },
+  "Valid timestamp": {
+    "files": [
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -9547,6 +9721,18 @@
   "WebP": {
     "files": [
       "workflow/nodes/control-specs.ts"
+    ],
+    "fileCount": 1
+  },
+  "What was signed is intact, but the document was changed afterwards: {{changes}}. What you see now isn’t exactly what was signed.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "What was signed no longer matches the signature: the file was changed after it was signed, or it’s damaged. Don’t rely on this document; ask the sender for the original.": {
+    "files": [
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -9758,6 +9944,18 @@
     ],
     "fileCount": 1
   },
+  "it can’t be read.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "it was edited": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
   "signature found": {
     "files": [
       "logic/validate-signature-pdf-page.ts"
@@ -9767,6 +9965,30 @@
   "signatures found": {
     "files": [
       "logic/validate-signature-pdf-page.ts"
+    ],
+    "fileCount": 1
+  },
+  "unknown": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "unknown problem": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "{{authority}} says the document existed in this form on {{time}}, and nothing has changed since. To confirm {{authority}} is a trusted timestamp authority, trust the root certificates in your system’s certificate store above.": {
+    "files": [
+      "logic/signature-verdict.ts"
+    ],
+    "fileCount": 1
+  },
+  "{{authority}}, a timestamp authority you trust, confirms the document existed in this form on {{time}}, and nothing has changed since.": {
+    "files": [
+      "logic/signature-verdict.ts"
     ],
     "fileCount": 1
   },
@@ -9877,6 +10099,18 @@
   "{{name}}... (p{{pageNumber}})": {
     "files": [
       "logic/merge-pdf-page.ts"
+    ],
+    "fileCount": 1
+  },
+  "{{n}} document timestamp": {
+    "files": [
+      "logic/validate-signature-pdf-page.ts"
+    ],
+    "fileCount": 1
+  },
+  "{{n}} document timestamps": {
+    "files": [
+      "logic/validate-signature-pdf-page.ts"
     ],
     "fileCount": 1
   },
