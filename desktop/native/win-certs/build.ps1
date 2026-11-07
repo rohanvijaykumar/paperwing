@@ -36,3 +36,4 @@ if ($Test) {
   if ($LASTEXITCODE -ne 2 -or $err -notmatch '"code":"key-unusable"') { throw "an unknown certificate wasn't reported: $err" }
   Write-Host 'certificate helper ok'
 }
+exit 0
