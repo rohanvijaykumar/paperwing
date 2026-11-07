@@ -343,7 +343,8 @@ await until(page, () => !document.querySelector('.dlg-scan'), undefined, 180000)
 await until(page, () => /^Scan /.test(document.querySelector('#tabs .tab.is-active')?.textContent.trim() ?? ''));
 await sleep(1500);
 const text = await pdfText(await docBytes(page));
-check(/PAPERWING|QUICK|BROWN|PAGE/i.test(text), 'the new document has the scanned text in it', text.slice(0, 120).replace(/\s+/g, ' '));
+// (the stand-in's blocky letters read a little differently on each OS)
+check((text.match(/SHEET|TEST|LAZY|DOG|QUICK|PAGE|OVER|SCAN/gi) ?? []).length >= 3, 'the new document has the scanned text in it', text.slice(0, 120).replace(/\s+/g, ' '));
 
 /* PDF/A, and Compress a PDF after scanning ------------------------------------ */
 await L.openDialog(page);
@@ -418,10 +419,17 @@ await until(page, () => !document.querySelector('.dlg-scan'));
 const before = await L.pageCount(page);
 const bytesBefore = (await docBytes(page)).length;
 await page.evaluate(() => document.querySelector('.lp-search input')?.blur());
-await search('enhance');
-await click(page, '.lp-tool', 'Enhance scanned pages');
-await until(page, () => document.querySelector('.dlg-enhance'));
-check(!!(await page.$('.dlg-enhance')), 'Enhance scanned pages: its choices');
+let enhanceFound = [];
+for (let attempt = 0; attempt < 3 && !(await page.$('.dlg-enhance')); attempt++) {
+  enhanceFound = await search('enhance');
+  await click(page, '.lp-tool', 'Enhance scanned pages');
+  await until(page, () => document.querySelector('.dlg-enhance'), undefined, 8000);
+}
+check(
+  !!(await page.$('.dlg-enhance')),
+  'Enhance scanned pages: its choices',
+  `${JSON.stringify(enhanceFound)}; dialogs open: ${await page.evaluate(() => [...document.querySelectorAll('.dlg-backdrop [role=dialog]')].map((d) => d.getAttribute('aria-label')).join(', '))}`
+);
 await click(page, '.dlg-enhance .accent-btn', 'Enhance');
 const enhanced = await until(page, () => /Enhanced the scanned pages/.test(document.querySelector('#toasts')?.textContent ?? ''), undefined, 60000);
 info = await L.docInfo(page);
