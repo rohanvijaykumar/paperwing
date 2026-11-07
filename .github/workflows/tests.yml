@@ -131,8 +131,8 @@ jobs:
         shell: bash
         run: |
           ls "$RUNNER_TEMP/app-signed"
-          python desktop/tests/validate-signed.py "$RUNNER_TEMP/app-signed/Contract (signed).pdf" "$RUNNER_TEMP/app-signed/Contract (signed) (signed).pdf"
-          node desktop/tests/openssl-verify.mjs "$RUNNER_TEMP/app-signed/Contract (signed) (signed).pdf"
+          python desktop/tests/validate-signed.py "$RUNNER_TEMP/app-signed/Contract (signed).pdf" "$RUNNER_TEMP/app-signed/Contract (signed) (signed) (signed).pdf"
+          node desktop/tests/openssl-verify.mjs "$RUNNER_TEMP/app-signed/Contract (signed) (signed) (signed).pdf"
 
       - name: Screenshots
         if: ${{ always() }}
