@@ -27,6 +27,7 @@ const { pipeline } = require('node:stream/promises');
 const crypto = require('node:crypto');
 const { createPrinting } = require('./print.cjs');
 const { createCerts, helperPath, windowHandleOf } = require('./certs.cjs');
+const { createScanning } = require('./scan.cjs');
 
 /** PAPERWING_TRACE=1 prints startup timings (ms since the process started) */
 const trace = process.env.PAPERWING_TRACE
@@ -1070,14 +1071,20 @@ ipcMain.handle('paperwing:save-as', async (e, suggestedName, data, near) => {
   return { path: filePath, name: path.basename(filePath) };
 });
 
+// Development: PAPERWING_TEST_OPEN picks that file without the dialog
+// (benches can't drive the system's file dialog)
+const testOpen = !app.isPackaged ? process.env.PAPERWING_TEST_OPEN : '';
+
 ipcMain.handle('paperwing:open-dialog', async (e) => {
   if (!senderIsApp(e)) return [];
   const start = await lastFolder();
-  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile', 'multiSelections'],
-    filters: [{ name: 'PDF', extensions: ['pdf'] }],
-    ...(start ? { defaultPath: start } : {}),
-  });
+  const { canceled, filePaths } = testOpen
+    ? { canceled: false, filePaths: [testOpen] }
+    : await dialog.showOpenDialog(mainWindow, {
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+        ...(start ? { defaultPath: start } : {}),
+      });
   if (canceled) return [];
   if (filePaths[0]) rememberFolder(filePaths[0]);
   return Promise.all(
@@ -1177,6 +1184,193 @@ ipcMain.handle('paperwing:certs-fetch', async (e, url, init) => {
   return res.error
     ? { error: res.error, status: res.status }
     : { status: res.status, contentType: res.contentType, body: res.body };
+});
+
+// Scanning (see scan.cjs): the page's scan dialog lists the scanners and
+// what each can do, previews and scans; each page comes back as it's scanned
+let scanning = null;
+const getScanning = () =>
+  (scanning ??= createScanning({
+    isPackaged: app.isPackaged,
+    helpers: scannerHelpers(),
+    escl: createNetworkScanners(),
+    tempDir: app.getPath('temp'),
+    windowHandle: scannerWindowHandle,
+  }));
+
+/** The window the scanner's own window opens in front of (Windows: its
+ *  HWND as a number) */
+function scannerWindowHandle() {
+  if (!mainWindow || mainWindow.isDestroyed() || IS_MAC) return null;
+  const h = mainWindow.getNativeWindowHandle();
+  return h.length >= 8 ? h.readBigUInt64LE(0).toString() : h.readUInt32LE(0);
+}
+
+/** Where the scanner helpers are: packaged in resources/scanner, built in
+ *  development by native/win-scanner and native/mac-scanner */
+function scannerHelpers() {
+  const res = (name) => path.join(process.resourcesPath, 'scanner', name);
+  if (IS_MAC)
+    return {
+      scan: app.isPackaged
+        ? res('paperwing-scan')
+        : path.join(__dirname, 'native', 'mac-scanner', 'out', 'paperwing-scan'),
+    };
+  const dev = (name) =>
+    path.join(__dirname, 'native', 'win-scanner', 'out', name);
+  return {
+    scan: app.isPackaged ? res('paperwing-scan.exe') : dev('paperwing-scan.exe'),
+    twain32: app.isPackaged
+      ? res('paperwing-twain32.exe')
+      : dev('paperwing-twain32.exe'),
+  };
+}
+
+/** Network scanners added by IP address, searched for again every time */
+const networkScannersFile = () =>
+  path.join(app.getPath('userData'), 'network-scanners.json');
+
+function savedScannerAddresses() {
+  try {
+    const { addresses } = JSON.parse(
+      fs.readFileSync(networkScannersFile(), 'utf8')
+    );
+    return Array.isArray(addresses)
+      ? addresses.filter((a) => typeof a === 'string').slice(0, 50)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberScannerAddress(address) {
+  const addresses = [
+    ...new Set([...savedScannerAddresses(), address.trim()]),
+  ].slice(-50);
+  fsp
+    .writeFile(networkScannersFile(), JSON.stringify({ addresses }))
+    .catch(() => {
+      // (only a convenience: it can be added again)
+    });
+}
+
+/** Network (eSCL) scanners, when escl.cjs is there */
+function createNetworkScanners() {
+  try {
+    return require('./escl.cjs').createEscl({
+      manualHosts: savedScannerAddresses(),
+    });
+  } catch {
+    return null;
+  }
+}
+
+const sendTo = (wc, channel, ...args) => {
+  if (!wc.isDestroyed()) wc.send(channel, ...args);
+};
+
+ipcMain.handle('paperwing:scanners', (e) => {
+  if (!senderIsApp(e)) return { ok: false, scanners: [] };
+  return getScanning().list();
+});
+
+ipcMain.handle('paperwing:scanner-add', async (e, address) => {
+  if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
+  const r = await getScanning().addByAddress(address);
+  if (r.ok && !getScanning().testMode) rememberScannerAddress(address);
+  return r;
+});
+
+ipcMain.handle('paperwing:scanner-caps', (e, id) => {
+  if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
+  return getScanning().capabilities(id);
+});
+
+ipcMain.handle('paperwing:scan-preview', (e, id, options) => {
+  if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
+  return getScanning().preview(id, options);
+});
+
+ipcMain.handle('paperwing:scan', (e, id, options) => {
+  if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
+  const wc = e.sender;
+  return getScanning().scan(
+    id,
+    options,
+    (data, info) => sendTo(wc, 'paperwing:scan-page', data, info),
+    (message) => sendTo(wc, 'paperwing:scan-status', message)
+  );
+});
+
+ipcMain.handle('paperwing:scan-cancel', (e) => {
+  if (!senderIsApp(e)) return false;
+  return getScanning().cancel();
+});
+
+// Import from a scanner app: new files in a folder the person chose
+ipcMain.handle('paperwing:scan-watch', (e, dir) => {
+  if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
+  if (dir !== null && !chosenFolders.has(pathKey(String(dir))))
+    return { ok: false, error: 'invalid' };
+  const wc = e.sender;
+  return getScanning().watch(dir, (file) =>
+    sendTo(wc, 'paperwing:scan-import', file)
+  );
+});
+
+// Folders the person picked (Save multiple files, Import from a scanner
+// app): the page may write new files into these, and nowhere else.
+// Development: PAPERWING_TEST_FOLDER picks one without the dialog (benches)
+const chosenFolders = new Set();
+ipcMain.handle('paperwing:choose-folder', async (e, title) => {
+  if (!senderIsApp(e)) return null;
+  let dir = !app.isPackaged ? process.env.PAPERWING_TEST_FOLDER : '';
+  if (!dir) {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: typeof title === 'string' ? title.slice(0, 100) : undefined,
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: (await lastFolder()) ?? app.getPath('documents'),
+    });
+    if (canceled || !filePaths[0]) return null;
+    dir = filePaths[0];
+  }
+  chosenFolders.add(pathKey(dir));
+  return { path: dir, name: path.basename(dir) || dir };
+});
+
+/** "Scan 1.pdf" -> "Scan 1 (2).pdf" while the name is taken */
+async function freeName(dir, name) {
+  const ext = path.extname(name);
+  const base = name.slice(0, name.length - ext.length);
+  for (let k = 1; ; k++) {
+    const candidate = k === 1 ? name : `${base} (${k})${ext}`;
+    try {
+      await fsp.access(path.join(dir, candidate));
+    } catch {
+      return candidate;
+    }
+  }
+}
+
+// Save multiple files: new PDFs in a chosen folder, never over a file
+ipcMain.handle('paperwing:save-files', async (e, dir, files) => {
+  if (!senderIsApp(e) || typeof dir !== 'string') return null;
+  if (!chosenFolders.has(pathKey(dir)) || !Array.isArray(files)) return null;
+  const saved = [];
+  for (const f of files) {
+    const clean = String(f?.name ?? '')
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')
+      .replace(/^[.\s]+|[.\s]+$/g, '')
+      .slice(0, 150);
+    if (!clean || !(f.data instanceof Uint8Array)) continue;
+    const name = await freeName(dir, /\.pdf$/i.test(clean) ? clean : `${clean}.pdf`);
+    const full = path.join(dir, name);
+    await writeAtomic(full, f.data);
+    openedPath(full);
+    saved.push({ path: full, name });
+  }
+  if (saved[0]) rememberFolder(saved[0].path);
+  return saved;
 });
 
 // Home ▸ Clear recent also clears the OS's list
@@ -1487,6 +1681,16 @@ ipcMain.handle('paperwing:update-install', (e) => {
 /* Menu                                                                */
 /* ------------------------------------------------------------------ */
 
+/** The scan presets (scan-settings.ts), for File ▸ Create PDF from Scanner */
+const SCAN_PRESETS = [
+  ['mine', 'My Settings'],
+  ['auto', 'Autodetect Color Mode'],
+  ['bw', 'Black and White Document'],
+  ['gray', 'Grayscale Document'],
+  ['color', 'Color Document'],
+  ['photo', 'Color Photograph'],
+];
+
 function buildMenu() {
   if (!IS_MAC) {
     // Windows/Linux: no menu bar; the app handles every shortcut itself
@@ -1536,6 +1740,16 @@ function buildMenu() {
             submenu: [{ role: 'clearRecentDocuments' }],
           },
           item('Create PDF…', 'Cmd+N', 'create'),
+          {
+            label: 'Create PDF from Scanner',
+            submenu: [
+              item('Scan…', undefined, 'scan'),
+              { type: 'separator' },
+              ...SCAN_PRESETS.map(([id, label]) =>
+                item(label, undefined, `scan:${id}`)
+              ),
+            ],
+          },
           item('Reopen Closed Document', 'Shift+Cmd+T', 'reopen'),
           { type: 'separator' },
           item('Save', 'Cmd+S', 'save'),

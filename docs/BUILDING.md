@@ -100,6 +100,39 @@ pwsh desktop/native/win-certs/test-certs.ps1 -Remove -Out certs.json   # deletes
 
 CI does all of this on Windows (`windows-certs` in `tests.yml`) and macOS (`macos.yml`).
 
+### Scanning
+
+`desktop/scan.cjs` is one service over every way of reaching a scanner; each speaks the same JSON
+lines (the scanner contract, in its header):
+
+- **Windows**: `paperwing-scan.exe` (x64: WIA and 64-bit TWAIN) and `paperwing-twain32.exe` (x86:
+  32-bit TWAIN), .NET Framework 4.8 on NAPS2's scanning libraries, in `desktop/native/win-scanner`.
+  Build with the .NET SDK: `node desktop/native/win-scanner/build.mjs` (`--test` also runs the unit
+  tests and the helpers). The output (`native/win-scanner/out`) ships as `resources/scanner`.
+  `node --test desktop/tests/win-scanner.test.mjs` runs them with no scanner; CI also scans with
+  the TWAIN Working Group's sample scanner (installed on the runner only, never on a PC of ours).
+- **macOS**: `paperwing-scan` (`desktop/native/mac-scanner`, Swift on ImageCaptureCore), built
+  with `desktop/native/mac-scanner/build.sh` (universal; `--test` runs it) and added to the app by
+  `scripts/after-pack.cjs`.
+- **Network scanners** (eSCL / AirScan): `desktop/escl.cjs` and `desktop/mdns.cjs`, in the main
+  process. `desktop/tests/fake-escl.mjs` is a pretend network scanner for tests and benches
+  (`node desktop/tests/fake-escl.mjs --adf 3 --duplex` runs one).
+
+The pages are cleaned up in the renderer (`src/acro/scan-image.ts`, in a worker; the encoders and
+the PDF in `scan-pdf.ts`); the dialog is `src/acro/scan.ts`.
+
+**Without a scanner**, development builds stand in three scanners when `PAPERWING_SCAN_TEST=1` is
+set (`desktop/scan-test.cjs`, not shipped): one reached through several drivers, with a flatbed (a
+document lying on the glass) and a two-sided feeder; a one-sided gray feeder; and a network-only
+flatbed. `PAPERWING_SCAN_TEST_PAGES` sets the sheets in the feeder, `PAPERWING_SCAN_TEST_BLANK` and
+`PAPERWING_SCAN_TEST_SKEW` which pages come out blank or crooked, and
+`PAPERWING_SCAN_TEST_ERROR=paper-jam` (or `double-feed@2`: after two pages) makes it fail.
+`PAPERWING_TEST_OPEN=<file.pdf>` and `PAPERWING_TEST_FOLDER=<folder>` answer the open and folder
+dialogs in development builds, so benches can use Browse… and Save multiple files.
+`npm run test:scan`, `bench/check-scan.mjs`, `bench/check-scan-more.mjs` and
+`bench/check-scan-network.mjs` (the pretend network scanner) use them. A real scanner is still the
+final test.
+
 ## Screenshots
 
 The README screenshots (`docs/screenshots/*.png`) are taken from the real interface, using the

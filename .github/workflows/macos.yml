@@ -59,6 +59,29 @@ jobs:
         working-directory: desktop
         run: npm run test:print
 
+      # Apple's ImageCaptureCore, through the Swift helper: it must build
+      # (universal) and, with no scanner attached, list none
+      - name: Scanner helper
+        if: ${{ !cancelled() }}
+        run: bash desktop/native/mac-scanner/build.sh --test
+
+      - name: Scanning tests
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: npm run test:scan
+
+      # Network scanners without drivers (escl.cjs): against the pretend eSCL
+      # scanner, then announced through Bonjour the way a real one is, where
+      # Image Capture (the Swift helper) must find and scan it too
+      # (tests/mac-network-scanner.sh). macOS doesn't let processes on this
+      # runner multicast (Local Network privacy), so there escl.cjs reaches
+      # it by its Bonjour name; Windows CI covers multicast discovery.
+      - name: Network scanner (eSCL) tests
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: |
+          node --test tests/escl.test.mjs
+          bash tests/mac-network-scanner.sh
       # Signing with Digital IDs in the Keychain (desktop/native/mac-certs):
       # the Swift helper must build (universal) and pass its own test; then
       # test identities in a keychain of their own sign real PDFs through it,
@@ -200,6 +223,21 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: desktop
         run: node bench/check-copy-text.mjs
+
+      - name: Create PDF from scanner
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-scan.mjs
+
+      - name: 'Scanning: settings, presets, insert, append, files, OCR, tools'
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-scan-more.mjs
+
+      - name: Scanning a network scanner
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-scan-network.mjs
 
       - name: 1.2 interface bench
         if: ${{ !cancelled() }}
