@@ -219,7 +219,9 @@ async function assemble(
   certs: Uint8Array[]
 ): Promise<FileId> {
   if (!certs.length)
-    throw new FileIdError('There’s no certificate in this file.');
+    throw new FileIdError(
+      'There’s no certificate in this file. If your certificate is in a separate file, choose both files together.'
+    );
   const { keyAlg, curve } = pkcs8Alg(keyDer);
   const sign = await keySigner(keyDer, keyAlg, curve);
   // Signing certificates before CA certificates, then the rest
@@ -313,17 +315,27 @@ export async function readPem(text: string, password = ''): Promise<FileId> {
       keyDer = toBytes(forge.pem.decode(block)[0].body);
     } else if (label === 'ENCRYPTED PRIVATE KEY') {
       if (!password) throw new PasswordError('This key needs its password.');
-      const info = forge.pki.decryptPrivateKeyInfo(
-        forge.asn1.fromDer(forge.pem.decode(block)[0].body),
-        password
-      );
+      let info: forge.asn1.Asn1 | null;
+      try {
+        info = forge.pki.decryptPrivateKeyInfo(
+          forge.asn1.fromDer(forge.pem.decode(block)[0].body),
+          password
+        );
+      } catch {
+        // (a wrong password often decrypts to bytes that aren't a key)
+        info = null;
+      }
       if (!info) throw new PasswordError();
       keyDer = asn1ToDer(info);
     } else if (label === 'RSA PRIVATE KEY') {
       let key: forge.pki.rsa.PrivateKey | null;
       if (/ENCRYPTED/.test(block)) {
         if (!password) throw new PasswordError('This key needs its password.');
-        key = forge.pki.decryptRsaPrivateKey(block, password);
+        try {
+          key = forge.pki.decryptRsaPrivateKey(block, password);
+        } catch {
+          key = null;
+        }
         if (!key) throw new PasswordError();
       } else {
         key = forge.pki.privateKeyFromPem(block) as forge.pki.rsa.PrivateKey;
@@ -341,7 +353,7 @@ export async function readPem(text: string, password = ''): Promise<FileId> {
   }
   if (!keyDer)
     throw new FileIdError(
-      'There’s no private key in this file, so it can’t sign.'
+      'There’s no private key in this file, so it can’t sign. If your private key is in a separate file, choose both files together.'
     );
   return assemble(keyDer, certs);
 }
@@ -484,4 +496,19 @@ export function makePfx(
       macData,
     ])
   );
+}
+
+/** Several files chosen together: PEM files are read as one (a certificate
+ *  and its key); otherwise the first .pfx/.p12 */
+export function combineIdFiles(
+  files: { name: string; data: Uint8Array }[]
+): { name: string; data: Uint8Array } | null {
+  if (files.length <= 1) return files[0] ?? null;
+  if (!files.every((f) => looksLikePem(f.data)))
+    return files.find((f) => !looksLikePem(f.data)) ?? null;
+  const text = files.map((f) => new TextDecoder().decode(f.data)).join('\n');
+  return {
+    name: files.map((f) => f.name).join(' + '),
+    data: new TextEncoder().encode(text),
+  };
 }
