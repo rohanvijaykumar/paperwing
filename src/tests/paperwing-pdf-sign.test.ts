@@ -163,9 +163,7 @@ describe('signing a PDF with an external key', () => {
     const page = doc.getPage(0);
     const { width, height } = page.getSize();
     const annots = page.node.Annots()!;
-    const widget = doc.context.lookup(
-      annots.get(annots.size() - 1)
-    ) as PDFDict;
+    const widget = doc.context.lookup(annots.get(annots.size() - 1)) as PDFDict;
     const rect = (widget.get(PDFName.of('Rect')) as PDFArray)
       .asArray()
       .map((n) => (n as PDFNumber).asNumber());
@@ -199,9 +197,7 @@ describe('signing a PDF with an external key', () => {
     await verifyEach(signed);
     const doc = await PDFDocument.load(signed);
     const annots = doc.getPage(0).node.Annots()!;
-    const widget = doc.context.lookup(
-      annots.get(annots.size() - 1)
-    ) as PDFDict;
+    const widget = doc.context.lookup(annots.get(annots.size() - 1)) as PDFDict;
     const lock = widget.lookup(PDFName.of('Lock'), PDFDict);
     expect(lock.get(PDFName.of('Action'))).toEqual(PDFName.of('All'));
     expect((lock.get(PDFName.of('P')) as PDFNumber).asNumber()).toBe(1);
@@ -237,7 +233,6 @@ describe('signing a PDF with an external key', () => {
     const sigs = await verifyEach(second);
     expect(sigs).toHaveLength(2);
     const results = await validatePdfSignatures(second);
-    console.log(JSON.stringify(results.map((r) => [r.cryptoVerified, r.errorMessage, r.byteRange])));
     expect(results.map((r) => r.cryptoVerified)).toEqual([true, true]);
     // The first covers only its revision; the last covers the whole file
     expect(results[0].coverageStatus).toBe('partial');
@@ -306,9 +301,9 @@ describe('signing a PDF with an external key', () => {
     const imprint = new Uint8Array(
       await crypto.subtle.digest('SHA-256', sigValue.slice())
     );
-    expect([...tst.messageImprint.hashedMessage.valueBlock.valueHexView]).toEqual(
-      [...imprint]
-    );
+    expect([
+      ...tst.messageImprint.hashedMessage.valueBlock.valueHexView,
+    ]).toEqual([...imprint]);
   });
 
   it('a timestamp server that fails stops the signing with a plain message', async () => {

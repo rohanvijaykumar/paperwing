@@ -64,8 +64,7 @@ const CURVE_BY_OID: Record<string, Curve> = {
 /** The key's algorithm from its PKCS#8 PrivateKeyInfo */
 function pkcs8Alg(keyDer: Uint8Array): { keyAlg: KeyAlg; curve: Curve | null } {
   const info = forge.asn1.fromDer(toBinary(keyDer));
-  const alg = (info.value as forge.asn1.Asn1[])[1]
-    .value as forge.asn1.Asn1[];
+  const alg = (info.value as forge.asn1.Asn1[])[1].value as forge.asn1.Asn1[];
   const id = forge.asn1.derToOid(alg[0].value as string);
   if (id === '1.2.840.113549.1.1.1') return { keyAlg: 'rsa', curve: null };
   if (id === '1.2.840.10045.2.1') {
@@ -408,14 +407,18 @@ export function makePfx(
   const T = a.Type;
   const ctx0 = (v: forge.asn1.Asn1[]) =>
     a.create(a.Class.CONTEXT_SPECIFIC, 0, true, v);
-  const oid = (o: string) => a.create(U, T.OID, false, a.oidToDer(o).getBytes());
+  const oid = (o: string) =>
+    a.create(U, T.OID, false, a.oidToDer(o).getBytes());
   const octets = (s: string) => a.create(U, T.OCTETSTRING, false, s);
   const seq = (v: forge.asn1.Asn1[]) => a.create(U, T.SEQUENCE, true, v);
   const set = (v: forge.asn1.Asn1[]) => a.create(U, T.SET, true, v);
   const md = forge.md.sha1.create();
   md.update(toBinary(certs[0]));
   const attrs = [
-    seq([oid(forge.pki.oids.localKeyId), set([octets(md.digest().getBytes())])]),
+    seq([
+      oid(forge.pki.oids.localKeyId),
+      set([octets(md.digest().getBytes())]),
+    ]),
     ...(friendlyName
       ? [
           seq([
@@ -426,10 +429,7 @@ export function makePfx(
       : []),
   ];
   const data = (inner: forge.asn1.Asn1) =>
-    seq([
-      oid(forge.pki.oids.data),
-      ctx0([octets(a.toDer(inner).getBytes())]),
-    ]);
+    seq([oid(forge.pki.oids.data), ctx0([octets(a.toDer(inner).getBytes())])]);
   const certBags = certs.map((c, i) =>
     seq([
       oid(forge.pki.oids.certBag),

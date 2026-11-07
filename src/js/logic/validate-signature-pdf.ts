@@ -1,4 +1,5 @@
 import forge from 'node-forge';
+import * as pkijs from 'pkijs';
 import { SignatureValidationResult } from '@/types';
 import type { ExtractedSignatureWithError, PdfValueSpan } from '@/types';
 
@@ -320,10 +321,113 @@ function getDerObjectLength(bytes: Uint8Array): number | null {
   return 2 + count + length;
 }
 
+/** What to trust: one certificate, or several (DER), e.g. the system's
+ *  root certificates (Paperwing's desktop app) */
+export type TrustSource = forge.pki.Certificate | Uint8Array[];
+
+/** Each certificate's own bytes (forge would re-encode it) */
+const RAW_DER = new WeakMap<forge.pki.Certificate, Uint8Array>();
+
+const NOT_RSA = /OID is not RSA/;
+
+/**
+ * forge reads RSA certificates only. Others (ECDSA, on newer ID cards and
+ * smart cards) are read with a stand-in public key, so their names and dates
+ * can be shown; their real key is taken from the certificate's own bytes
+ * (extractSpkiDer, RAW_DER) wherever a signature is checked.
+ */
+function withAnyKeys<T>(read: () => T): T {
+  const original = forge.pki.certificateFromAsn1;
+  forge.pki.certificateFromAsn1 = ((
+    obj: forge.asn1.Asn1,
+    computeHash?: boolean
+  ) => {
+    try {
+      return original(obj, computeHash);
+    } catch (e) {
+      if (!NOT_RSA.test(String((e as Error)?.message))) throw e;
+      const cert = original(withStandInKey(obj), false);
+      (cert as { publicKey: unknown }).publicKey = null;
+      return cert;
+    }
+  }) as typeof forge.pki.certificateFromAsn1;
+  try {
+    return read();
+  } finally {
+    forge.pki.certificateFromAsn1 = original;
+  }
+}
+
+/** A copy of a certificate's ASN.1 with an RSA key in place of its own */
+function withStandInKey(obj: forge.asn1.Asn1): forge.asn1.Asn1 {
+  const a = forge.asn1;
+  const tbs = (obj.value as forge.asn1.Asn1[])[0];
+  const fields = [...(tbs.value as forge.asn1.Asn1[])];
+  const at = fields[0]?.tagClass === a.Class.CONTEXT_SPECIFIC ? 6 : 5;
+  const rsaKey = a.create(a.Class.UNIVERSAL, a.Type.SEQUENCE, true, [
+    a.create(a.Class.UNIVERSAL, a.Type.INTEGER, false, '\x01'),
+    a.create(a.Class.UNIVERSAL, a.Type.INTEGER, false, '\x03'),
+  ]);
+  // (through DER and back, so forge sees the key inside the BIT STRING)
+  const spki = a.create(a.Class.UNIVERSAL, a.Type.SEQUENCE, true, [
+    a.create(a.Class.UNIVERSAL, a.Type.SEQUENCE, true, [
+      a.create(
+        a.Class.UNIVERSAL,
+        a.Type.OID,
+        false,
+        a.oidToDer(forge.pki.oids.rsaEncryption).getBytes()
+      ),
+      a.create(a.Class.UNIVERSAL, a.Type.NULL, false, ''),
+    ]),
+    a.create(
+      a.Class.UNIVERSAL,
+      a.Type.BITSTRING,
+      false,
+      '\x00' + a.toDer(rsaKey).getBytes()
+    ),
+  ]);
+  fields[at] = a.fromDer(a.toDer(spki).getBytes());
+  return a.create(obj.tagClass, obj.type, true, [
+    a.create(tbs.tagClass, tbs.type, true, fields),
+    ...(obj.value as forge.asn1.Asn1[]).slice(1),
+  ]);
+}
+
+function certFromDer(der: Uint8Array): forge.pki.Certificate {
+  const cert = withAnyKeys(() =>
+    forge.pki.certificateFromAsn1(forge.asn1.fromDer(uint8ToLatin1(der)))
+  );
+  RAW_DER.set(cert, der);
+  return cert;
+}
+
+function rawDer(cert: forge.pki.Certificate): Uint8Array {
+  return (
+    RAW_DER.get(cert) ??
+    latin1ToUint8(
+      forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes()
+    )
+  );
+}
+
+function trustAnchors(trusted?: TrustSource): forge.pki.Certificate[] {
+  if (!trusted) return [];
+  if (!Array.isArray(trusted)) return [trusted];
+  const out: forge.pki.Certificate[] = [];
+  for (const der of trusted) {
+    try {
+      out.push(certFromDer(der));
+    } catch {
+      // (a certificate forge can't read at all can't be an anchor here)
+    }
+  }
+  return out;
+}
+
 export async function validateSignature(
   signature: ExtractedSignatureWithError,
   pdfBytes: Uint8Array,
-  trustedCert?: forge.pki.Certificate
+  trustedCert?: TrustSource
 ): Promise<SignatureValidationResult> {
   const result: SignatureValidationResult = {
     signatureIndex: signature.index,
@@ -357,8 +461,8 @@ export async function validateSignature(
       Array.from(signature.contents)
     );
     const asn1 = forge.asn1.fromDer(binaryString);
-    const p7 = forge.pkcs7.messageFromAsn1(
-      asn1
+    const p7 = withAnyKeys(() =>
+      forge.pkcs7.messageFromAsn1(asn1)
     ) as forge.pkcs7.PkcsSignedData & {
       rawCapture?: {
         digestAlgorithm?: string;
@@ -367,8 +471,18 @@ export async function validateSignature(
         signatureAlgorithm?: forge.asn1.Asn1[];
         issuer?: forge.asn1.Asn1;
         serial?: string;
+        certificates?: forge.asn1.Asn1;
       };
     };
+    const rawCerts = p7.rawCapture?.certificates?.value;
+    (p7.certificates ?? []).forEach((cert, i) => {
+      const node = Array.isArray(rawCerts) ? rawCerts[i] : undefined;
+      if (node)
+        RAW_DER.set(
+          cert as forge.pki.Certificate,
+          latin1ToUint8(forge.asn1.toDer(node).getBytes())
+        );
+    });
 
     if (!p7.certificates || p7.certificates.length === 0) {
       result.errorMessage = trText('No certificates found in signature');
@@ -409,12 +523,13 @@ export async function validateSignature(
     result.isSelfSigned = signerCert.isIssuer(signerCert);
 
     // Check trust against provided certificate (cryptographic, not name/serial match)
-    if (trustedCert) {
+    const anchors = trustAnchors(trustedCert);
+    if (anchors.length) {
       try {
-        result.isTrusted = chainsToTrustedCert(
+        result.isTrusted = await chainsToTrustedCert(
           signerCert,
           certificates,
-          trustedCert
+          anchors
         );
       } catch {
         result.isTrusted = false;
@@ -521,13 +636,14 @@ function findSignerCertificate(
 ): forge.pki.Certificate | null {
   if (issuer && serial) {
     const serialHex = forge.util.createBuffer(serial).toHex();
-    const issuerDer = forge.asn1.toDer(issuer).getBytes();
+    // The issuer as written in the certificate (forge's own re-encoding of
+    // a name can differ, e.g. an email address's string type)
+    const md = forge.md.sha1.create();
+    md.update(forge.asn1.toDer(issuer).getBytes());
+    const issuerHash = md.digest().toHex();
     const match = certificates.find(
       (cert) =>
-        cert.serialNumber === serialHex &&
-        forge.asn1
-          .toDer(forge.pki.distinguishedNameToAsn1(cert.issuer))
-          .getBytes() === issuerDer
+        cert.serialNumber === serialHex && cert.issuer.hash === issuerHash
     );
     return match ?? null;
   }
@@ -539,13 +655,26 @@ function hasLowRsaExponent(key: unknown): boolean {
   return !!exponent && exponent.compareTo(MIN_RSA_EXPONENT) < 0;
 }
 
-function isIssuedBy(
+async function isIssuedBy(
   issuer: forge.pki.Certificate,
   child: forge.pki.Certificate
-): boolean {
+): Promise<boolean> {
   if (hasLowRsaExponent(issuer.publicKey)) return false;
+  if (!child.isIssuer(issuer)) return false;
+  // forge checks RSA issuers' signatures; other keys or signature
+  // algorithms (ECDSA) are checked with Web Crypto, from the certificates'
+  // own bytes
+  if (issuer.publicKey) {
+    try {
+      return issuer.verify(child);
+    } catch {
+      // (a signature algorithm forge doesn't know)
+    }
+  }
   try {
-    return issuer.verify(child);
+    const c = pkijs.Certificate.fromBER(rawDer(child).slice());
+    const i = pkijs.Certificate.fromBER(rawDer(issuer).slice());
+    return await c.verify(i);
   } catch {
     return false;
   }
@@ -558,26 +687,37 @@ function isCertificateAuthority(cert: forge.pki.Certificate): boolean {
   return basicConstraints?.cA === true;
 }
 
-function chainsToTrustedCert(
+const sameDer = (a: Uint8Array, b: Uint8Array) =>
+  a.length === b.length && a.every((v, i) => v === b[i]);
+
+async function chainsToTrustedCert(
   signerCert: forge.pki.Certificate,
   certificates: forge.pki.Certificate[],
-  trustedCert: forge.pki.Certificate
-): boolean {
-  const trustedPem = forge.pki.certificateToPem(trustedCert);
-  const visited = new Set<string>();
+  trusted: forge.pki.Certificate[]
+): Promise<boolean> {
+  const visited = new Set<forge.pki.Certificate>();
   let current = signerCert;
 
   for (let depth = 0; depth < 10; depth++) {
-    const currentPem = forge.pki.certificateToPem(current);
-    if (currentPem === trustedPem || isIssuedBy(trustedCert, current)) {
-      return true;
+    const der = rawDer(current);
+    for (const anchor of trusted) {
+      if (sameDer(der, rawDer(anchor)) || (await isIssuedBy(anchor, current)))
+        return true;
     }
-    if (visited.has(currentPem)) return false;
-    visited.add(currentPem);
+    if (visited.has(current)) return false;
+    visited.add(current);
 
-    const parent = certificates.find(
-      (cert) => isCertificateAuthority(cert) && isIssuedBy(cert, current)
-    );
+    let parent: forge.pki.Certificate | undefined;
+    for (const cert of certificates) {
+      if (
+        cert !== current &&
+        isCertificateAuthority(cert) &&
+        (await isIssuedBy(cert, current))
+      ) {
+        parent = cert;
+        break;
+      }
+    }
     if (!parent) return false;
     current = parent;
   }
@@ -586,7 +726,7 @@ function chainsToTrustedCert(
 
 export async function validatePdfSignatures(
   pdfBytes: Uint8Array,
-  trustedCert?: forge.pki.Certificate
+  trustedCert?: TrustSource
 ): Promise<SignatureValidationResult[]> {
   const signatures = extractSignatures(pdfBytes);
   return Promise.all(

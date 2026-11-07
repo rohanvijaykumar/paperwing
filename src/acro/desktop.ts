@@ -37,6 +37,55 @@ export interface PrintResult {
   message?: string;
 }
 
+/** A certificate the certificate helper found (Windows store, smart card,
+ *  Keychain); see desktop/certs.cjs */
+export interface InstalledCert {
+  id: string;
+  source: 'windows-store' | 'smart-card' | 'keychain' | 'token';
+  provider: string;
+  /** base64 DER */
+  certDer: string;
+  chainDer: string[];
+  hasPrivateKey: boolean;
+  keyAlg: 'rsa' | 'ec' | null;
+  keyBits: number;
+  curve: 'P-256' | 'P-384' | 'P-521' | null;
+}
+
+export type CertError =
+  | 'cancelled'
+  | 'wrong-pin'
+  | 'pin-blocked'
+  | 'card-removed'
+  | 'key-unusable'
+  | 'failed'
+  | 'timeout'
+  | 'no-helper';
+
+export interface CertsBridge {
+  list(): Promise<{ ok: boolean; error?: CertError; certs: InstalledCert[] }>;
+  /** Signs a digest (base64) with the certificate's key */
+  sign(
+    id: string,
+    hash: string,
+    alg: 'sha256' | 'sha384'
+  ): Promise<{ ok: boolean; sig?: string; error?: CertError }>;
+  /** The system's trusted root certificates (base64 DER) */
+  roots(): Promise<{ ok: boolean; certs: string[] }>;
+  /** A request to a timestamp or certificate server */
+  fetch(
+    url: string,
+    init: { method: 'GET' | 'POST'; contentType?: string; body?: Uint8Array }
+  ): Promise<{
+    status: number;
+    contentType?: string;
+    body?: Uint8Array;
+    error?: string;
+  }>;
+  /** Save a new Digital ID file (.pfx) where the user chooses */
+  saveId?(name: string, data: Uint8Array): Promise<boolean>;
+}
+
 export interface DesktopBridge {
   platform: string;
   ready(): Promise<void>;
@@ -113,6 +162,8 @@ export interface DesktopBridge {
     error?: string;
     message?: string;
   }>;
+  /** Certificates installed on this computer (Windows and macOS) */
+  certs?: CertsBridge;
   onOpenFile(callback: (file: DesktopFile) => void): () => void;
   /** The window is about to close; call confirmClose() to let it */
   onCloseRequested?(callback: () => void): () => void;
