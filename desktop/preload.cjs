@@ -64,7 +64,11 @@ contextBridge.exposeInMainWorld('paperwing', {
       ipcRenderer.invoke('paperwing:certs-save-id', name, data),
   },
   scanners: () => ipcRenderer.invoke('paperwing:scanners'),
+  addScanner: (address) =>
+    ipcRenderer.invoke('paperwing:scanner-add', address),
   scannerCaps: (id) => ipcRenderer.invoke('paperwing:scanner-caps', id),
+  scanPreview: (id, options) =>
+    ipcRenderer.invoke('paperwing:scan-preview', id, options),
   scan: (id, options) => ipcRenderer.invoke('paperwing:scan', id, options),
   cancelScan: () => ipcRenderer.invoke('paperwing:scan-cancel'),
   onScanPage: (callback) => {
@@ -72,6 +76,20 @@ contextBridge.exposeInMainWorld('paperwing', {
     ipcRenderer.on('paperwing:scan-page', listener);
     return () => ipcRenderer.removeListener('paperwing:scan-page', listener);
   },
+  onScanStatus: (callback) => {
+    const listener = (_e, message) => callback(message);
+    ipcRenderer.on('paperwing:scan-status', listener);
+    return () => ipcRenderer.removeListener('paperwing:scan-status', listener);
+  },
+  watchScanFolder: (dir) => ipcRenderer.invoke('paperwing:scan-watch', dir),
+  onScanImport: (callback) => {
+    const listener = (_e, file) => callback(file);
+    ipcRenderer.on('paperwing:scan-import', listener);
+    return () => ipcRenderer.removeListener('paperwing:scan-import', listener);
+  },
+  chooseFolder: (title) => ipcRenderer.invoke('paperwing:choose-folder', title),
+  saveFiles: (dir, files) =>
+    ipcRenderer.invoke('paperwing:save-files', dir, files),
   confirmClose: () => ipcRenderer.invoke('paperwing:confirm-close'),
   requestClose: () => ipcRenderer.invoke('paperwing:request-close'),
   onCloseRequested: (callback) => {
