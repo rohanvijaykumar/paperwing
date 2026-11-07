@@ -53,8 +53,8 @@ jobs:
         shell: pwsh
         run: desktop/native/win-thumbnails/build.ps1 -Test
 
-  # Scanning in the desktop shell (desktop/scan.cjs), and its Windows helper
-  # (desktop/scanner/wia.ps1) run for real: with no scanner, it lists none
+  # Scanning in the desktop shell (desktop/scan.cjs) and network scanners
+  # (desktop/escl.cjs, against a pretend eSCL scanner), on Windows
   windows-scanner:
     runs-on: windows-latest
     steps:
@@ -68,3 +68,96 @@ jobs:
 
       - name: Scanning tests
         run: node --test desktop/tests/scan.test.mjs
+
+      - name: Network scanner tests
+        run: node --test desktop/tests/escl.test.mjs
+
+  # The Windows scanner helpers (desktop/native/win-scanner): built with
+  # their unit tests, then run for real on a runner with no scanner
+  windows-scanner-helper:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build and unit-test the helpers
+        run: node desktop/native/win-scanner/build.mjs --test
+
+      - name: Run the helpers (no scanner)
+        env:
+          PAPERWING_EXPECT_NO_SCANNERS: '1'
+          PAPERWING_REQUIRE_SCANNER: '1'
+        run: node --test desktop/tests/win-scanner.test.mjs
+
+      - name: Keep the helpers for the TWAIN test
+        uses: actions/upload-artifact@v7
+        with:
+          name: win-scanner-helpers
+          path: desktop/native/win-scanner/out
+          if-no-files-found: error
+
+  # The helpers against a real TWAIN driver: the TWAIN Working Group's sample
+  # scanner (64- and 32-bit), installed on the runner only
+  windows-scanner-twain:
+    needs: windows-scanner-helper
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Get the helpers
+        uses: actions/download-artifact@v8
+        with:
+          name: win-scanner-helpers
+          path: desktop/native/win-scanner/out
+
+      - name: Install the TWAIN sample scanner
+        shell: pwsh
+        run: |
+          # The TWAIN Working Group's own installers (github.com/twain/twain-samples),
+          # pinned to a commit and checked against their git object IDs
+          $commit = '18352fe4ac6c8ee25311173f730f4d900964005e'
+          $installers = @{
+            'twainds.win64.installer.msi' = '91447447e40574e3a8347a5841164fa277e09514'
+            'twainds.win32.installer.msi' = '798b291e84aa7550db1896e15aaed71ee41c5cc4'
+          }
+          $dir = Join-Path $env:RUNNER_TEMP 'twain-sample'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          foreach ($name in $installers.Keys) {
+            $msi = Join-Path $dir $name
+            Invoke-WebRequest "https://github.com/twain/twain-samples/raw/$commit/releases/Twain_Ds_sample01_02040100/$name" -OutFile $msi
+            $id = (git hash-object $msi).Trim()
+            if ($id -ne $installers[$name]) { throw "$name doesn't match: $id" }
+            $log = Join-Path $dir "$name.log"
+            $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart', '/l*v', "`"$log`"" -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Get-Content $log -Tail 50; throw "$name failed to install: $($p.ExitCode)" }
+          }
+          Get-ChildItem -Recurse "$env:WINDIR\twain_32", "$env:WINDIR\twain_64" -ErrorAction SilentlyContinue | Select-Object FullName, Length
+          Get-ChildItem "$env:WINDIR\System32\twaindsm.dll", "$env:WINDIR\SysWOW64\twaindsm.dll" -ErrorAction SilentlyContinue | Select-Object FullName, Length
+
+      - name: Scan with it
+        env:
+          PAPERWING_TWAIN_SAMPLE: '1'
+        run: node --test --test-concurrency=1 desktop/tests/win-scanner-twain.test.mjs
+
+      - name: Scan with it through scan.cjs
+        if: ${{ !cancelled() }}
+        env:
+          PAPERWING_TWAIN_SAMPLE: '1'
+        run: node --test --test-name-pattern="TWAIN sample" desktop/tests/scan.test.mjs

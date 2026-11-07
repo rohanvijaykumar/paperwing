@@ -61,10 +61,14 @@ afterPack: scripts/after-pack.cjs
 win:
   # Platform icons come from build/icon.svg (scripts/gen-icons.mjs)
   icon: build/icon.ico
-  # The scanner helper (WIA through PowerShell; see scan.cjs)
+  # The scanner helpers: paperwing-scan.exe (WIA, 64-bit TWAIN) and
+  # paperwing-twain32.exe (32-bit TWAIN), built by native/win-scanner/build.mjs
+  # (after-pack.cjs checks they're there)
   extraResources:
-    - from: scanner/wia.ps1
-      to: scanner/wia.ps1
+    - from: native/win-scanner/out
+      to: scanner
+      filter:
+        - '**/*'
   target:
     - target: nsis
       arch: [x64]

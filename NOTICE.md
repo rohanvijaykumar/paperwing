@@ -64,6 +64,11 @@ The complete dependency list is in [`package.json`](package.json) and
 | [Liberation Fonts](https://github.com/liberationfonts/liberation-fonts) 2.1.5                        | Fallbacks with the widths of Times New Roman, Arial and Courier New (`src/acro/fonts/fallback/`) | SIL Open Font License 1.1 (`src/acro/fonts/fallback/LICENSE-Liberation.txt`)   |
 | [Carlito](https://github.com/googlefonts/carlito), [Caladea](https://github.com/googlefonts/caladea) | Fallbacks with the widths of Calibri and Cambria (`src/acro/fonts/fallback/`)                    | SIL Open Font License 1.1 (`LICENSE-Carlito.txt`, `LICENSE-Caladea.txt` there) |
 | [PDFium binaries](https://github.com/bblanchon/pdfium-binaries)                                      | Windows only: renders File Explorer thumbnails (`resources/thumbnails/pdfium.dll`)               | BSD-3-Clause / Apache-2.0 (`resources/thumbnails/pdfium-LICENSE.txt`)          |
+| [NAPS2.Wia](https://github.com/cyanfish/naps2-wia) 2.0.3                                             | Windows only: scanning through WIA (`resources/scanner/NAPS2.Wia.dll`)                           | MIT (`resources/scanner/THIRD-PARTY-NOTICES.txt`)                              |
+| [NAPS2.NTwain](https://github.com/cyanfish/ntwain) 1.0.1 (NAPS2's fork of NTwain)                    | Windows only: scanning through TWAIN (`resources/scanner/NTwain.dll`)                            | MIT (`resources/scanner/THIRD-PARTY-NOTICES.txt`)                              |
+
+The Windows scanner helpers' handling of scanner quirks follows
+[NAPS2](https://github.com/cyanfish/naps2) by Ben Olden-Cooligan.
 
 ## Trademarks
 

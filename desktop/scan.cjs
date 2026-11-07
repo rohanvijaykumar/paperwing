@@ -712,10 +712,13 @@ function createScanning({
           command: helpers.scan,
           spawnProcess,
           cancelKillMs,
+          // ("api": wia2, wia1, twain64; the x86 helper's TWAIN is twain32)
           driverFor: (s) =>
             s.driver === 'twain'
-              ? 'twain'
-              : s.driver === 'wia' && (s.wiaVersion === 1 || s.version === 1)
+              ? s.api === 'twain32'
+                ? 'twain32'
+                : 'twain'
+              : s.api === 'wia1'
                 ? 'wia1'
                 : 'wia',
         });
