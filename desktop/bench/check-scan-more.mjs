@@ -459,7 +459,7 @@ await page.type('[aria-label="IP address or host name"]', '192.0.2.44');
 await click(page, '[aria-label="Add a network scanner"] .accent-btn', 'Add');
 await until(page, () => !document.querySelector('[aria-label="Add a network scanner"]'));
 await L.waitReady(page);
-check((await dialog(page)).scanner === 'Network scanner at 192.0.2.44 (network)', 'Add by IP address adds it and chooses it', (await dialog(page)).scanner);
+check((await dialog(page)).scanner === 'Network scanner at 192.0.2.44', 'Add by IP address adds it and chooses it', (await dialog(page)).scanner);
 await press(page, 'Scan');
 await L.waitIdle(page);
 await press(page, 'Scan is complete');
