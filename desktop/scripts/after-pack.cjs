@@ -12,7 +12,9 @@
  *   native/mac-certs/build.sh, outside the app archive in resources/certs.
  *   Release builds set PAPERWING_REQUIRE_CERTS=1 so it can't be left out.
  * - macOS: adds the scanner helper built by native/mac-scanner/build.sh.
- *   Release builds set PAPERWING_REQUIRE_SCANNER=1 so it can't be left out.
+ * - Windows: checks the scanner helpers built by native/win-scanner/build.mjs
+ *   are in resources/scanner (electron-builder.yml copies them).
+ *   Release builds set PAPERWING_REQUIRE_SCANNER=1 so neither can be left out.
  */
 const {
   chmodSync,
@@ -92,6 +94,24 @@ function addScannerHelper(appOutDir, productName) {
   console.log('  • added the scanner helper');
 }
 
+function checkWindowsScanner(appOutDir) {
+  const dir = join(appOutDir, 'resources', 'scanner');
+  const files = [
+    'paperwing-scan.exe',
+    'paperwing-twain32.exe',
+    'NAPS2.Wia.dll',
+    'NTwain.dll',
+  ];
+  const missing = files.filter((f) => !existsSync(join(dir, f)));
+  if (!missing.length) {
+    console.log('  • added the scanner helpers');
+    return;
+  }
+  const msg = `Scanner helpers not built (run native/win-scanner/build.mjs): missing ${missing.join(', ')}`;
+  if (process.env.PAPERWING_REQUIRE_SCANNER) throw new Error(msg);
+  console.warn(`  • ${msg}; packaging without them`);
+}
+
 const UNUSED = {
   win32: ['dxcompiler.dll', 'dxil.dll'],
 };
@@ -101,7 +121,10 @@ exports.default = async function afterPack({
   electronPlatformName,
   packager,
 }) {
-  if (electronPlatformName === 'win32') addThumbnailProvider(appOutDir);
+  if (electronPlatformName === 'win32') {
+    addThumbnailProvider(appOutDir);
+    checkWindowsScanner(appOutDir);
+  }
   if (electronPlatformName === 'darwin')
     addScannerHelper(appOutDir, packager.appInfo.productFilename);
   if (electronPlatformName === 'win32' || electronPlatformName === 'darwin')
