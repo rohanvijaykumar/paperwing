@@ -15,6 +15,7 @@ const { check, until, sleep, click, press, choose, dialog } = L;
 const scanner = await startFakeEscl({
   name: 'Pretend Office Scanner',
   adf: { sheets: 2, duplex: true },
+  sharpen: true,
 });
 // (the real thing: no stand-in scanners)
 delete process.env.PAPERWING_SCAN_TEST;
@@ -60,6 +61,7 @@ const opts = await page.evaluate(() =>
 check(opts.includes('Seconds to wait'), 'Options: how long to wait for it', JSON.stringify(opts));
 await click(page, '[aria-label="Scanner options"] .quiet-btn', 'Cancel');
 
+check((await L.shows(page, ['Sharpness'])).Sharpness, 'its own sharpening: Image ▸ Sharpness');
 await choose(page, 'Source', 'Flatbed');
 await press(page, 'Preview');
 await L.waitIdle(page, 60000);

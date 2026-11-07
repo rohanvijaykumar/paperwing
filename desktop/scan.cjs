@@ -846,8 +846,10 @@ function createScanning({
     const delivering = [];
     const deliver = async (m) => {
       // Only files the backend wrote into our folder
+      // (by real path: a helper may give back the long form of an 8.3 name)
       const file = path.resolve(dir, String(m.file));
-      if (path.dirname(file) !== path.resolve(dir)) return;
+      const real = (p) => fsp.realpath(p).catch(() => path.resolve(p));
+      if ((await real(path.dirname(file))) !== (await real(dir))) return;
       const data = await fsp.readFile(file);
       await fsp.rm(file, { force: true });
       pages++;
