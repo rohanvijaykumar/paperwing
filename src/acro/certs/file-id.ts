@@ -412,7 +412,8 @@ export function makePfx(
   const octets = (s: string) => a.create(U, T.OCTETSTRING, false, s);
   const seq = (v: forge.asn1.Asn1[]) => a.create(U, T.SEQUENCE, true, v);
   const set = (v: forge.asn1.Asn1[]) => a.create(U, T.SET, true, v);
-  const md = forge.md.sha1.create();
+  // Pairs the key with its certificate (any unique value; a fingerprint)
+  const md = forge.md.sha256.create();
   md.update(toBinary(certs[0]));
   const attrs = [
     seq([
