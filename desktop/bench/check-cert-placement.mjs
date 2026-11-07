@@ -71,6 +71,15 @@ const CASES = [
     media: [20, 30, 632, 822],
     crop: [60, 120, 540, 760],
   },
+  // Zoomed just as Digitally sign starts (the viewer reports the new layout
+  // before it has moved the pages): the page still takes a box
+  {
+    name: 'crop-rot90-zoomed',
+    rotate: 90,
+    media: [20, 30, 632, 822],
+    crop: [60, 120, 540, 760],
+    zoomAtStart: true,
+  },
   {
     name: 'crop-rot270',
     rotate: 270,
@@ -150,6 +159,23 @@ for (const c of CASES) {
       page.evaluate(() => !!document.querySelector('#cb-sign'))
     );
     await page.click('#cb-sign');
+    if (c.zoomAtStart)
+      for (let i = 0; i < 2; i++)
+        await page.evaluate(() => {
+          const host = [...document.querySelectorAll('#viewer-host *')].find(
+            (e) => e.shadowRoot
+          );
+          [
+            ...document.querySelectorAll('button'),
+            ...(host?.shadowRoot?.querySelectorAll('button') ?? []),
+          ]
+            .find(
+              (b) =>
+                b.getAttribute('aria-label') === 'Zoom in' ||
+                b.title === 'Zoom in'
+            )
+            ?.click();
+        });
     const layer = await until(() =>
       page.evaluate(() => {
         const host = [...document.querySelectorAll('#viewer-host *')].find(
@@ -174,6 +200,19 @@ for (const c of CASES) {
           : null;
       })
     );
+    if (!layer) {
+      // (what the page looked like, to tell why)
+      const why = await page.evaluate(() => {
+        const host = [...document.querySelectorAll('#viewer-host *')].find(
+          (e) => e.shadowRoot
+        );
+        return {
+          bar: document.querySelector('#cert-bar')?.textContent,
+          layers: host?.shadowRoot?.querySelectorAll('.pwsig-layer').length,
+        };
+      });
+      throw new Error(`the page took no box: ${JSON.stringify(why)}`);
+    }
     // A box in the visible part of the page: from 20% to 60% across, and a
     // band near the top of what's on screen
     const x0 = layer.left + layer.w * 0.2;

@@ -53,12 +53,34 @@ export function drawSignatureBox(
   style.textContent = STYLE;
   root.append(style);
   const layers = new Map<HTMLElement, HTMLElement>();
+  let stopped = false;
+  // The viewer reports a new layout (zoom, scroll) before it has moved its
+  // pages, and moving them changes only their style, which nothing here
+  // hears: pages that don't match the layout yet are tried again on the
+  // next frames
+  let retry = 0;
+  let retrying = false;
+  const again = () => {
+    if (retrying || stopped || retry >= 120) return;
+    retrying = true;
+    retry++;
+    requestAnimationFrame(() => {
+      retrying = false;
+      if (!stopped) place(false);
+    });
+  };
 
-  const place = () => {
+  const place = (fresh = true) => {
+    if (fresh) retry = 0;
     const layout = viewer.pageLayout(tabId);
-    if (!layout || !viewer.isShowing(tabId)) return;
+    if (!layout || !viewer.isShowing(tabId)) {
+      again();
+      return;
+    }
+    const found = findPages(root, layout);
+    if (found.length < pageBoxes(root).length || !found.length) again();
     const shown = new Set<HTMLElement>();
-    for (const { page, index } of findPages(root, layout)) {
+    for (const { page, index } of found) {
       shown.add(page);
       const existing = layers.get(page);
       if (existing?.isConnected && existing.dataset.page === String(index))
@@ -94,8 +116,6 @@ export function drawSignatureBox(
     if (id === tabId) place();
   });
   place();
-  // (pages already drawn before the layers went on)
-  if (!pageBoxes(root).length) requestAnimationFrame(place);
 
   function start(e: PointerEvent, layer: HTMLElement, index: number) {
     if (e.button !== 0) return;
@@ -162,7 +182,6 @@ export function drawSignatureBox(
   };
   document.addEventListener('keydown', onKey, true);
 
-  let stopped = false;
   function stop() {
     if (stopped) return;
     stopped = true;
