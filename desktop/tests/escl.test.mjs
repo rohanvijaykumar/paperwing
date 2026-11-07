@@ -717,17 +717,25 @@ test('real multicast: the fake answers on the multicast group', { skip: !process
   const f = await startFakeEscl({ mdns: { port: 5353 }, adf: { sheets: 1 } });
   fakes.push(f);
   const c = createEscl({ timeouts: { ...FAST, discoveryMs: 4000 } });
-  const { scanners } = await c.list();
-  assert.ok(scanners.some((s) => s.id === idOf(f)), JSON.stringify(scanners));
+  const result = await c.list();
+  assert.ok(result.scanners?.some((s) => s.id === idOf(f)), JSON.stringify(result));
   const r = await run(c, idOf(f), { source: 'feeder', dpi: 75 });
   assert.deepEqual(r.last, { type: 'done', pages: 1 });
 });
 
 test('live: finds and scans a scanner announced by the system', { skip: !process.env.ESCL_LIVE_NAME }, async () => {
   const c = createEscl({ timeouts: { discoveryMs: 6000 } });
-  const { scanners } = await c.list();
-  console.log('found', JSON.stringify(scanners));
-  const s = scanners.find((x) => x.name === process.env.ESCL_LIVE_NAME);
+  const result = await c.list();
+  console.log('found', JSON.stringify(result));
+  // What the network looked like, if nothing was found
+  if (!result.scanners?.length) {
+    console.log('adapters', JSON.stringify(mdns.localInterfaces()));
+    await mdns.browse({ types: ['_uscan._tcp.local'], timeoutMs: 2000 }).then(
+      (r) => console.log('browse', JSON.stringify(r)),
+      (e) => console.log('browse failed', e.code, e.message)
+    );
+  }
+  const s = result.scanners?.find((x) => x.name === process.env.ESCL_LIVE_NAME);
   assert.ok(s, `no scanner called ${process.env.ESCL_LIVE_NAME}`);
   const caps = await c.caps(s.id);
   assert.equal(caps.type, 'caps', JSON.stringify(caps));
