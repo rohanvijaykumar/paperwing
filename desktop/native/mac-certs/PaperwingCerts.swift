@@ -56,6 +56,7 @@ func identities() -> [Found] {
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
               let items = result as? [Any] else { return }
         for item in items {
+            // (an identity query returns identities)
             let identity = item as! SecIdentity
             var cert: SecCertificate?
             guard SecIdentityCopyCertificate(identity, &cert) == errSecSuccess, let cert else { continue }
@@ -106,9 +107,9 @@ func list() {
             "certDer": f.der.base64EncodedString(),
             "chainDer": chain(f.certificate),
             "hasPrivateKey": true,
-            "keyAlg": k.alg ?? NSNull(),
+            "keyAlg": k.alg.map { $0 as Any } ?? NSNull(),
             "keyBits": k.bits,
-            "curve": k.curve ?? NSNull(),
+            "curve": k.curve.map { $0 as Any } ?? NSNull(),
         ]
     }
     emit(["type": "certs", "certs": certs])
@@ -151,7 +152,7 @@ func sign(id: String, hash: Data, alg: String) {
     }
     let info = keyInfo(found.certificate)
     let algorithm: SecKeyAlgorithm
-    switch (info.alg, alg) {
+    switch (info.alg ?? "", alg) {
     case ("rsa", "sha256"): algorithm = .rsaSignatureDigestPKCS1v15SHA256
     case ("rsa", "sha384"): algorithm = .rsaSignatureDigestPKCS1v15SHA384
     case ("ec", "sha256"): algorithm = .ecdsaSignatureDigestX962SHA256
