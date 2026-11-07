@@ -75,7 +75,9 @@ function signaturesIn(pdf: Uint8Array) {
   for (const m of text.matchAll(re)) {
     const range = m.slice(1, 5).map(Number);
     const hex = text.slice(range[1] + 1, range[2] - 1);
-    const cms = Buffer.from(hex.replace(/(00)+$/, ''), 'hex');
+    // (with the placeholder's zero padding: asn1js reads just the CMS, and
+    // stripping zeros would cut a CMS that ends in a 00 byte)
+    const cms = Buffer.from(hex, 'hex');
     // The dictionary around it
     const start = text.lastIndexOf('<<', m.index);
     out.push({
