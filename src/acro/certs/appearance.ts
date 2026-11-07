@@ -188,7 +188,12 @@ export async function drawAppearance(
     for (; size > 6; size *= 0.92) {
       ctx.font = `600 ${size}px ${FONT}`;
       const ls = wrap(ctx, v.name, target);
-      if (ls.length * size * 1.15 <= height - pad * 2 && ls.length <= 3) {
+      // (a word longer than the half it's in would run into the details)
+      if (
+        ls.length * size * 1.15 <= height - pad * 2 &&
+        ls.length <= 3 &&
+        ls.every((l) => ctx.measureText(l).width <= target)
+      ) {
         words.splice(0, words.length, ...ls);
         break;
       }
@@ -218,7 +223,11 @@ export async function drawAppearance(
     for (; size > 4; size *= 0.92) {
       ctx.font = `${size}px ${FONT}`;
       wrapped = lines.flatMap((l) => wrap(ctx, l, textW));
-      if (wrapped.length * size * 1.2 <= height - pad * 2) break;
+      if (
+        wrapped.length * size * 1.2 <= height - pad * 2 &&
+        wrapped.every((l) => ctx.measureText(l).width <= textW)
+      )
+        break;
     }
     const blockH = wrapped.length * size * 1.2;
     let y = Math.max(pad, (height - blockH) / 2);
