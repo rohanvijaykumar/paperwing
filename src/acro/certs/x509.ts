@@ -115,8 +115,11 @@ function dnEntries(rdn: pkijs.RelativeDistinguishedNames) {
   }));
 }
 
+/** The name as Windows, macOS and Acrobat show it: most specific first
+ *  (CN=…, O=…, C=…), the reverse of the order it's stored in (RFC 4514) */
 function dnString(rdn: pkijs.RelativeDistinguishedNames): string {
   return dnEntries(rdn)
+    .reverse()
     .map((e) => `${e.name}=${e.value}`)
     .join(', ');
 }
@@ -366,11 +369,11 @@ export async function createSelfSignedId(
   serial[0] &= 0x7f;
   serial[0] |= 0x40;
   cert.serialNumber = new asn1js.Integer({ valueHex: serial.buffer });
-  const name = new pkijs.RelativeDistinguishedNames();
+  const attributes: pkijs.AttributeTypeAndValue[] = [];
   const add = (type: string, value: string | undefined, printable = false) => {
     const v = value?.trim();
     if (!v) return;
-    name.typesAndValues.push(
+    attributes.push(
       new pkijs.AttributeTypeAndValue({
         type,
         value: printable
@@ -381,11 +384,19 @@ export async function createSelfSignedId(
       })
     );
   };
-  add('2.5.4.3', opts.name);
-  add('2.5.4.11', opts.orgUnit);
-  add('2.5.4.10', opts.org);
-  add('1.2.840.113549.1.9.1', opts.email);
+  // The usual order, country first, each attribute in its own RDN (pkijs
+  // would put them all in one, which other software shows as
+  // "CN=… + OU=… + O=…")
   add('2.5.4.6', opts.country?.toUpperCase(), true);
+  add('1.2.840.113549.1.9.1', opts.email);
+  add('2.5.4.10', opts.org);
+  add('2.5.4.11', opts.orgUnit);
+  add('2.5.4.3', opts.name);
+  const name = pkijs.RelativeDistinguishedNames.fromBER(
+    new asn1js.Sequence({
+      value: attributes.map((a) => new asn1js.Set({ value: [a.toSchema()] })),
+    }).toBER(false)
+  );
   cert.subject = name;
   cert.issuer = name;
   const now = opts.from ?? new Date();

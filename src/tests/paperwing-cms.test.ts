@@ -24,6 +24,7 @@ import {
   type SignRequest,
 } from '../acro/certs/cms';
 import {
+  combineIdFiles,
   derToP1363,
   keySigner,
   makePfx,
@@ -602,6 +603,12 @@ describe('Digital ID files', () => {
     await expect(readPem(pem(certDer) + encPem)).rejects.toBeInstanceOf(
       PasswordError
     );
+    // (a wrong password often decrypts to bytes that aren't a key: still
+    // "wrong password", not "can't read this file")
+    for (const wrong of ['nope', 'secreT', 'x'])
+      await expect(
+        readPem(pem(certDer) + encPem, wrong)
+      ).rejects.toBeInstanceOf(PasswordError);
     expect((await readPem(pem(certDer) + encPem, 'secret')).keyAlg).toBe('ec');
     expect(
       (
@@ -612,6 +619,97 @@ describe('Digital ID files', () => {
         )
       ).keyAlg
     ).toBe('ec');
+  });
+
+  it('PEM: a certificate and its key in separate files, chosen together', async () => {
+    const { certDer, keyDer } = await testId('rsa');
+    const certFile = {
+      name: 'me.crt',
+      data: new TextEncoder().encode(pem(certDer)),
+    };
+    const keyFile = {
+      name: 'me.key',
+      data: new TextEncoder().encode(
+        `-----BEGIN PRIVATE KEY-----
+${lines(keyDer)}
+-----END PRIVATE KEY-----
+`
+      ),
+    };
+    // Each alone says what's missing, and how to add it
+    await expect(readIdFile(certFile.name, certFile.data, '')).rejects.toThrow(
+      /no private key.*choose both files together/
+    );
+    await expect(readIdFile(keyFile.name, keyFile.data, '')).rejects.toThrow(
+      /no certificate.*choose both files together/
+    );
+    const both = combineIdFiles([certFile, keyFile])!;
+    expect(both.name).toBe('me.crt + me.key');
+    const id = await readIdFile(both.name, both.data, '');
+    expect(id.keyAlg).toBe('rsa');
+    expect([...id.certDer]).toEqual([...certDer]);
+    // A .pfx chosen with other files: the .pfx
+    const pfx = {
+      name: 'me.pfx',
+      data: makePfx(keyDer, [certDer], 'pw', 'me'),
+    };
+    expect(combineIdFiles([certFile, pfx])).toBe(pfx);
+    expect(combineIdFiles([pfx])).toBe(pfx);
+    expect(combineIdFiles([])).toBeNull();
+  });
+
+  it('a new ID’s name: one attribute per part, shown most specific first', async () => {
+    const { certDer } = await createSelfSignedId({
+      name: 'Jana Nováková',
+      orgUnit: 'Legal',
+      org: 'Příklad s.r.o.',
+      email: 'jana@example.com',
+      country: 'cz',
+      keyType: 'ec',
+    });
+    const cert = pkijs.Certificate.fromBER(certDer.slice());
+    // Five RDNs of one attribute each (not one RDN with five, which other
+    // software shows as "CN=… + OU=… + …"), country first
+    const subject = (cert.subject.toSchema() as asn1js.Sequence).valueBlock
+      .value as asn1js.Set[];
+    expect(subject.map((rdn) => rdn.valueBlock.value.length)).toEqual([
+      1, 1, 1, 1, 1,
+    ]);
+    const info = await certInfo(certDer);
+    expect(info.subjectDn).toBe(
+      'CN=Jana Nováková, OU=Legal, O=Příklad s.r.o., E=jana@example.com, C=CZ'
+    );
+    expect(info.issuerDn).toBe(info.subjectDn);
+    expect(info.name).toBe('Jana Nováková');
+    expect(info.org).toBe('Příklad s.r.o.');
+    expect(info.selfSigned).toBe(true);
+    if (opensslAvailable) {
+      const dir = mkdtempSync(
+        join(process.env.BENCH_TMP || tmpdir(), 'pw-dn-')
+      );
+      try {
+        writeFileSync(join(dir, 'c.der'), certDer);
+        const out = execFileSync(
+          'openssl',
+          [
+            'x509',
+            '-inform',
+            'DER',
+            '-in',
+            join(dir, 'c.der'),
+            '-noout',
+            '-subject',
+            '-nameopt',
+            'RFC2253',
+          ],
+          { encoding: 'utf8' }
+        );
+        expect(out).not.toContain('+');
+        expect(out).toMatch(/^subject=CN=Jana/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
   });
 
   it('a key that belongs to none of the certificates is refused', async () => {
