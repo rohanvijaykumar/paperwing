@@ -249,6 +249,11 @@ jobs:
         working-directory: desktop
         run: node bench/check-ui12.mjs
 
+      - name: Home and About look (edition)
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-edition.mjs
+
       - name: Branding bench
         if: ${{ !cancelled() }}
         working-directory: desktop

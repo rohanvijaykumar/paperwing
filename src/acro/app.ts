@@ -36,6 +36,7 @@ import type { Presentation } from './present';
 import { showModal } from './modal';
 import type { ScanBridge, ScanOutcome } from './scan';
 import { scanName } from './scan-settings';
+import { ABOUT_ART } from './edition';
 import {
   type AvailableUpdate,
   checkForUpdates,
@@ -4953,7 +4954,9 @@ function dialog(
   title: string,
   body: Node,
   /** Extra class for the dialog box (its own look, like About) */
-  className?: string
+  className?: string,
+  /** Decoration behind the head and body (About's artwork) */
+  decor?: Node
 ): () => void {
   const backdrop = h('div', { class: 'dlg-backdrop' });
   const close = () => {
@@ -4976,6 +4979,7 @@ function dialog(
         role: 'dialog',
         'aria-label': title,
       },
+      decor,
       h(
         'div',
         { class: 'dlg-head' },
@@ -4996,28 +5000,19 @@ function dialog(
 function showAbout() {
   const link = (href: string, text: string) =>
     h('a', { href, target: '_blank', rel: 'noopener' }, text);
-  // The launch-screen look: the flight path and a faint wing behind the text
-  const art = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  art.setAttribute('class', 'about-art');
-  art.setAttribute('viewBox', '0 0 560 360');
-  art.setAttribute('preserveAspectRatio', 'none');
-  art.setAttribute('aria-hidden', 'true');
-  art.innerHTML = `
-    <path d="M-20 300 C 120 250, 260 330, 400 210 S 600 80, 620 60" fill="none"
-      stroke="rgb(255 255 255 / 0.22)" stroke-width="2" stroke-dasharray="2 10" stroke-linecap="round" />
-    <path d="M-20 340 C 160 300, 300 360, 440 250 S 600 140, 620 120" fill="none"
-      stroke="rgb(255 255 255 / 0.12)" stroke-width="2" stroke-dasharray="2 10" stroke-linecap="round" />
-    <g transform="translate(330 40) scale(0.36)" opacity="0.16">
-      <polygon points="322,248 452,248 452,806 322,740" fill="#fff" />
-      <polygon points="452,248 772,398 452,414" fill="#fff" />
-      <polygon points="452,414 772,398 452,586" fill="#fff" />
-    </g>`;
+  // The edition's artwork across the top (one picture per theme, edition/);
+  // decorative, so hidden from screen readers
+  const art = h(
+    'div',
+    { class: 'about-art', 'aria-hidden': 'true' },
+    h('img', { class: 'about-art-light', src: ABOUT_ART.light, alt: '' }),
+    h('img', { class: 'about-art-dark', src: ABOUT_ART.dark, alt: '' })
+  );
   dialog(
     'About Paperwing',
     h(
       'div',
       { class: 'dlg-body about' },
-      art,
       h(
         'div',
         { class: 'about-brand' },
@@ -5055,7 +5050,8 @@ function showAbout() {
         link(`${REPO_URL}/blob/main/NOTICE.md`, 'Third-party notices')
       )
     ),
-    'dlg-about'
+    'dlg-about',
+    art
   );
 }
 

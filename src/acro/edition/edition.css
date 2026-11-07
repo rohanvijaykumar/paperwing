@@ -1,0 +1,144 @@
+/*
+ * The current edition's look for Home and About (see README.md).
+ * app.css uses these; a new edition changes the values here, not app.css.
+ *
+ * Home's cards are styled in light only: in dark the card tokens are the
+ * app's own card colours, so the cards look exactly as everywhere else.
+ */
+
+:root {
+  /* Home: a pearly sheen over a near-white page */
+  --home-bg: #fbfafd;
+  --home-sheen: conic-gradient(
+    from 200deg at 72% 18%,
+    #ffd3cb,
+    #ffe6c4,
+    #e2f6d9,
+    #cdeef0,
+    #d4e1ff,
+    #e6d6ff,
+    #ffd1e6,
+    #ffd3cb
+  );
+  --home-sheen-opacity: 0.95;
+  --home-welcome-rule: rgb(255 255 255 / 0.7);
+  --home-row-rule: var(--border);
+  --home-card-fill: linear-gradient(
+    rgb(255 255 255 / 0.9),
+    rgb(255 255 255 / 0.9)
+  );
+  --home-card-rim: linear-gradient(
+    135deg,
+    #ffc2b8,
+    #e3d2ff 35%,
+    #bfe6ff 65%,
+    #cdf2df
+  );
+  --home-card-blur: blur(12px);
+  --home-card-shadow:
+    0 1px 2px rgb(110 80 140 / 0.06), 0 12px 30px -14px rgb(110 80 140 / 0.28);
+  --home-drop-border: rgb(150 120 190 / 0.35);
+
+  /* About: the picture (edition/about-*.webp) on its own background colour,
+     the details on frosted glass. Text colours are checked for 4.5:1 on the
+     glass over the picture (desktop/bench/check-edition.mjs) */
+  --about-bg: #fefefe;
+  --about-art-light: block;
+  --about-art-dark: none;
+  --about-shadow:
+    0 30px 80px -20px rgb(40 0 20 / 0.45), 0 0 0 1px rgb(0 0 0 / 0.06);
+  --about-glass: rgb(255 255 255 / 0.74);
+  --about-glass-solid: rgb(255 255 255 / 0.95);
+  --about-glass-shadow:
+    0 0 46px -8px rgb(255 107 94 / 0.3), 0 14px 36px -14px rgb(90 20 60 / 0.28),
+    0 24px 50px -20px rgb(142 63 214 / 0.3);
+  --about-text: #3f3a44;
+  --about-text-2: #5b5560;
+  --about-link: #a30d29;
+  --about-link-line: rgb(163 13 41 / 0.4);
+  --about-close: #3a0a18;
+  --about-close-bg: rgb(255 255 255 / 0.6);
+  --about-close-bg-hover: rgb(255 255 255 / 0.85);
+}
+
+/* Dark: follows the OS unless the user picked a theme (as in app.css) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --home-bg: #16151b;
+    --home-sheen: conic-gradient(
+      from 200deg at 72% 18%,
+      #7a2a44,
+      #7a3550,
+      #23606a,
+      #1f4f86,
+      #3f3a95,
+      #6a2f8a,
+      #8a2f64,
+      #7a2a44
+    );
+    --home-sheen-opacity: 0.8;
+    --home-welcome-rule: rgb(255 255 255 / 0.07);
+    --home-row-rule: rgb(255 255 255 / 0.07);
+    --home-card-fill: linear-gradient(var(--surface), var(--surface));
+    --home-card-rim: linear-gradient(var(--surface), var(--surface));
+    --home-card-blur: none;
+    --home-card-shadow: var(--card-shadow);
+    --home-drop-border: var(--border-strong);
+
+    --about-bg: #090517;
+    --about-art-light: none;
+    --about-art-dark: block;
+    --about-shadow:
+      0 30px 80px -20px rgb(0 0 0 / 0.8), 0 0 0 1px rgb(255 255 255 / 0.08);
+    --about-glass: rgb(38 28 50 / 0.62);
+    --about-glass-solid: rgb(38 28 50 / 0.96);
+    --about-glass-shadow:
+      0 0 50px -6px rgb(232 67 127 / 0.3), 0 18px 44px -14px rgb(0 0 0 / 0.95);
+    --about-text: #d6d1dc;
+    --about-text-2: #aaa3b2;
+    --about-link: #ff8f80;
+    --about-link-line: rgb(255 143 128 / 0.45);
+    --about-close: #ffffff;
+    --about-close-bg: rgb(255 255 255 / 0.1);
+    --about-close-bg-hover: rgb(255 255 255 / 0.2);
+  }
+}
+:root[data-theme='dark'] {
+  --home-bg: #16151b;
+  --home-sheen: conic-gradient(
+    from 200deg at 72% 18%,
+    #7a2a44,
+    #7a3550,
+    #23606a,
+    #1f4f86,
+    #3f3a95,
+    #6a2f8a,
+    #8a2f64,
+    #7a2a44
+  );
+  --home-sheen-opacity: 0.8;
+  --home-welcome-rule: rgb(255 255 255 / 0.07);
+  --home-row-rule: rgb(255 255 255 / 0.07);
+  --home-card-fill: linear-gradient(var(--surface), var(--surface));
+  --home-card-rim: linear-gradient(var(--surface), var(--surface));
+  --home-card-blur: none;
+  --home-card-shadow: var(--card-shadow);
+  --home-drop-border: var(--border-strong);
+
+  --about-bg: #090517;
+  --about-art-light: none;
+  --about-art-dark: block;
+  --about-shadow:
+    0 30px 80px -20px rgb(0 0 0 / 0.8), 0 0 0 1px rgb(255 255 255 / 0.08);
+  --about-glass: rgb(38 28 50 / 0.62);
+  --about-glass-solid: rgb(38 28 50 / 0.96);
+  --about-glass-shadow:
+    0 0 50px -6px rgb(232 67 127 / 0.3), 0 18px 44px -14px rgb(0 0 0 / 0.95);
+  --about-text: #d6d1dc;
+  --about-text-2: #aaa3b2;
+  --about-link: #ff8f80;
+  --about-link-line: rgb(255 143 128 / 0.45);
+  --about-close: #ffffff;
+  --about-close-bg: rgb(255 255 255 / 0.1);
+  --about-close-bg-hover: rgb(255 255 255 / 0.2);
+}
