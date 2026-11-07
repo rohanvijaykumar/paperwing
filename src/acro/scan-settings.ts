@@ -64,12 +64,8 @@ export interface ScanSettings {
   /* File size */
   /** 0 (small) to 1 (high quality) */
   quality: number;
-  /** Color and grayscale pages */
+  /** Color and grayscale pages (black and white: always CCITT Group 4) */
   compression: 'jpeg' | 'zip';
-  /** Black and white pages */
-  bwCompression: 'g4' | 'zip';
-  /** Text and pictures compressed separately (scan-image.ts, if it can) */
-  adaptive: boolean;
   /* Output (kept for every preset) */
   output: Output;
   perFile: number;
@@ -168,8 +164,6 @@ export function defaultSettings(locale = 'en-US'): ScanSettings {
     rotate: 0,
     quality: 0.6,
     compression: 'jpeg',
-    bwCompression: 'g4',
-    adaptive: false,
     output: 'new',
     perFile: 1,
     prefix: 'Scan',
@@ -195,12 +189,7 @@ export const BUILTIN_PRESETS: Preset[] = [
   {
     id: 'bw',
     label: 'Black and white document',
-    settings: {
-      color: 'bw',
-      dpi: 300,
-      bwCompression: 'g4',
-      despeckle: true,
-    },
+    settings: { color: 'bw', dpi: 300, despeckle: true },
   },
   {
     id: 'gray',
@@ -259,7 +248,6 @@ export function cleanSettings(raw: unknown): Partial<ScanSettings> {
     'removeBlank',
     'edgeShadow',
     'autoRotate',
-    'adaptive',
     'promptMore',
     'ocr',
     'pdfa',
@@ -291,7 +279,6 @@ export function cleanSettings(raw: unknown): Partial<ScanSettings> {
   set('rotate', oneOf('rotate', [0, 90, 180, 270]));
   set('quality', num('quality', 0, 1));
   set('compression', oneOf('compression', ['jpeg', 'zip']));
-  set('bwCompression', oneOf('bwCompression', ['g4', 'zip']));
   set('output', oneOf('output', ['new', 'append', 'multiple']));
   set('perFile', num('perFile', 1, 9999) && Number.isInteger(r.perFile));
   set('prefix', typeof r.prefix === 'string' && r.prefix.length <= 100);
@@ -482,7 +469,8 @@ export interface Box {
 export interface ProcessPlan {
   /** The page's final color: 'auto' decides from the page */
   color: ColorMode;
-  /** Make it black and white here (the scanner sent gray) at this level */
+  /** Black and white: darker than this is black (the scanner may have
+   *  done it already: doing it again changes nothing) */
   threshold: number | null;
   brightness: number;
   contrast: number;
@@ -574,7 +562,7 @@ export function buildRequest(
   }
   const plan: ProcessPlan = {
     color: s.color,
-    threshold: null,
+    threshold: s.color === 'bw' ? s.threshold : null,
     brightness: 0,
     contrast: 0,
     invert: false,
@@ -599,11 +587,8 @@ export function buildRequest(
     if (source?.contrast) request.contrast = toRange(s.contrast, source.contrast);
     else plan.contrast = s.contrast;
   }
-  if (s.color === 'bw') {
-    if (color === 'bw' && source?.threshold)
-      request.threshold = thresholdToRange(s.threshold, source.threshold);
-    else if (color !== 'bw') plan.threshold = s.threshold;
-  }
+  if (s.color === 'bw' && color === 'bw' && source?.threshold)
+    request.threshold = thresholdToRange(s.threshold, source.threshold);
   if (s.invert && s.color === 'bw') {
     if (color === 'bw' && source?.invert) request.invert = true;
     else plan.invert = true;

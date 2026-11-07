@@ -22,7 +22,7 @@ import {
   visibility,
   type ScanSettings,
 } from '../acro/scan-settings';
-import { buildPdf, looksBlank, looksGray } from '../acro/scan-process';
+import { buildPdf, imageSettings } from '../acro/scan-process';
 import { scanErrorMessage } from '../acro/scan';
 import type { ScanCaps, ScanDevice, ScanSource } from '../acro/desktop';
 
@@ -189,7 +189,7 @@ describe('the request, and what is done afterwards', () => {
     expect(request.contrast).toBeUndefined();
     expect(plan.contrast).toBe(20); // no contrast on this scanner
     expect(plan.brightness).toBe(0);
-    expect(plan.threshold).toBeNull();
+    expect(plan.threshold).toBe(102); // (again afterwards: no change)
     expect(plan.deskew).toBe(true);
   });
 
@@ -346,34 +346,32 @@ describe('after the scan', () => {
   });
 });
 
-/** RGBA pixels, `n` of them, colored by index */
-const pixels = (color: (k: number) => number[], n: number) => {
-  const px = new Uint8ClampedArray(n * 4);
-  for (let k = 0; k < n; k++) px.set([...color(k), 255], k * 4);
-  return px;
-};
-
 describe('pages', () => {
-  it('Autodetect: gray unless there is real color', () => {
-    expect(looksGray(pixels(() => [200, 200, 200], 7000))).toBe(true);
-    expect(looksGray(pixels((k) => (k % 5 ? [200, 200, 200] : [200, 40, 40]), 7000))).toBe(false);
-    expect(looksGray(pixels((k) => (k === 700 ? [255, 0, 0] : [240, 240, 240]), 7000))).toBe(true);
-  });
-
-  it('blank pages: paper with specks is blank; a page with text is not', () => {
-    const w = 200;
-    const h = 260;
-    const speck = pixels((k) => (k === w * 130 + 100 ? [0, 0, 0] : [250, 250, 250]), w * h);
-    expect(looksBlank(speck, w, h, 50)).toBe(true);
-    // Lines of "text" in the middle
-    const text = pixels((k) => {
-      const y = Math.floor(k / w);
-      return y % 20 < 3 && y > 40 && y < 200 ? [20, 20, 20] : [250, 250, 250];
-    }, w * h);
-    expect(looksBlank(text, w, h, 100)).toBe(false);
-    // Dark edges (the lid's shadow) don't count
-    const shadow = pixels((k) => (k % w < 4 ? [30, 30, 30] : [250, 250, 250]), w * h);
-    expect(looksBlank(shadow, w, h, 0)).toBe(true);
+  it('the plan becomes scan-image’s settings (flipped backs too)', () => {
+    const { plan } = buildRequest(
+      settings({ color: 'bw', threshold: 150, removeBlank: true, blankSensitivity: 70, background: 'high', sharpen: 'low', rotate: 90 }),
+      caps('wia', flatbed),
+      flatbed,
+      null
+    );
+    expect(imageSettings(plan, true)).toEqual({
+      colorMode: 'bw',
+      threshold: 150,
+      brightness: 0,
+      contrast: 0,
+      invert: false,
+      deskew: true,
+      autoCrop: false,
+      backgroundRemoval: 'high',
+      descreen: false,
+      textSharpening: 'low',
+      despeckle: false,
+      edgeShadowRemoval: false,
+      removeBlank: { enabled: true, sensitivity: 70 },
+      autoRotate: false,
+      rotate: 90,
+      flip: true,
+    });
   });
 
   it('the PDF has a page per scan at its real size, and PDF pages as they were', async () => {
@@ -382,9 +380,9 @@ describe('pages', () => {
     other.addPage([500, 200]);
     const otherBytes = await other.save();
     const pdf = await buildPdf([
-      { kind: 'image', page: { bytes: PNG, kind: 'png', width: 2, height: 1, dpi: 72, rotation: 0 } },
+      { kind: 'image', page: { bytes: PNG, kind: 'png', width: 2, height: 1, dpi: 72 }, rotation: 0 },
       // 850 × 1100 px at 100 dpi is a Letter page; turned in review
-      { kind: 'image', page: { bytes: PNG, kind: 'png', width: 850, height: 1100, dpi: 100, rotation: 90 } },
+      { kind: 'image', page: { bytes: PNG, kind: 'png', width: 850, height: 1100, dpi: 100 }, rotation: 90 },
       { kind: 'pdf', bytes: otherBytes, index: 1, rotation: 180 },
     ]);
     const doc = await PDFDocument.load(pdf, { updateMetadata: false });

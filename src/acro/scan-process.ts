@@ -1,176 +1,276 @@
 /**
- * What happens to a scanned page between the scanner and the PDF: the
- * clean-up the scanner didn't do (ProcessPlan, scan-settings.ts), then
- * encoding at the chosen file size, then the PDF itself.
+ * What happens to a scanned page between the scanner and the PDF, on top of
+ * scan-image.ts (the clean-up, in a worker) and scan-pdf.ts (the encoders and
+ * the PDF): each page is cleaned up as it arrives, kept losslessly while the
+ * pages are reviewed, and encoded at the chosen file size at the end.
  */
 import { PDFDocument, degrees } from 'pdf-lib';
+import type {
+  Bitmap,
+  OrientationDetector,
+  Rect,
+  ScanImage,
+  ScanImageSettings,
+} from './scan-image';
+import { createScanImageClient } from './scan-image-client';
+import {
+  addScanPage,
+  encodePage as encodeScanPage,
+  type EncodedPage,
+} from './scan-pdf';
 import type { ProcessPlan, ScanSettings } from './scan-settings';
 
-/** A page as the scanner sent it */
+/** A page as the scanner (or a scanner's app) sent it */
 export interface ScannedPage {
   data: Uint8Array;
   mime: string;
   dpi: number;
 }
 
-/** A page after clean-up: lossless, ready to be shown and encoded */
+/** A page after clean-up, kept losslessly until the PDF is made */
 export interface ProcessedPage {
-  image: Blob;
+  kind: 'color' | 'gray' | 'bw';
   width: number;
   height: number;
   dpi: number;
-  color: 'color' | 'gray' | 'bw';
-  /** Looks blank (only when blank pages are looked for) */
+  /** Found blank (only when blank pages are looked for) */
   blank: boolean;
+  /** Color and gray pages: a lossless picture; black and white: 1 bit */
+  image: Blob | null;
+  bitmap: Bitmap | null;
+  /** A small picture for the dialog */
+  thumb: Blob;
 }
 
-/** A page ready for the PDF */
-export interface PreparedPage {
-  bytes: Uint8Array;
-  kind: 'jpg' | 'png';
-  width: number;
-  height: number;
-  dpi: number;
-  /** Extra turn, clockwise (the review strip's rotate) */
-  rotation: number;
+/** The scan dialog's plan as scan-image's settings */
+export function imageSettings(
+  plan: ProcessPlan,
+  flip = false
+): ScanImageSettings {
+  return {
+    colorMode: plan.color,
+    threshold: plan.color === 'bw' ? plan.threshold : null,
+    brightness: plan.brightness,
+    contrast: plan.contrast,
+    invert: plan.invert,
+    deskew: plan.deskew,
+    autoCrop: plan.autoCrop,
+    backgroundRemoval: plan.background,
+    descreen: plan.descreen,
+    textSharpening: plan.sharpen,
+    despeckle: plan.despeckle,
+    edgeShadowRemoval: plan.edgeShadow,
+    removeBlank: {
+      enabled: plan.blankSensitivity !== null,
+      sensitivity: plan.blankSensitivity ?? 50,
+    },
+    autoRotate: plan.autoRotate,
+    rotate: plan.rotate,
+    flip,
+  };
 }
 
-/** Whether a page (RGBA pixels) has no real color: Autodetect keeps it gray */
-export function looksGray(px: Uint8ClampedArray, step = 7): boolean {
-  let colorful = 0;
-  let seen = 0;
-  for (let o = 0; o < px.length; o += 4 * step) {
-    seen++;
-    if (Math.max(px[o], px[o + 1], px[o + 2]) - Math.min(px[o], px[o + 1], px[o + 2]) > 40)
-      colorful++;
-  }
-  // A few colored specks (scanner noise, a stamp's edge) don't count
-  return seen > 0 && colorful / seen < 0.002;
-}
-
-/**
- * Whether a page is blank: the share of dark pixels away from the edges
- * (where shadows and punch holes are), against the sensitivity (0: only
- * truly empty pages; 100: pages with a little on them too).
- */
-export function looksBlank(
-  px: Uint8ClampedArray,
-  width: number,
-  height: number,
-  sensitivity: number
-): boolean {
-  const mx = Math.round(width * 0.06);
-  const my = Math.round(height * 0.06);
-  let dark = 0;
-  let seen = 0;
-  for (let y = my; y < height - my; y += 2)
-    for (let x = mx; x < width - mx; x += 2) {
-      const o = (y * width + x) * 4;
-      seen++;
-      if (0.299 * px[o] + 0.587 * px[o + 1] + 0.114 * px[o + 2] < 160) dark++;
-    }
-  const limit = 0.0002 + (sensitivity / 100) * 0.004;
-  return seen > 0 && dark / seen <= limit;
-}
-
-const canvasFor = (w: number, h: number) => {
+const canvas = (w: number, h: number) => {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   return c;
 };
+const toBlob = (c: HTMLCanvasElement, type = 'image/png') =>
+  new Promise<Blob>((resolve, reject) =>
+    c.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("A page couldn't be kept"))),
+      type
+    )
+  );
 
-/** Cleans up one page as the plan says */
-export async function processPage(
-  page: ScannedPage,
-  plan: ProcessPlan
-): Promise<ProcessedPage> {
-  const bitmap = await createImageBitmap(
-    new Blob([page.data as BlobPart], { type: page.mime })
-  );
-  const turned = plan.rotate === 90 || plan.rotate === 270;
-  const width = turned ? bitmap.height : bitmap.width;
-  const height = turned ? bitmap.width : bitmap.height;
-  const canvas = canvasFor(width, height);
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-  ctx.translate(width / 2, height / 2);
-  ctx.rotate((plan.rotate * Math.PI) / 180);
-  ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
-  bitmap.close();
-  const img = ctx.getImageData(0, 0, width, height);
-  const px = img.data;
-  const gain = 1 + plan.contrast / 100;
-  const lift = plan.brightness * 1.28;
-  if (gain !== 1 || lift)
-    for (let o = 0; o < px.length; o += 4)
-      for (let c = 0; c < 3; c++)
-        px[o + c] = (px[o + c] - 128) * gain + 128 + lift;
-  const color: ProcessedPage['color'] =
-    plan.color === 'auto'
-      ? looksGray(px)
-        ? 'gray'
-        : 'color'
-      : plan.color;
-  if (color !== 'color')
-    for (let o = 0; o < px.length; o += 4) {
-      let y = 0.299 * px[o] + 0.587 * px[o + 1] + 0.114 * px[o + 2];
-      if (color === 'bw') y = y > (plan.threshold ?? 128) ? 255 : 0;
-      if (plan.invert && color === 'bw') y = 255 - y;
-      px[o] = px[o + 1] = px[o + 2] = y;
-    }
-  ctx.putImageData(img, 0, 0);
-  const blank =
-    plan.blankSensitivity !== null &&
-    looksBlank(px, width, height, plan.blankSensitivity);
-  const image = await new Promise<Blob | null>((r) =>
-    canvas.toBlob(r, 'image/png')
-  );
-  if (!image) throw new Error("A scanned page couldn't be prepared");
-  return { image, width, height, dpi: page.dpi, color, blank };
+/** A scanner file's pixels */
+export async function decode(file: Blob, dpi: number): Promise<ScanImage> {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const c = canvas(bitmap.width, bitmap.height);
+    const ctx = c.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(bitmap, 0, 0);
+    const { data } = ctx.getImageData(0, 0, c.width, c.height);
+    return { width: c.width, height: c.height, channels: 4, data, dpi };
+  } finally {
+    bitmap.close();
+  }
 }
 
-/** JPEG quality from the Small size ↔ High quality slider */
-export const jpegQuality = (q: number) => 0.3 + Math.min(1, Math.max(0, q)) * 0.65;
+function imageData(img: ScanImage): ImageData {
+  const { width, height, channels, data } = img;
+  const out = new ImageData(width, height);
+  for (let i = 0, o = 0; i < width * height; i++, o += 4) {
+    const s = i * channels;
+    out.data[o] = data[s];
+    out.data[o + 1] = data[channels === 1 ? s : s + 1];
+    out.data[o + 2] = data[channels === 1 ? s : s + 2];
+    out.data[o + 3] = 255;
+  }
+  return out;
+}
 
-/** A cleaned-up page encoded for the PDF, as the file size settings say */
+/** A 1-bit page drawn as pixels, `scale` times smaller */
+function bitmapData(b: Bitmap, scale: number): ImageData {
+  const w = Math.max(1, Math.floor(b.width / scale));
+  const h = Math.max(1, Math.floor(b.height / scale));
+  const out = new ImageData(w, h);
+  const row = (b.width + 7) >> 3;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const sx = Math.floor(x * scale);
+      const sy = Math.floor(y * scale);
+      const black = (b.data[sy * row + (sx >> 3)] >> (7 - (sx & 7))) & 1;
+      const o = (y * w + x) * 4;
+      out.data[o] = out.data[o + 1] = out.data[o + 2] = black ? 0 : 255;
+      out.data[o + 3] = 255;
+    }
+  return out;
+}
+
+const THUMB = 240;
+
+/** Cleans up pages off the main thread; one per scan dialog */
+export function createPageProcessor(detectOrientation?: OrientationDetector) {
+  const client = createScanImageClient({ detectOrientation });
+
+  async function process(
+    page: ScannedPage,
+    plan: ProcessPlan,
+    flip = false
+  ): Promise<ProcessedPage> {
+    const image = await decode(
+      new Blob([page.data as BlobPart], { type: page.mime }),
+      page.dpi
+    );
+    const done = await client.processPage(image, imageSettings(plan, flip), {
+      transfer: true,
+    });
+    const { width, height, dpi } = done;
+    const blank = plan.blankSensitivity !== null && done.blank;
+    if (done.kind === 'bw') {
+      const c = canvas(1, 1);
+      const small = bitmapData(done.bitmap, Math.max(1, width / THUMB));
+      c.width = small.width;
+      c.height = small.height;
+      c.getContext('2d')!.putImageData(small, 0, 0);
+      return {
+        kind: 'bw',
+        width,
+        height,
+        dpi,
+        blank,
+        image: null,
+        bitmap: done.bitmap,
+        thumb: await toBlob(c),
+      };
+    }
+    const full = canvas(width, height);
+    full.getContext('2d')!.putImageData(imageData(done.image), 0, 0);
+    const png = await toBlob(full);
+    const scale = Math.min(1, THUMB / width);
+    const small = canvas(
+      Math.max(1, Math.round(width * scale)),
+      Math.max(1, Math.round(height * scale))
+    );
+    small.getContext('2d')!.drawImage(full, 0, 0, small.width, small.height);
+    full.width = full.height = 0;
+    return {
+      kind: done.kind,
+      width,
+      height,
+      dpi,
+      blank,
+      image: png,
+      bitmap: null,
+      thumb: await toBlob(small, 'image/jpeg'),
+    };
+  }
+
+  /** Where the document lies on a preview of the glass, in inches (null:
+   *  nothing stands out) */
+  async function findDocument(
+    preview: Blob,
+    glass: { width: number; height: number }
+  ): Promise<Rect | null> {
+    const image = await decode(preview, 50);
+    const r = await client.detectDocument(image, { transfer: true });
+    if (r.width >= image.width && r.height >= image.height) return null;
+    const round = (v: number) => Math.round(v * 100) / 100;
+    return {
+      x: round((r.x / image.width) * glass.width),
+      y: round((r.y / image.height) * glass.height),
+      width: round((r.width / image.width) * glass.width),
+      height: round((r.height / image.height) * glass.height),
+    };
+  }
+
+  return {
+    process,
+    findDocument,
+    /** The worker, for Enhance scanned pages */
+    client,
+    dispose: () => client.dispose(),
+  };
+}
+
+export type PageProcessor = ReturnType<typeof createPageProcessor>;
+
+/** A cleaned-up page in the PDF's encoding, at the chosen file size */
 export async function encodePage(
   page: ProcessedPage,
-  s: Pick<ScanSettings, 'quality' | 'compression' | 'bwCompression'>,
-  rotation = 0
-): Promise<PreparedPage> {
-  const lossless =
-    page.color === 'bw' || s.compression === 'zip';
-  if (lossless)
-    return {
-      bytes: new Uint8Array(await page.image.arrayBuffer()),
-      kind: 'png',
-      width: page.width,
-      height: page.height,
-      dpi: page.dpi,
-      rotation,
-    };
-  const bitmap = await createImageBitmap(page.image);
-  const canvas = canvasFor(page.width, page.height);
-  canvas.getContext('2d')!.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  const out = await new Promise<Blob | null>((r) =>
-    canvas.toBlob(r, 'image/jpeg', jpegQuality(s.quality))
-  );
-  if (!out) throw new Error("A scanned page couldn't be prepared");
-  return {
-    bytes: new Uint8Array(await out.arrayBuffer()),
-    kind: 'jpg',
+  s: Pick<ScanSettings, 'quality' | 'compression'>
+): Promise<EncodedPage> {
+  const info = {
     width: page.width,
     height: page.height,
     dpi: page.dpi,
-    rotation,
+    blank: page.blank,
+    rotation: 0 as const,
+    skew: 0,
+    crop: null as Rect | null,
   };
+  if (page.kind === 'bw' && page.bitmap)
+    return encodeScanPage({ ...info, kind: 'bw', bitmap: page.bitmap }, opts(s));
+  const rgba = await decode(page.image!, page.dpi);
+  // Gray pages as one channel (smaller lossless files)
+  const image: ScanImage =
+    page.kind === 'gray'
+      ? {
+          ...rgba,
+          channels: 1,
+          data: Uint8Array.from(
+            { length: rgba.width * rgba.height },
+            (_, i) => rgba.data[i * 4]
+          ),
+        }
+      : rgba;
+  return encodeScanPage(
+    {
+      ...info,
+      width: rgba.width,
+      height: rgba.height,
+      kind: page.kind === 'gray' ? 'gray' : 'color',
+      image,
+    },
+    opts(s)
+  );
 }
+
+/** JPEG quality from the Small size ↔ High quality slider */
+export const jpegQuality = (q: number) =>
+  0.3 + Math.min(1, Math.max(0, q)) * 0.65;
+
+const opts = (s: Pick<ScanSettings, 'quality' | 'compression'>) => ({
+  compression: s.compression === 'zip' ? ('flate' as const) : ('jpeg' as const),
+  quality: jpegQuality(s.quality),
+});
 
 /** A page of the PDF: a scanned image, or a page of a PDF a scanner's app
  *  saved (Import from a scanner app), copied as it is */
 export type PdfPart =
-  | { kind: 'image'; page: PreparedPage }
+  | { kind: 'image'; page: EncodedPage; rotation: number }
   | { kind: 'pdf'; bytes: Uint8Array; index: number; rotation: number };
 
 /** One PDF page per part, images at their real size (from their resolution) */
@@ -198,14 +298,8 @@ export async function buildPdf(parts: PdfPart[]): Promise<Uint8Array> {
       doc.addPage(copied);
       continue;
     }
-    const p = part.page;
-    const image =
-      p.kind === 'jpg' ? await doc.embedJpg(p.bytes) : await doc.embedPng(p.bytes);
-    const w = (p.width / p.dpi) * 72;
-    const h = (p.height / p.dpi) * 72;
-    const page = doc.addPage([w, h]);
-    page.drawImage(image, { x: 0, y: 0, width: w, height: h });
-    if (p.rotation) page.setRotation(degrees(p.rotation % 360));
+    const page = await addScanPage(doc, part.page);
+    if (part.rotation) page.setRotation(degrees(part.rotation % 360));
   }
   return doc.save();
 }
