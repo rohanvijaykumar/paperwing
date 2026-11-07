@@ -6,6 +6,15 @@ import forge from 'node-forge';
 import { SignatureValidationResult, ValidateSignatureState } from '@/types';
 
 import { trHtml, trText, onPageReady } from '../i18n/i18n.js';
+import {
+  mountSystemTrustOption,
+  systemRoots,
+  systemTrustOn,
+} from '../../reskin/system-trust';
+
+/** Trust is being checked: a certificate chosen, or (desktop app) the
+ *  system's root certificates */
+const trusting = () => !!state.trustedCert || systemTrustOn();
 
 const state: ValidateSignatureState = {
   pdfFile: null,
@@ -53,6 +62,9 @@ function resetCertState(): void {
 
 function initializePage(): void {
   createIcons({ icons });
+  mountSystemTrustOption(getElement('custom-cert-section'), () => {
+    if (state.pdfBytes) void validateSignatures();
+  });
 
   const fileInput = getElement<HTMLInputElement>('file-input');
   const dropZone = getElement<HTMLDivElement>('drop-zone');
@@ -281,10 +293,23 @@ async function validateSignatures(): Promise<void> {
   showLoader('Analyzing signatures...');
 
   try {
-    state.results = await validatePdfSignatures(
-      state.pdfBytes,
-      state.trustedCert ?? undefined
-    );
+    let trust: Parameters<typeof validatePdfSignatures>[1] =
+      state.trustedCert ?? undefined;
+    if (systemTrustOn()) {
+      const roots = await systemRoots();
+      const own = state.trustedCert
+        ? [
+            Uint8Array.from(
+              forge.asn1
+                .toDer(forge.pki.certificateToAsn1(state.trustedCert))
+                .getBytes(),
+              (c) => c.charCodeAt(0)
+            ),
+          ]
+        : [];
+      trust = [...roots, ...own];
+    }
+    state.results = await validatePdfSignatures(state.pdfBytes, trust);
     displayResults();
   } catch (error) {
     console.error('Validation error:', error);
@@ -325,7 +350,7 @@ function displayResults(): void {
   const validCount = state.results.filter(
     (r) => r.isValid && !r.isExpired && r.isTrusted
   ).length;
-  const trustVerified = state.trustedCert
+  const trustVerified = trusting()
     ? state.results.filter((r) => r.isTrusted).length
     : 0;
 
@@ -338,7 +363,7 @@ function displayResults(): void {
         </p>
     `;
 
-  if (state.trustedCert) {
+  if (trusting()) {
     summaryHtml += `
             <p class="text-xs text-gray-400 mt-1">
                 <i data-lucide="shield-check" class="inline w-3 h-3 mr-1"></i>
@@ -417,7 +442,7 @@ function createSignatureCard(
   };
 
   let trustBadge = '';
-  if (state.trustedCert) {
+  if (trusting()) {
     if (result.isTrusted) {
       trustBadge = `<span class="text-xs bg-green-900 text-green-300 px-2 py-1 rounded ml-2"><i data-lucide="shield-check" class="inline w-3 h-3 mr-1"></i>${trHtml('Trusted')}</span>`;
     } else {

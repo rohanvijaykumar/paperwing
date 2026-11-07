@@ -59,6 +59,70 @@ jobs:
         working-directory: desktop
         run: npm run test:print
 
+      # Signing with Digital IDs in the Keychain (desktop/native/mac-certs):
+      # the Swift helper must build (universal) and pass its own test; then
+      # test identities in a keychain of their own sign real PDFs through it,
+      # each checked by pyHanko and OpenSSL, and the real app signs with them
+      - name: Certificate helper
+        if: ${{ !cancelled() }}
+        run: bash desktop/native/mac-certs/build.sh --test
+
+      - name: Certificate bridge tests
+        if: ${{ !cancelled() }}
+        run: node --test desktop/tests/certs.test.mjs
+
+      - name: Test IDs in a keychain
+        if: ${{ !cancelled() }}
+        run: bash desktop/native/mac-certs/test-keychain.sh create "$RUNNER_TEMP/certs.json"
+
+      - name: Sign PDFs through the helper
+        if: ${{ !cancelled() }}
+        env:
+          PW_CERTS_HELPER: ${{ github.workspace }}/desktop/native/mac-certs/out/paperwing-certs
+          PW_TEST_CERTS: ${{ runner.temp }}/certs.json
+          PW_SIGNED_OUT: ${{ runner.temp }}/signed
+        run: npx vitest run src/tests/paperwing-cert-helper.test.ts
+
+      - name: Check the signed PDFs with pyHanko and OpenSSL
+        if: ${{ !cancelled() }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet "pyHanko==0.29.1"
+          "$RUNNER_TEMP/venv/bin/python" desktop/tests/validate-signed.py "$RUNNER_TEMP/signed"
+          PATH="$(brew --prefix openssl@3)/bin:$PATH" node desktop/tests/openssl-verify.mjs "$RUNNER_TEMP/signed"
+
+      - name: Digitally sign in the real app
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        env:
+          PW_TEST_CERTS: ${{ runner.temp }}/certs.json
+          PW_SIGNED_OUT: ${{ runner.temp }}/app-signed
+          PW_SCREENS: ${{ runner.temp }}/cert-screens
+        run: |
+          node bench/check-cert-sign.mjs
+          "$RUNNER_TEMP/venv/bin/python" tests/validate-signed.py "$RUNNER_TEMP/app-signed/Contract (signed) (signed) (signed).pdf"
+
+      - name: Signing on rotated and cropped pages, and saving byte for byte
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        env:
+          PW_TEST_CERTS: ${{ runner.temp }}/certs.json
+        run: |
+          node bench/check-cert-placement.mjs
+          node bench/check-save-bytes.mjs
+
+      - name: Certificate screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: cert-screens-macos
+          path: ${{ runner.temp }}/cert-screens
+          if-no-files-found: ignore
+
+      - name: Remove the test keychain
+        if: ${{ always() }}
+        run: bash desktop/native/mac-certs/test-keychain.sh remove "$RUNNER_TEMP/certs.json"
+
       # A network printer on this machine, set as the default: CUPS (as on any
       # Mac) sends its jobs to 127.0.0.1:9100, the way office printers take
       # them, and a small listener saves each job to a file

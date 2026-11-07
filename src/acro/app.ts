@@ -104,6 +104,7 @@ const pageCount = later<Pages, 'pageCount'>(pagesModule, 'pageCount');
 const rotatePages = later<Pages, 'rotatePages'>(pagesModule, 'rotatePages');
 const inspectPdf = later<Forms, 'inspectPdf'>(formsModule, 'inspectPdf');
 const unformat = later<Forms, 'unformat'>(formsModule, 'unformat');
+const certsFlow = () => import('./certs/flow');
 const showPrintDialog = later<typeof import('./print'), 'showPrintDialog'>(
   () => import('./print'),
   'showPrintDialog'
@@ -578,6 +579,8 @@ interface Tab {
    *  them was dismissed */
   scripted?: boolean;
   scriptDismissed?: boolean;
+  /** Use a certificate's bar is showing (desktop app) */
+  certBar?: boolean;
 }
 
 const isDirty = (t: Tab) => t.version !== t.savedVersion;
@@ -1242,6 +1245,177 @@ function renderDiskBar(): void {
       'db-close'
     )
   );
+}
+
+/* Use a certificate (desktop app) ---------------------------------------- */
+
+/** Digitally sign is waiting for a box to be drawn on this tab */
+let drawingBox: { tabId: string; cancel: () => void } | null = null;
+
+/** Acrobat's Use a certificate tools, over the document: Digitally sign
+ *  (draw the box, choose an ID, sign, save), Add a timestamp, Validate */
+function renderCertBar(): void {
+  const tab = activeTab();
+  if (drawingBox && drawingBox.tabId !== tab?.id) drawingBox.cancel();
+  let bar = document.getElementById('cert-bar');
+  if (!tab?.certBar || tab.blank || tab.fullTool) {
+    bar?.remove();
+    return;
+  }
+  if (!bar) {
+    bar = h('div', {
+      id: 'cert-bar',
+      role: 'toolbar',
+      'aria-label': 'Use a certificate',
+    });
+    $('#doc-stage').append(bar);
+  }
+  if (drawingBox) {
+    bar.replaceChildren(
+      h(
+        'span',
+        { class: 'db-text', role: 'status' },
+        'Drag a box where the signature should go, or click to place one.'
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'pill-btn',
+          onClick: (): void => drawingBox?.cancel(),
+        },
+        'Cancel'
+      )
+    );
+    return;
+  }
+  const tool = (id: string, label: string) =>
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'pill-btn',
+        onClick: (): void => {
+          const t = getTool(id);
+          if (t) void openToolOnDoc(tab, t);
+        },
+      },
+      label
+    );
+  bar.replaceChildren(
+    h('span', { class: 'db-text cb-title' }, 'Use a certificate'),
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'accent-btn',
+        id: 'cb-sign',
+        onClick: (): void => void startDigitalSign(tab),
+      },
+      'Digitally sign'
+    ),
+    tool('timestamp-pdf', 'Add a timestamp'),
+    tool('validate-signature-pdf', 'Validate signatures'),
+    iconBtn(
+      'close',
+      'Close',
+      () => {
+        tab.certBar = false;
+        renderCertBar();
+      },
+      'db-close'
+    )
+  );
+}
+
+async function startDigitalSign(tab: Tab): Promise<void> {
+  if (tab.loading || drawingBox) return;
+  const certs = desktop?.certs;
+  const flow = await certsFlow();
+  const current = await docBytesAsIs(tab, 'sign');
+  if (current && (await flow.lockedBySignature(new Uint8Array(current)))) {
+    toast(
+      `${tab.name} was locked when it was signed, so it can't be signed again.`
+    );
+    return;
+  }
+  if (!tabs.includes(tab) || drawingBox) return;
+  const drawing = flow.drawSignatureBox(viewer, tab.id);
+  drawingBox = { tabId: tab.id, cancel: drawing.cancel };
+  renderCertBar();
+  const box = await drawing.done;
+  drawingBox = null;
+  renderCertBar();
+  if (!box || !tabs.includes(tab)) return;
+  if (current)
+    box.rotation = await flow.pageRotation(new Uint8Array(current), box.page);
+  await flow.digitallySign({
+    bridge: certs,
+    mac: isMac,
+    docName: tab.name,
+    box,
+    getPdf: async () => {
+      // (as it is on disk if unchanged, so signatures in it stay valid)
+      const bytes = await docBytesAsIs(tab, 'sign');
+      return bytes ? new Uint8Array(bytes) : null;
+    },
+    save: async (signed, name) => {
+      if (!desktop) return false;
+      const saved = await desktop.saveAs(name, signed, tab.path);
+      if (!saved) return false;
+      await showSignedVersion(tab, signed, saved);
+      return true;
+    },
+    pickIdFile: () => flow.pickIdFile(),
+    saveIdFile: async (name, data) =>
+      !!(await desktop?.certs?.saveId?.(name, data)),
+  });
+}
+
+/** The signed document, just saved, takes the tab's place (as in Acrobat) */
+async function showSignedVersion(
+  tab: Tab,
+  signed: Uint8Array,
+  saved: { path: string; name: string }
+): Promise<void> {
+  const bytes = signed.slice();
+  try {
+    await viewer.replace(tab.id, bytes.buffer, {
+      page: tab.page.current || 1,
+      zoom: viewer.zoom(tab.id) ?? 1,
+    });
+  } catch (err) {
+    console.error(err);
+    toast(`Signed and saved as ${saved.name}, but couldn't show it`);
+    return;
+  }
+  if (!tabs.includes(tab)) return;
+  tab.path = saved.path;
+  tab.handle = undefined;
+  tab.name = saved.name;
+  tab.diskHash = fingerprint(bytes);
+  tab.diskChanged = tab.diskDismissed = undefined;
+  tab.savedVersion = tab.version;
+  tab.pageUndo = [];
+  tab.pageRedo = [];
+  cancelRecoveryCopy(tab);
+  if (tab.recoveryId) {
+    void desktop?.recovery?.delete(tab.recoveryId);
+    tab.recoveryId = undefined;
+  }
+  tab.recentId =
+    (await rememberFile(new File([bytes], saved.name), {
+      path: saved.path,
+    })) ?? tab.recentId;
+  void inspectDoc(tab, Promise.resolve(bytes.slice().buffer));
+  tab.page = viewer.pageInfo(tab.id) ?? tab.page;
+  renderTabs();
+  persistSession();
+  if (activeId === tab.id) {
+    document.title = `${tab.name} - Paperwing`;
+    renderDocChrome(tab);
+  }
+  toast(`Signed and saved as ${saved.name}`);
 }
 
 /* Form fields and scripts ------------------------------------------------ */
@@ -2133,6 +2307,21 @@ window.addEventListener('message', async (e: MessageEvent) => {
       id: e.data.id,
       data: result?.ok ? result.data : null,
     });
+  } else if (e.data?.type === 'acro:system-roots') {
+    // Validate signatures ▸ trust the system's root certificates (the tool
+    // can't reach the desktop bridge itself)
+    const res = desktop?.certs
+      ? await desktop.certs
+          .roots()
+          .catch(() => ({ ok: false, certs: [] as string[] }))
+      : { ok: false, certs: [] as string[] };
+    postToFrame(ft, {
+      type: 'acro:system-roots',
+      id: e.data.id,
+      certs: res.certs.map((c) =>
+        Uint8Array.from(atob(c), (ch) => ch.charCodeAt(0))
+      ),
+    });
   } else if (e.data?.type === 'acro:download' && e.data.blob instanceof Blob) {
     const blob = e.data.blob;
     const name = uniqueTabName(String(e.data.name || 'download'));
@@ -2316,7 +2505,9 @@ async function openToolOnDoc(tab: Tab, tool: AppTool, files: File[] = []) {
 
   // Another full-page tool replaces the open one
   if (tool.full && !(await mayDiscardTool(tab))) return;
-  const bytes = await exportDoc(tab, `open ${tool.name} on`);
+  const bytes = SIGNATURE_TOOLS.has(tool.id)
+    ? await docBytesAsIs(tab, `open ${tool.name} on`)
+    : await exportDoc(tab, `open ${tool.name} on`);
   // (closed meanwhile)
   if (!tabs.includes(tab)) return;
   const docFiles = bytes
@@ -2380,6 +2571,11 @@ async function runViewerAction(tab: Tab, tool: AppTool) {
   // Commenting and redacting happen in the viewer: leave a full-page tool
   // first (as picking another tool would), or they'd act out of sight
   if (tab.fullTool && !(await closeFullTool(tab))) return;
+  if (tool.action === 'certificate') {
+    tab.certBar = true;
+    renderCertBar();
+    return;
+  }
   if (tool.action === 'comment') {
     viewer.toggleSidebar(tab.id, 'comment-panel');
     if (tab.activeAnnot !== 'comment') useQuickTool(tab, 'comment', 'note');
@@ -2621,6 +2817,7 @@ function renderDocChrome(tab: Tab) {
   $('#doc-stage').classList.toggle('is-loading', tab.loading);
   renderDiskBar();
   renderScriptBar();
+  renderCertBar();
   renderFormPanel();
   syncFormLayer(tab);
   $('#doc-stage').classList.toggle('is-blank', tab.blank);
@@ -3915,9 +4112,50 @@ viewer.onPage((tabId, info) => {
 /* Save / print / download / find -------------------------------------- */
 
 async function docBlob(tab: Tab): Promise<Blob | null> {
-  await settleForms([tab]);
-  const bytes = await exportDoc(tab, 'save');
+  // Unchanged, it's saved byte for byte: its signatures stay valid
+  const bytes = await docBytesAsIs(tab, 'save');
   return bytes ? new Blob([bytes], { type: 'application/pdf' }) : null;
+}
+
+/** Tools that check or add to a document's signatures: they need its
+ *  bytes exactly as signed */
+const SIGNATURE_TOOLS = new Set([
+  'validate-signature-pdf',
+  'timestamp-pdf',
+  'digital-sign-pdf',
+]);
+
+/**
+ * The document exactly as it is on disk when nothing has changed since it
+ * was opened or saved, else as shown (exportDoc). Exporting writes the
+ * whole file anew, which breaks the signatures in it: validating them, or
+ * signing again, needs the very bytes that were signed.
+ */
+async function docBytesAsIs(
+  tab: Tab,
+  doing: string
+): Promise<ArrayBuffer | null> {
+  await settleForms([tab]);
+  if (!isDirty(tab) && tab.diskHash) {
+    try {
+      const data = tab.path
+        ? await desktop?.readFile(tab.path)
+        : tab.handle
+          ? new Uint8Array(await (await tab.handle.getFile()).arrayBuffer())
+          : null;
+      if (data) {
+        const bytes = new Uint8Array(data);
+        const [was, now] = await Promise.all([
+          tab.diskHash,
+          fingerprint(bytes),
+        ]);
+        if (was && was === now) return bytes.buffer;
+      }
+    } catch {
+      // (gone or unreadable: what's shown)
+    }
+  }
+  return exportDoc(tab, doing);
 }
 
 /** The document as shown (with its edits), or null, saying why, if it

@@ -61,10 +61,22 @@ jobs:
         shell: pwsh
         run: desktop/native/win-thumbnails/build.ps1 -Test
 
+      # Signing with Digital IDs installed on the computer (store, Keychain,
+      # smart cards): the helper must build and pass its tests
+      - name: Build the certificate helper (Windows)
+        if: matrix.name == 'Windows'
+        shell: pwsh
+        run: desktop/native/win-certs/build.ps1 -Test
+
+      - name: Build the certificate helper (macOS)
+        if: matrix.name == 'macOS'
+        run: bash desktop/native/mac-certs/build.sh --test
+
       - name: Package desktop app
         working-directory: desktop
         env:
           PAPERWING_REQUIRE_THUMBNAILS: ${{ matrix.name == 'Windows' && '1' || '' }}
+          PAPERWING_REQUIRE_CERTS: '1'
         run: npx electron-builder ${{ matrix.target }} --publish never
 
       - name: Upload artifacts
