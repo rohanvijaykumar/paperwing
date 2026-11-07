@@ -13,6 +13,8 @@ files:
   - print.cjs
   - certs.cjs
   - scan.cjs
+  - escl.cjs
+  - mdns.cjs
   - engines.json
   - package.json
 
@@ -102,6 +104,12 @@ mac:
   extendInfo:
     NSDocumentsFolderUsageDescription: Paperwing opens and saves PDF files you choose.
     NSDownloadsFolderUsageDescription: Paperwing saves exported files to your Downloads folder.
+    # Network scanners (escl.cjs): macOS asks once before Paperwing may look
+    # for them, and the services it looks for must be declared
+    NSLocalNetworkUsageDescription: Paperwing looks for scanners on your network so you can scan documents straight into a PDF.
+    NSBonjourServices:
+      - _uscan._tcp
+      - _uscans._tcp
 
 dmg:
   title: ${productName} ${version}
