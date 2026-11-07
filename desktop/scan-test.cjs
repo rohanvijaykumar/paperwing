@@ -4,18 +4,41 @@
  * every part of scanning without a scanner. Not shipped (see
  * electron-builder.yml); scan.cjs only loads it in test mode.
  *
- * - Paperwing Test Scanner: a flatbed (with a document lying on the glass,
- *   slightly crooked, for Preview) and a two-sided feeder. Reached through
- *   TWAIN, WIA and the network on Windows (Image Capture and the network on
- *   a Mac), so it shows how one scanner with several drivers is listed.
+ * - Paperwing Test Scanner: a flatbed (8.5 × 14 in glass showing a test
+ *   chart, see GLASS) and a two-sided feeder. Reached through TWAIN, WIA and
+ *   the network on Windows (Image Capture and the network on a Mac), so it
+ *   shows how one scanner with several drivers is listed.
  * - Paperwing Test Feeder: a one-sided feeder, gray and black and white
  *   only, a resolution range, nothing else (32-bit TWAIN and WIA 1.0).
  * - Paperwing Network Scanner: network only, a basic flatbed.
+ *
+ * They behave like real scanners: the area, paper size, resolution, color
+ * mode, brightness, contrast, threshold and invert asked for are what comes
+ * back, cut from the chart and converted (so the benches can check where
+ * every part of a scan came from).
  *
  * PAPERWING_SCAN_TEST_PAGES   sheets in a feeder (3)
  * PAPERWING_SCAN_TEST_BLANK   pages of a pass that come out blank ("4" when
  *                             scanning both sides, else none; "none")
  * PAPERWING_SCAN_TEST_SKEW    pages fed crooked, 3° ("2"; "none")
+ * PAPERWING_SCAN_TEST_UPSIDE_DOWN  pages fed upside down ("2"; none)
+ * PAPERWING_SCAN_TEST_STACK   "turn": a one-sided feeder pass after one
+ *                             that scanned fronts gets the same stack turned
+ *                             over (its backs, last sheet first), as when
+ *                             someone selects Scan reverse sides; otherwise
+ *                             each pass is a new stack (sheets numbered on)
+ * PAPERWING_SCAN_TEST_TOP_BOUND  backs come upside down (bound at the top)
+ * PAPERWING_SCAN_TEST_MAX_DPI the highest resolution really scanned (300;
+ *                             above it, pages come at this and say so)
+ * PAPERWING_SCAN_TEST_IGNORE_OFFSET  the flatbed scans an area's size from
+ *                             the glass's corner, ignoring where it starts
+ *                             (like the TWAIN Working Group's sample driver)
+ * PAPERWING_SCAN_TEST_IGNORE_AREA  the flatbed always scans the whole glass
+ * PAPERWING_SCAN_TEST_GLASS_SKEW  the chart's paper turned this many degrees
+ * PAPERWING_SCAN_TEST_EDGE_SHADOW  feeder pages come with a dark band along
+ *                             their top and left edges (a lid's shadow)
+ * PAPERWING_SCAN_TEST_LOG     a file each scan and preview is noted in (one
+ *                             JSON line: the driver and what it was asked)
  * PAPERWING_SCAN_TEST_SLOW    a scanner (its name) that takes 30 s to get ready,
  *                             like a slow or stuck driver
  * PAPERWING_SCAN_TEST_ERROR   an error code, failing at the start, or after
@@ -109,12 +132,27 @@ function onText(lines, u, v) {
   return false;
 }
 
-/* Pages ---------------------------------------------------------------- */
+/* Feeder pages ----------------------------------------------------------- */
+
+/**
+ * A page's label as cells a bench can read without OCR: 8 cells 0.3 in
+ * square, 0.45 in apart, from (0.75, 9.8) in on the paper. Cell 0 is always
+ * black (where the code starts); cells 1-6 are the sheet number in binary
+ * (most significant first); cell 7 is black on a back side.
+ */
+const CODE = { x: 0.75, y: 9.8, cell: 0.3, pitch: 0.45, cells: 8 };
+function codeBits(sheet, side) {
+  const bits = [1];
+  for (let b = 5; b >= 0; b--) bits.push((sheet >> b) & 1);
+  bits.push(side === 'back' ? 1 : 0);
+  return bits;
+}
 
 /**
  * Page `n` of a pass: (u, v) in inches on the paper -> [r, g, b]. Odd pages
- * have a colored band (Autodetect keeps them in color); even pages are
- * black and gray only.
+ * have a blue band (Autodetect keeps them in color); even pages are black
+ * and grey only. Each says PAGE n and SHEET s FRONT/BACK, and carries its
+ * sheet and side as cells (CODE) at its foot.
  */
 function pageContent(n, { sheet, side, blank, width }) {
   if (blank) {
@@ -143,12 +181,17 @@ function pageContent(n, { sheet, side, blank, width }) {
     ].map((t, k) => textLine(t, 0.75, 2.6 + k * 0.5, 0.03)),
   ];
   const band = n % 2 ? [40, 90, 200] : [70, 70, 70];
+  const bits = codeBits(sheet, side);
   return (u, v) => {
     if (v >= 0.45 && v < 0.8 && u >= 0.75 && u < width - 0.75) return band;
     // n small squares at the foot of the page
     if (v >= 6.3 && v < 6.6) {
       const k = Math.floor((u - 0.75) / 0.5);
       if (k >= 0 && k < n && (u - 0.75) % 0.5 < 0.3) return [20, 20, 20];
+    }
+    if (v >= CODE.y && v < CODE.y + CODE.cell && u >= CODE.x) {
+      const k = Math.floor((u - CODE.x) / CODE.pitch);
+      if (k < CODE.cells && (u - CODE.x) % CODE.pitch < CODE.cell && bits[k]) return [15, 15, 15];
     }
     return onText(lines, u, v) ? [25, 25, 25] : [252, 251, 248];
   };
@@ -170,35 +213,115 @@ function skewed(content, deg, w, h) {
   };
 }
 
-/** The flatbed's glass: a 6 × 8 in document lying at (1, 1.2), turned 1.5°,
- *  on the lid's light grey */
-const DOC_ON_GLASS = { x: 1, y: 1.2, width: 6, height: 8, angle: 1.5 };
-function glassContent(n) {
+/** Content turned upside down on a paper w × h */
+const upsideDown = (content, w, h) => (u, v) => content(w - u, h - v);
+
+/* The flatbed's glass: a test chart ------------------------------------ */
+
+/**
+ * The flatbed's glass is a fixed chart, so a bench can tell exactly which
+ * part of the glass a scan shows, and in what colors: a sheet of paper
+ * (DOC_ON_GLASS) on the lid's plain light grey (so Preview can find it),
+ * with a title, a faint inch grid numbered in glass inches, colored squares
+ * at known places (MARKERS: glass inches of their top-left corners,
+ * MARKER_SIZE square), a grey step wedge (WEDGE), a printed photo's dot
+ * screen (HALFTONE), dust (DUST) and lines of text.
+ */
+const GLASS = { width: 8.5, height: 14 };
+const DOC_ON_GLASS = { x: 1, y: 1.2, width: 6, height: 12, angle: 0 };
+const LID = [214, 214, 212];
+const PAPER = [252, 251, 248];
+const MARKER_SIZE = 0.4;
+const MARKERS = [
+  { name: 'red', x: 6.45, y: 1.35, rgb: [230, 30, 30] },
+  { name: 'orange', x: 1.5, y: 2.2, rgb: [245, 140, 20] },
+  { name: 'cyan', x: 6.1, y: 2.2, rgb: [20, 190, 210] },
+  { name: 'yellow', x: 1.5, y: 8.4, rgb: [235, 215, 20] },
+  { name: 'purple', x: 6.1, y: 8.4, rgb: [110, 40, 170] },
+  { name: 'teal', x: 3.8, y: 5.2, rgb: [0, 125, 115] },
+  // below Letter's 11 in (A4: 11.69), and below that (Legal: 14)
+  { name: 'brown', x: 4.05, y: 10.2, rgb: [140, 80, 30] },
+  { name: 'magenta', x: 3.8, y: 11.25, rgb: [210, 40, 200] },
+  { name: 'pink', x: 4.05, y: 12.2, rgb: [250, 120, 170] },
+  { name: 'green', x: 1.3, y: 12.6, rgb: [30, 170, 60] },
+  { name: 'blue', x: 6.3, y: 12.6, rgb: [30, 60, 220] },
+];
+/** A printed photo's dot screen (for Descreen): dots 0.05 in apart */
+const HALFTONE = { x: 4.6, y: 6.0, width: 2, height: 1, pitch: 0.05, radius: 0.016 };
+/** Dust (for Despeckle): 40 specks 0.15-0.25 mm across, and 6 dots the
+ *  size of a full stop (0.4 mm), which must stay */
+const DUST = { x: 1.5, y: 6.0, width: 2.5, height: 1 };
+const SPECKS = Array.from({ length: 46 }, (_, k) => ({
+  x: DUST.x + 0.1 + ((k * 0.6180339) % 1) * (DUST.width - 0.2),
+  y: DUST.y + 0.1 + ((k * 0.4142135) % 1) * (DUST.height - 0.2),
+  r: k < 40 ? 0.003 + (k % 3) * 0.001 : 0.008,
+}));
+/** Ten grey steps, white to black, 0.5 in wide, on the paper */
+const WEDGE = { x: 1.5, y: 7.4, step: 0.5, height: 0.5, steps: 10 };
+const wedgeLevel = (k) => Math.round(255 * (1 - k / (WEDGE.steps - 1)));
+
+const CHART_TEXT = [
+  textLine('PAPERWING TEST CHART', 1.5, 1.45, 0.04),
+  ...['THE QUICK BROWN FOX', 'JUMPS OVER THE LAZY DOG', 'SCANNED WITHOUT A SCANNER'].map((t, k) =>
+    textLine(t, 1.5, 3.2 + k * 0.45, 0.035)
+  ),
+];
+/** The grid's numbers (glass inches), along the paper's top and left */
+const GRID_TEXT = [
+  ...[2, 3, 4, 5, 6].map((k) => textLine(String(k), k + 0.03, 1.25, 0.015)),
+  ...[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map((k) => textLine(String(k), 1.04, k + 0.03, 0.015)),
+];
+
+const glassAngle = (env) => Number(env.PAPERWING_SCAN_TEST_GLASS_SKEW) || DOC_ON_GLASS.angle;
+
+/** What the glass shows at (u, v) inches */
+function glassContent(env = {}) {
   const d = DOC_ON_GLASS;
-  const page = skewed(
-    pageContent(n, { sheet: n, side: 'front', blank: false, width: d.width }),
-    d.angle,
-    d.width,
-    d.height
-  );
-  const a = (d.angle * Math.PI) / 180;
+  const a = (glassAngle(env) * Math.PI) / 180;
   const cos = Math.cos(a);
   const sin = Math.sin(a);
   const cx = d.width / 2;
   const cy = d.height / 2;
+  // A point of the paper, in glass inches as if it lay straight
+  const paper = (u, v) => {
+    for (const m of MARKERS)
+      if (u >= m.x && u < m.x + MARKER_SIZE && v >= m.y && v < m.y + MARKER_SIZE) return m.rgb;
+    if (
+      v >= WEDGE.y &&
+      v < WEDGE.y + WEDGE.height &&
+      u >= WEDGE.x &&
+      u < WEDGE.x + WEDGE.step * WEDGE.steps
+    ) {
+      const g = wedgeLevel(Math.floor((u - WEDGE.x) / WEDGE.step));
+      return [g, g, g];
+    }
+    if (onText(CHART_TEXT, u, v)) return [25, 25, 25];
+    if (onText(GRID_TEXT, u, v)) return [90, 100, 140];
+    const H = HALFTONE;
+    if (u >= H.x && u < H.x + H.width && v >= H.y && v < H.y + H.height) {
+      const du = ((u - H.x) % H.pitch) - H.pitch / 2;
+      const dv = ((v - H.y) % H.pitch) - H.pitch / 2;
+      return Math.hypot(du, dv) < H.radius ? [30, 30, 30] : PAPER;
+    }
+    if (u >= DUST.x && u < DUST.x + DUST.width && v >= DUST.y && v < DUST.y + DUST.height)
+      for (const s of SPECKS) if (Math.hypot(u - s.x, v - s.y) < s.r) return [20, 20, 20];
+    if (Math.abs(u - Math.round(u)) < 0.006 || Math.abs(v - Math.round(v)) < 0.006)
+      return [205, 215, 235];
+    return PAPER;
+  };
   return (u, v) => {
     const pu = u - d.x;
     const pv = v - d.y;
     const x = cos * (pu - cx) + sin * (pv - cy) + cx;
     const y = -sin * (pu - cx) + cos * (pv - cy) + cy;
-    if (x < 0 || y < 0 || x > d.width || y > d.height) return [214, 214, 212];
-    return page(pu, pv);
+    if (x >= 0 && y >= 0 && x <= d.width && y <= d.height) return paper(x + d.x, y + d.y);
+    return LID;
   };
 }
-/** The document's box on the glass (what auto-size scans) */
-function docBounds() {
+/** The paper's box on the glass (what auto-size scans) */
+function docBounds(env = {}) {
   const d = DOC_ON_GLASS;
-  const a = (d.angle * Math.PI) / 180;
+  const a = Math.abs((glassAngle(env) * Math.PI) / 180);
   const w = d.width * Math.cos(a) + d.height * Math.sin(a);
   const h = d.width * Math.sin(a) + d.height * Math.cos(a);
   return {
@@ -227,7 +350,10 @@ function render(content, region, dpi, opts) {
     const v = region.y + (y + 0.5) / dpi;
     for (let x = 0; x < w; x++) {
       const u = region.x + (x + 0.5) / dpi;
-      const [r, g, b] = content(u, v).map(tone);
+      const c = content(u, v);
+      const r = tone(c[0]);
+      const g = tone(c[1]);
+      const b = tone(c[2]);
       const o = (y * w + x) * channels;
       if (channels === 3) {
         px[o] = r;
@@ -252,6 +378,7 @@ function render(content, region, dpi, opts) {
 const RANGE = (min, max, step, def) => ({ min, max, step, default: def });
 const PAPERS = [
   { name: 'Letter', width: 8.5, height: 11 },
+  { name: 'Legal', width: 8.5, height: 14 },
   { name: 'A4', width: 8.27, height: 11.69 },
   { name: 'A5', width: 5.83, height: 8.27 },
 ];
@@ -268,8 +395,8 @@ function fullCaps(driver) {
         duplex: false,
         resolutions: [75, 100, 150, 200, 300, 600, 1200],
         colors: ['color', 'gray', 'bw'],
-        maxWidth: 8.5,
-        maxHeight: 11.69,
+        maxWidth: GLASS.width,
+        maxHeight: GLASS.height,
         minWidth: 0.5,
         minHeight: 0.5,
         canPreview: true,
@@ -295,7 +422,7 @@ function fullCaps(driver) {
         minWidth: 2,
         minHeight: 3,
         canPreview: false,
-        paperSizes: [...PAPERS, { name: 'Legal', width: 8.5, height: 14 }],
+        paperSizes: PAPERS,
         autoSize: driver !== 'escl',
         autoDeskew: driver !== 'escl',
         autoCrop: false,
@@ -411,19 +538,72 @@ const pageSet = (text, fallback) =>
           .filter((n) => Number.isInteger(n) && n > 0)
       );
 
+/** The region of the glass a flatbed scan covers, as the stand-in's driver
+ *  understands the request (the quirks of some real drivers on request) */
+function flatbedRegion(opts, env) {
+  const glass = { x: 0, y: 0, ...GLASS };
+  if (env.PAPERWING_SCAN_TEST_IGNORE_AREA) return glass;
+  const clamp = (r) => {
+    const x = Math.min(Math.max(0, r.x), GLASS.width - 0.1);
+    const y = Math.min(Math.max(0, r.y), GLASS.height - 0.1);
+    return { x, y, width: Math.min(r.width, GLASS.width - x), height: Math.min(r.height, GLASS.height - y) };
+  };
+  if (opts.area)
+    return clamp(
+      env.PAPERWING_SCAN_TEST_IGNORE_OFFSET
+        ? { x: 0, y: 0, width: opts.area.width, height: opts.area.height }
+        : opts.area
+    );
+  if (opts.paper === 'auto') return docBounds(env);
+  if (opts.paper) return clamp({ x: 0, y: 0, ...opts.paper });
+  return glass;
+}
+
 function createTestBackends({ platform = process.platform, env = process.env } = {}) {
   const plat = platform === 'darwin' ? 'darwin' : 'win32';
   const [failCode, failAfterText] = String(env.PAPERWING_SCAN_TEST_ERROR ?? '').split('@');
   const failAfter = Number(failAfterText) || 0;
+  const maxDpi = Number(env.PAPERWING_SCAN_TEST_MAX_DPI) || 300;
   const added = [];
+  // The feeder's paper: sheets numbered on from pass to pass; with
+  // PAPERWING_SCAN_TEST_STACK=turn, the last one-sided pass's stack is
+  // turned over for the next one-sided pass
+  const feederState = { nextSheet: 1, lastFronts: null };
 
   const scannersFor = (drivers) =>
     [...SCANNERS, ...added].flatMap((s) =>
       (s.drivers[plat] ?? []).filter((d) => drivers.includes(d)).map((d) => ({ s, d }))
     );
 
+  /** The sheets and sides a feeder pass brings, in the order they come */
+  function feederPass(duplex) {
+    const count = Number(env.PAPERWING_SCAN_TEST_PAGES) || 3;
+    if (!duplex && env.PAPERWING_SCAN_TEST_STACK === 'turn' && feederState.lastFronts) {
+      const sheets = [...feederState.lastFronts].reverse();
+      feederState.lastFronts = null;
+      return sheets.map((sheet) => ({ sheet, side: 'back' }));
+    }
+    const sheets = Array.from({ length: count }, (_, k) => feederState.nextSheet + k);
+    feederState.nextSheet += count;
+    feederState.lastFronts = duplex ? null : sheets;
+    return sheets.flatMap((sheet) =>
+      duplex
+        ? [
+            { sheet, side: 'front' },
+            { sheet, side: 'back' },
+          ]
+        : [{ sheet, side: 'front' }]
+    );
+  }
+
   function backend(drivers) {
-    const find = (id) => scannersFor(drivers).find(({ s }) => s.id === id);
+    // A scanner's id says the driver it was listed under ("test-1@wia"),
+    // as the real helpers' ids do, so a scan through WIA is told apart from
+    // one through TWAIN; a bare id is the first driver
+    const find = (id) => {
+      const [sid, drv] = String(id).split('@');
+      return scannersFor(drivers).find(({ s, d }) => s.id === sid && (!drv || d === drv));
+    };
     return {
       async list() {
         if (failCode === 'blocked')
@@ -438,7 +618,7 @@ function createTestBackends({ platform = process.platform, env = process.env } =
           found: scannersFor(drivers).map(({ s, d }) => ({
             driver: d,
             scanner: {
-              id: s.id,
+              id: `${s.id}@${d}`,
               name: s.name,
               driver: d.replace(/32$|1$/, ''),
               deviceKey: s.deviceKey,
@@ -467,14 +647,21 @@ function createTestBackends({ platform = process.platform, env = process.env } =
           await new Promise((r) => setTimeout(r, 120));
           if (opts.nativeUi)
             onEvent({ type: 'status', message: "Using the scanner's own window" });
-          const glass = { x: 0, y: 0, width: 8.5, height: 11.69 };
+          const source = hit.s.caps(hit.d).sources.find((s) => s.id === opts.source);
+          if (env.PAPERWING_SCAN_TEST_LOG)
+            await fsp.appendFile(
+              env.PAPERWING_SCAN_TEST_LOG,
+              JSON.stringify({ command, scanner: hit.s.name, driver: hit.d, options: opts }) + '\n'
+            );
+          const dpi = Math.min(opts.dpi, maxDpi);
           if (command === 'preview') {
-            const img = render(glassContent(1), glass, Math.min(opts.dpi, 75), {
+            const region = flatbedRegion(opts, env);
+            const img = render(glassContent(env), region, dpi, {
               color: opts.color === 'bw' ? 'gray' : opts.color,
             });
             const file = path.join(outDir, 'preview.png');
             await fsp.writeFile(file, img.png);
-            onEvent({ type: 'page', file, dpi: Math.min(opts.dpi, 75), width: img.width, height: img.height, side: 'front' });
+            onEvent({ type: 'page', file, dpi, width: img.width, height: img.height, side: 'front' });
             onEvent({ type: 'done', pages: 1 });
             return { exitCode: 0 };
           }
@@ -485,54 +672,53 @@ function createTestBackends({ platform = process.platform, env = process.env } =
             pages === failAfter &&
             !(failCode === 'feeder-empty' && !feeder) &&
             !(failCode === 'double-feed' && (!feeder || opts.doubleFeedStop === false));
-          const sheets = feeder ? Number(env.PAPERWING_SCAN_TEST_PAGES) || 3 : 1;
-          const sides = feeder && opts.duplex ? 2 : 1;
-          const blank = pageSet(env.PAPERWING_SCAN_TEST_BLANK, new Set(sides === 2 ? [4] : []));
+          const duplex = feeder && opts.duplex && !!source?.duplex;
+          const pass = feeder ? feederPass(duplex) : [{ sheet: 1, side: 'front' }];
+          const blank = pageSet(env.PAPERWING_SCAN_TEST_BLANK, new Set(duplex ? [4] : []));
           const skew = pageSet(env.PAPERWING_SCAN_TEST_SKEW, new Set([2]));
-          // Up to 100 dpi, so the pages stay small (their real size goes with them)
-          const dpi = Math.min(opts.dpi, 100);
+          const flipped = pageSet(env.PAPERWING_SCAN_TEST_UPSIDE_DOWN, new Set());
           let n = 0;
-          for (let sheet = 1; sheet <= sheets; sheet++) {
-            for (let k = 0; k < sides; k++) {
-              if (failNow(n)) {
-                onEvent({ type: 'error', code: failCode, message: `Test scanner: ${failCode}` });
-                return { exitCode: 1 };
-              }
-              if (cancelled) {
-                onEvent({ type: 'done', pages: n, cancelled: true });
-                return { exitCode: 0 };
-              }
-              n++;
-              const side = k ? 'back' : 'front';
-              let region;
-              let content;
-              if (feeder) {
-                const paper =
-                  opts.paper && opts.paper !== 'auto'
-                    ? opts.paper
-                    : opts.area
-                      ? { width: opts.area.width, height: opts.area.height }
-                      : { width: 8.5, height: 11 };
-                region = { x: 0, y: 0, ...paper };
-                content = pageContent(n, { sheet, side, blank: blank.has(n), width: paper.width });
-                if (skew.has(n) && !opts.autoDeskew && !blank.has(n))
-                  content = skewed(content, 3, paper.width, paper.height);
-              } else {
-                region = opts.area
-                  ? opts.area
-                  : opts.paper === 'auto'
-                    ? docBounds()
-                    : opts.paper
-                      ? { x: 0, y: 0, ...opts.paper }
-                      : glass;
-                content = glassContent(n);
-              }
-              const img = render(content, region, dpi, opts);
-              const file = path.join(outDir, `page-${n}.png`);
-              await fsp.writeFile(file, img.png);
-              onEvent({ type: 'page', file, dpi, width: img.width, height: img.height, side });
-              await new Promise((r) => setTimeout(r, 150));
+          for (const { sheet, side } of pass) {
+            if (failNow(n)) {
+              onEvent({ type: 'error', code: failCode, message: `Test scanner: ${failCode}` });
+              return { exitCode: 1 };
             }
+            if (cancelled) {
+              onEvent({ type: 'done', pages: n, cancelled: true });
+              return { exitCode: 0 };
+            }
+            n++;
+            let region;
+            let content;
+            if (feeder) {
+              // (a feeder's paper is the size asked for; auto: Letter)
+              const paper =
+                opts.paper && opts.paper !== 'auto'
+                  ? opts.paper
+                  : opts.area
+                    ? { width: opts.area.width, height: opts.area.height }
+                    : { width: 8.5, height: 11 };
+              region = { x: 0, y: 0, ...paper };
+              const isBlank = blank.has(n);
+              content = pageContent(n, { sheet, side, blank: isBlank, width: paper.width });
+              if (side === 'back' && env.PAPERWING_SCAN_TEST_TOP_BOUND)
+                content = upsideDown(content, paper.width, paper.height);
+              if (flipped.has(n)) content = upsideDown(content, paper.width, paper.height);
+              if (skew.has(n) && !opts.autoDeskew && !isBlank)
+                content = skewed(content, 3, paper.width, paper.height);
+              if (env.PAPERWING_SCAN_TEST_EDGE_SHADOW) {
+                const inner = content;
+                content = (u, v) => (u < 0.2 || v < 0.2 ? [55, 55, 55] : inner(u, v));
+              }
+            } else {
+              region = flatbedRegion(opts, env);
+              content = glassContent(env);
+            }
+            const img = render(content, region, dpi, opts);
+            const file = path.join(outDir, `page-${n}.png`);
+            await fsp.writeFile(file, img.png);
+            onEvent({ type: 'page', file, dpi, width: img.width, height: img.height, side });
+            await new Promise((r) => setTimeout(r, 150));
           }
           if (failNow(n) && failAfter) {
             onEvent({ type: 'error', code: failCode, message: `Test scanner: ${failCode}` });
@@ -583,4 +769,21 @@ function createTestBackends({ platform = process.platform, env = process.env } =
   return map;
 }
 
-module.exports = { createTestBackends, encodePng, render, pageContent, DOC_ON_GLASS };
+module.exports = {
+  createTestBackends,
+  encodePng,
+  render,
+  pageContent,
+  glassContent,
+  codeBits,
+  CODE,
+  GLASS,
+  DOC_ON_GLASS,
+  MARKERS,
+  MARKER_SIZE,
+  WEDGE,
+  wedgeLevel,
+  HALFTONE,
+  DUST,
+  SPECKS,
+};
