@@ -404,6 +404,8 @@ internal sealed class TwainScan
             if (!hasFlatbed) throw ErrorMap.Unsupported("a flatbed");
             if (switchable) TwainCaps.Set(c.CapFeederEnabled, BoolType.False);
             TwainCaps.Set(c.CapDuplexEnabled, BoolType.False);
+            // One page from the glass (OnTransferReady stops after it too)
+            TwainCaps.Set(c.CapXferCount, 1);
         }
 
         if (_job.Preview)
@@ -505,8 +507,12 @@ internal sealed class TwainScan
             _job.ResumeWatchdog();
         }
         FlushStrip(null);
-        // Stop at a page boundary: cancelled, a preview done, or a page that failed
-        if (_job.CancelRequested || _error != null || (_job.Preview && _pages > 0))
+        // Stop at a page boundary: cancelled, a preview or a flatbed page done
+        // (a driver may say more are coming from the glass: the TWAIN sample
+        // does with CAP_XFERCOUNT set, and the scan never ended), or a page
+        // that failed. (The scanner's own window may send several photos.)
+        var onePage = _job.Preview || (!_feeder && !_options.NativeUi);
+        if (_job.CancelRequested || _error != null || (onePage && _pages > 0))
         {
             e.CancelAll = true;
             return;
