@@ -95,6 +95,7 @@ PW_CERTS_HELPER=desktop/native/win-certs/out/paperwing-certs.exe PW_TEST_CERTS=c
 python desktop/tests/validate-signed.py signed        # pip install pyHanko
 node desktop/tests/openssl-verify.mjs signed
 cd desktop && PW_TEST_CERTS=../certs.json node bench/check-cert-sign.mjs   # the real app, real clicks
+cd desktop && PW_TEST_CERTS=../certs.json node bench/check-cert-results.mjs   # every result checked (pyHanko, OpenSSL, OCR); PW_QA_TSA=1: a real timestamp server
 pwsh desktop/native/win-certs/test-certs.ps1 -Remove -Out certs.json   # deletes only those IDs
 ```
 

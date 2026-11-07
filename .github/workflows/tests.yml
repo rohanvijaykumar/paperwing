@@ -136,6 +136,14 @@ jobs:
           node bench/check-cert-placement.mjs
           node bench/check-save-bytes.mjs
 
+      - name: Use a certificate as a user would, every result checked (OCR, pyHanko, OpenSSL)
+        working-directory: desktop
+        shell: bash
+        env:
+          PW_TEST_CERTS: ${{ runner.temp }}\certs.json
+          PW_SCREENS: ${{ runner.temp }}\cert-screens\results
+        run: node bench/check-cert-results.mjs
+
       - name: Check the app's signed PDFs with pyHanko and OpenSSL
         shell: bash
         run: |
