@@ -133,7 +133,8 @@ describe('finding scanners', () => {
         id: idOf(f),
         name: 'Office Scanner',
         driver: 'escl',
-        deviceKey: f.uuid,
+        deviceKey: 'office:officescanner',
+        uuid: f.uuid,
         make: 'Office',
         model: 'Scanner',
         connection: 'network',
@@ -178,6 +179,16 @@ describe('finding scanners', () => {
     assert.equal((await createEscl({ mdnsTargets: [], timeouts: FAST }).list()).scanners.length, 0);
   });
 
+  test('two identical scanners stay apart (deviceKey)', async () => {
+    const a = await fake({ name: 'EPSON ET-4850 Series' });
+    const b = await fake({ name: 'EPSON ET-4850 Series', instance: 'EPSON ET-4850 Series (2)' });
+    const { scanners } = await client([a, b]).list();
+    const keys = scanners.map((s) => s.deviceKey).sort();
+    const [first, second] = [a.uuid, b.uuid].sort();
+    assert.deepEqual(keys, ['epson:et4850', `epson:et4850#${second}`]);
+    assert.equal(scanners.find((s) => s.uuid === first).deviceKey, 'epson:et4850');
+  });
+
   test('no scanners: an empty list, not an error', async () => {
     const c = createEscl({ mdnsTargets: [], timeouts: FAST });
     assert.deepEqual(await c.list(), { type: 'scanners', scanners: [] });
@@ -198,7 +209,8 @@ describe('adding a scanner by address', () => {
     const added = await c.add(`127.0.0.1:${f.port}`);
     assert.equal(added.type, 'scanners');
     assert.equal(added.scanners[0].id, idOf(f));
-    assert.equal(added.scanners[0].deviceKey, f.uuid);
+    assert.equal(added.scanners[0].deviceKey, 'paperwing:test3000');
+    assert.equal(added.scanners[0].uuid, f.uuid);
     assert.equal(added.scanners[0].name, 'Paperwing Test Scanner 3000');
     const { scanners } = await c.list();
     assert.deepEqual(scanners.map((s) => s.id), [idOf(f)]);
@@ -702,6 +714,40 @@ describe('helpers', () => {
       assert.ok(escl.isLocalAddress(ip), ip);
     for (const ip of ['8.8.8.8', '172.32.0.1', '100.64.0.1', '2001:db8::1', 'scanner.example.com'])
       assert.ok(!escl.isLocalAddress(ip), ip);
+  });
+
+  // The same examples as the Windows helper's DeviceKeyTests (MappingTests.cs):
+  // the rules must match, so one scanner is listed once whichever way it's found
+  test('deviceKey: the same scanner gives the same key (DeviceKey.cs)', () => {
+    const k = escl.deviceKeyFor;
+    for (const [twainMake, twainModel, wiaMake, wiaModel] of [
+      ['Brother Industries, Ltd.', 'TW-Brother MFC-L2710DW', 'Brother', 'Brother MFC-L2710DW series'],
+      ['HP', 'HP OfficeJet Pro 9010 series TWAIN', 'HP', 'HP OfficeJet Pro 9010 series'],
+      ['Hewlett-Packard', 'HP ScanJet Pro 2500 f1 TWAIN', 'HP', 'HP ScanJet Pro 2500 f1'],
+      ['SEIKO EPSON CORPORATION', 'EPSON Perfection V39', 'EPSON', 'EPSON Perfection V39'],
+      ['Canon Inc.', 'CanoScan LiDE 300 (64-bit)', 'Canon', 'Canon LiDE 300'],
+      ['PFU LIMITED', 'PaperStream IP fi-7160', 'FUJITSU', 'fi-7160'],
+      ['Kodak Alaris', 'KODAK Scanner: i1150', 'Kodak', 'Kodak i1150'],
+      ['Xerox Corporation', 'WIA-Xerox DocuMate 3125', 'Xerox', 'Xerox DocuMate 3125'],
+    ])
+      assert.equal(k(wiaMake, wiaModel, wiaModel), k(twainMake, twainModel, twainModel), twainModel);
+    assert.notEqual(k('Epson', 'Perfection V39', null), k('Epson', 'Perfection V600', null));
+    assert.notEqual(k('Canon', 'LiDE 300', null), k('Epson', 'LiDE 300', null));
+    assert.equal(k('Brother', 'Brother MFC-L2710DW series', null), 'brother:mfcl2710dw');
+    assert.equal(k('TWAIN Working Group', 'TWAIN2 FreeImage Software Scanner', null), 'twainworkinggroup:freeimagesoftware');
+    assert.equal(k('', '', 'Canon LiDE 400'), 'canon:lide400');
+  });
+
+  test('deviceKey from what eSCL scanners announce', () => {
+    const k = (ty) => {
+      const { make, model } = escl.splitMakeModel(ty);
+      return escl.deviceKeyFor(make, model, ty);
+    };
+    // The same scanners through WIA/TWAIN, above
+    assert.equal(k('Brother MFC-L2710DW series'), 'brother:mfcl2710dw');
+    assert.equal(k('HP OfficeJet Pro 9010 series'), escl.deviceKeyFor('HP', 'HP OfficeJet Pro 9010 series TWAIN', null));
+    assert.equal(k('EPSON ET-4850 Series'), 'epson:et4850');
+    assert.equal(k('Canon MF743C/MF746C'), 'canon:mf743cmf746c');
   });
 
   test('make and model from a name', () => {

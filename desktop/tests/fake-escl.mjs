@@ -14,6 +14,7 @@
  *
  * Options (all optional):
  *   name, uuid, makeAndModel, serverHeader, log (prints each request)
+ *   instance: its multicast DNS name, if not `name`
  *   https: true                       self-signed certificate
  *   platen: false                     no flatbed
  *   adf: { sheets, duplex } | false   a document feeder with sheets in it
@@ -623,7 +624,8 @@ export async function startFakeEscl(options = {}) {
     const loopback = cfg.mdns.port === 0;
     const address = cfg.mdns.address ?? (loopback ? '127.0.0.1' : firstLanAddress());
     const type = `${tls ? '_uscans' : '_uscan'}._tcp.local`;
-    const instance = `${cfg.name}.${type}`;
+    // On a real network, a second scanner of the same name is renamed "(2)"
+    const instance = `${cfg.instance ?? cfg.name}.${type}`;
     const hostName = `paperwing-test-${cfg.uuid.slice(0, 8)}.local`;
     const records = {
       ptr: { name: type, type: TYPE.PTR, ttl: 4500, data: instance },

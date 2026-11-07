@@ -43,6 +43,8 @@ ESCL_LIVE_NAME="$name" ESCL_LIVE_ADDRESS="$(scutil --get LocalHostName).local:$p
 
 echo "--- (b) Image Capture (the Swift helper)"
 helper=native/mac-scanner/out/paperwing-scan
+# Each call has a time limit, so a stuck scanner can't stall the run
+limit() { perl -e 'alarm shift; exec @ARGV' "$@"; }
 "$helper" list -Wait 20 | tee "$out/list.json"
 id=$(node -e '
   const lines = require("fs").readFileSync(process.argv[1], "utf8").trim().split("\n");
@@ -68,22 +70,22 @@ if [ -z "$id" ]; then
     2>&1 | tail -150 || true
 else
   echo "Image Capture lists it as $id"
-  "$helper" caps -Id "$id" | tee "$out/caps.json"
+  limit 240 "$helper" caps -Id "$id" | tee "$out/caps.json"
   expect "$out/caps.json" '"type":"caps"' "capabilities"
-  "$helper" preview -Id "$id" -OutDir "$out/preview" -Options "$(b64 '{}')" | tee "$out/preview.json"
+  limit 240 "$helper" preview -Id "$id" -OutDir "$out/preview" -Options "$(b64 '{}')" | tee "$out/preview.json"
   expect "$out/preview.json" '"type":"page"' "a preview page"
   mkdir -p "$out/scan"
-  "$helper" scan -Id "$id" -OutDir "$out/scan" \
+  limit 240 "$helper" scan -Id "$id" -OutDir "$out/scan" \
     -Options "$(b64 '{"source":"flatbed","color":"gray","dpi":150,"area":{"x":0,"y":0,"width":4,"height":5}}')" \
     | tee "$out/scan.json"
   expect "$out/scan.json" '"type":"page"' "a flatbed page"
   expect "$out/scan.json" '"type":"done"' "the scan finishing"
   mkdir -p "$out/feeder"
-  "$helper" scan -Id "$id" -OutDir "$out/feeder" \
+  limit 240 "$helper" scan -Id "$id" -OutDir "$out/feeder" \
     -Options "$(b64 '{"source":"feeder","duplex":true,"dpi":150}')" | tee "$out/feeder.json"
   expect "$out/feeder.json" '"side":"back"' "both sides from the feeder"
   mkdir -p "$out/cancel"
-  (sleep 1; echo cancel; sleep 15) | "$helper" scan -Id "$id" -OutDir "$out/cancel" \
+  (sleep 1; echo cancel; sleep 15) | limit 240 "$helper" scan -Id "$id" -OutDir "$out/cancel" \
     -Options "$(b64 '{"source":"flatbed","dpi":300}')" | tee "$out/cancel.json"
   expect "$out/cancel.json" '"cancelled":true' "cancelling"
   echo "--- What the scanner was asked"

@@ -204,9 +204,23 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
       DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
         if self.target == nil { fail("no-scanner", "Scanner not found") }
       }
+      watch()
     default:
       fail("failed", "Unknown command: \(command)")
     }
+  }
+
+  /// A scanner that stops answering mustn't leave this waiting forever:
+  /// a minute for its settings, three minutes for each page
+  var watchdog: DispatchWorkItem?
+  func watch() {
+    watchdog?.cancel()
+    let item = DispatchWorkItem {
+      self.finish(
+        ["type": "error", "code": "failed", "message": "The scanner stopped responding"], code: 2)
+    }
+    watchdog = item
+    DispatchQueue.main.asyncAfter(deadline: .now() + (pages == 0 && command == "caps" ? 60 : 180), execute: item)
   }
 
   /// "cancel" on stdin. End of input (no parent listening) changes nothing.
@@ -478,6 +492,7 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
       "side": duplex && pages % 2 == 1 ? "back" : "front",
     ])
     pages += 1
+    watch()
   }
 
   func scannerDevice(_ scanner: ICScannerDevice, didCompleteOverviewScanWithError error: Error?) {

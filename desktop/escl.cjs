@@ -608,6 +608,91 @@ function splitMakeModel(text) {
   return space > 0 ? { make: s.slice(0, space), model: s.slice(space + 1) } : { make: '', model: s };
 }
 
+// --- deviceKey: one physical scanner, whichever way it's reached ------------
+// A port of the Windows helper's DeviceKey.cs (desktop/native/win-scanner),
+// rule for rule, so a scanner found here and through WIA or TWAIN gets the
+// same "make:model" key and scan.cjs shows it once. Keep the two in step.
+
+const COMPANY_WORDS = new Set(
+  'inc incorporated corp corporation co company ltd limited llc gmbh ag sa plc kk bv srl industries electronics electric international technologies technology imaging solutions document systems america usa europe japan the'.split(
+    ' '
+  )
+);
+const MAKE_ALIASES = [
+  ['seikoepson', 'epson'],
+  ['hewlettpackard', 'hp'],
+  ['hpinc', 'hp'],
+  ['pfu', 'fujitsu'],
+  ['ricohpfu', 'fujitsu'],
+  ['kodakalaris', 'kodak'],
+  ['eastmankodak', 'kodak'],
+  ['canoninc', 'canon'],
+  ['kyoceramita', 'kyocera'],
+  ['konicaminoltabusiness', 'konicaminolta'],
+  ['fujixerox', 'fujifilm'],
+  ['fujifilmbusinessinnovation', 'fujifilm'],
+  ['visioneer', 'visioneer'],
+  ['plustek', 'plustek'],
+];
+/** Words that are the make itself, in model names */
+const MAKE_WORDS = [
+  ['epson', ['epson', 'seiko']],
+  ['hp', ['hp', 'hewlett', 'packard']],
+  ['canon', ['canon', 'canoscan']],
+  ['fujitsu', ['fujitsu', 'pfu', 'paperstream', 'ip', 'scansnap']],
+  ['kodak', ['kodak', 'alaris']],
+  ['brother', ['brother']],
+  ['konicaminolta', ['konica', 'minolta']],
+];
+const DRIVER_WORDS = new Set(
+  'wia twain twain2 tw twain32 twain64 driver drv x64 x86 64bit 32bit scanner scan series usb network net lan wifi wsd ds datasource source mfp'.split(
+    ' '
+  )
+);
+
+/** Lower-case runs of letters and digits */
+const keyTokens = (s) =>
+  String(s ?? '')
+    .toLowerCase()
+    .split(/[^\p{L}\p{Nd}]+/u)
+    .filter(Boolean);
+
+function makeKey(make) {
+  const tokens = keyTokens(make).filter((t) => !COMPANY_WORDS.has(t));
+  const joined = tokens.join('');
+  const exact = MAKE_ALIASES.find(([k]) => k === joined);
+  if (exact) return exact[1];
+  // "Seiko Epson Corp." / "EPSON": an alias may be any run of the tokens
+  const inside = MAKE_ALIASES.find(([k]) => joined.includes(k));
+  if (inside) return inside[1];
+  const known = MAKE_WORDS.find(([, words]) => tokens.some((t) => words.includes(t)));
+  return known ? known[0] : joined;
+}
+
+function modelKey(model, make) {
+  // Parenthesised driver notes: "(TWAIN)", "(64-bit)", "(WIA)"
+  let text = String(model ?? '').replace(/\(([^)]*)\)/g, (_, inner) =>
+    keyTokens(inner).every((t) => DRIVER_WORDS.has(t) || t === 'bit' || t === '32' || t === '64')
+      ? ' '
+      : ` ${inner} `
+  );
+  text = text.replace(/\b(32|64)[\s-]?bit\b/gi, ' ');
+  const own = new Set([make, ...(MAKE_WORDS.find(([k]) => k === make)?.[1] ?? [])]);
+  return keyTokens(text)
+    .filter((t) => !DRIVER_WORDS.has(t) && !own.has(t))
+    .join('');
+}
+
+/** The key for one scanner; the name stands in for a missing model */
+function deviceKeyFor(make, model, name) {
+  let mk = makeKey(make);
+  if (!mk) mk = makeKey(keyTokens(name)[0] ?? '');
+  let md = modelKey(String(model ?? '').trim() ? model : name, mk);
+  if (!md) md = modelKey(name, mk);
+  if (!md) md = keyTokens(name).join('');
+  return `${mk}:${md}`;
+}
+
 const sleep = (ms, signal) =>
   new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new ScanError('cancelled'));
@@ -775,12 +860,27 @@ function createEscl(config = {}) {
     if (/HP_Compact_Server/i.test(server)) dev.quirks.hpLocalhost = true;
   }
 
+  /** Its deviceKey; identical scanners on the network get "#" and their
+   *  UUID added to all but the first (by UUID), as the Windows helper does
+   *  with serial numbers, so they stay apart */
+  function keyOf(dev) {
+    const base = deviceKeyFor(dev.make, dev.model, dev.name);
+    const tag = (d) => d.uuid || d.id.replace(/^escl:/, '');
+    const twins = [...devices.values()]
+      .filter((d) => deviceKeyFor(d.make, d.model, d.name) === base)
+      .map(tag)
+      .sort();
+    return twins.indexOf(tag(dev)) > 0 ? `${base}#${tag(dev)}` : base;
+  }
+
   function publicDevice(dev) {
     return {
       id: dev.id,
       name: dev.name,
       driver: 'escl',
-      deviceKey: dev.deviceKey,
+      deviceKey: keyOf(dev),
+      // The same scanner found twice (announced, and added by address)
+      uuid: dev.uuid,
       make: dev.make,
       model: dev.model,
       connection: 'network',
@@ -828,7 +928,7 @@ function createEscl(config = {}) {
       name,
       make,
       model,
-      deviceKey: uuid || `host:${s.host.toLowerCase()}`,
+      uuid,
       endpoints: addEndpoints(devices.get(id), eps),
     });
   }
@@ -938,7 +1038,7 @@ function createEscl(config = {}) {
       name: known?.name ?? (caps.makeAndModel || parsed.hostname),
       make: known?.make || make,
       model: known?.model || model,
-      deviceKey: caps.uuid || `host:${parsed.hostname.toLowerCase()}`,
+      uuid: caps.uuid,
       endpoints: addEndpoints(known, ok.map((r) => r.ep)),
       manual: String(input).trim(),
     });
@@ -1220,5 +1320,6 @@ module.exports = {
   imageInfo,
   isLocalAddress,
   splitMakeModel,
+  deviceKeyFor,
   MESSAGES,
 };
