@@ -180,19 +180,98 @@ if (frame) {
 
 /* Use a certificate ---------------------------------------------------- */
 frame = await openTool(['Use a certificate', 'Digital Signature']);
-check(!!frame, 'Use a certificate opens');
-if (frame) {
-  const lines = await shown(frame);
+if (await page.$('#cert-bar')) {
+  // Signing with the certificates installed on the computer: Paperwing's own
+  // bar and dialogs over the document, not BentoPDF's page
+  await certificateDialogs();
+} else {
+  check(!!frame, 'Use a certificate opens');
+  if (frame) {
+    const lines = await shown(frame);
+    const says = lines.filter((l) => SERVER.test(l) && !TRUE.test(l));
+    check(!says.length, "it doesn't say upload, download or browser", says[0]);
+    check(
+      lines.some((l) =>
+        /^Choose certificate file \(\.pfx, \.p12, \.pem\)/.test(l)
+      ),
+      'it asks to choose a certificate file',
+      lines.find((l) => /certificate \(/i.test(l))
+    );
+    await shoot('use-a-certificate');
+  }
+}
+
+/** Use a certificate's bar, Digitally sign's Sign with a Digital ID and
+ *  Configure a Digital ID: what they show and their tooltips */
+async function certificateDialogs() {
+  const words = (selector) =>
+    page.evaluate((selector) => {
+      const root = document.querySelector(selector);
+      if (!root) return [];
+      const tips = [
+        ...root.querySelectorAll('[title], [placeholder], [aria-label]'),
+      ]
+        .filter((e) => e.getClientRects().length)
+        .flatMap((e) =>
+          ['title', 'placeholder', 'aria-label'].map((a) => e.getAttribute(a))
+        )
+        .filter(Boolean);
+      return [root.innerText, ...tips]
+        .join('\n')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+    }, selector);
+  const until = async (fn, timeout = 20000) => {
+    for (const end = Date.now() + timeout; Date.now() < end; await sleep(200))
+      if (await page.evaluate(fn).catch(() => false)) return true;
+    return false;
+  };
+  check(true, 'Use a certificate opens (its bar, over the document)');
+  const lines = await words('#cert-bar');
+  // Digitally sign: a click on the page places the box
+  await page.click('#cb-sign');
+  await until(() =>
+    /Drag a box/.test(document.querySelector('#cert-bar')?.textContent)
+  );
+  const at = await page.evaluate(() => {
+    const host = [...document.querySelectorAll('#viewer-host *')].find(
+      (e) => e.shadowRoot
+    );
+    const layer = host?.shadowRoot?.querySelector(
+      '.pwsig-layer[data-page="0"]'
+    );
+    if (!layer) return null;
+    const r = layer.getBoundingClientRect();
+    const top = Math.max(r.top, host.getBoundingClientRect().top);
+    const bottom = Math.min(r.bottom, innerHeight - 10);
+    return { x: r.left + r.width / 2, y: (top + bottom) / 2 };
+  });
+  if (at) await page.mouse.click(at.x, at.y);
+  const listed =
+    (await until(() => document.querySelector('#cid-dialog'))) &&
+    (await until(
+      () =>
+        !/Looking for/.test(
+          document.querySelector('#cid-dialog .cid-list')?.textContent ?? ''
+        ),
+      30000
+    ));
+  check(listed, 'Digitally sign: Sign with a Digital ID opens');
+  lines.push(...(await words('#cid-dialog')));
+  await page.click('#cid-configure').catch(() => {});
+  const configure = await until(() => document.querySelector('#cfg-dialog'));
+  const cfg = await words('#cfg-dialog');
+  lines.push(...cfg);
   const says = lines.filter((l) => SERVER.test(l) && !TRUE.test(l));
   check(!says.length, "it doesn't say upload, download or browser", says[0]);
   check(
-    lines.some((l) =>
-      /^Choose certificate file \(\.pfx, \.p12, \.pem\)/.test(l)
-    ),
-    'it asks to choose a certificate file',
-    lines.find((l) => /certificate \(/i.test(l))
+    configure && cfg.some((l) => /^Use a Digital ID from a file/.test(l)),
+    'Configure a Digital ID: use an ID from a file (chosen, not uploaded)',
+    cfg.slice(0, 4).join(' | ')
   );
   await shoot('use-a-certificate');
+  for (let k = 0; k < 3; k++) await page.keyboard.press('Escape');
 }
 
 await app.close();
