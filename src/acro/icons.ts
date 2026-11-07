@@ -18,6 +18,8 @@ import {
   List,
   Maximize2,
   Menu,
+  RefreshCw,
+  ScanLine,
   MessageSquare,
   MessageSquarePlus,
   MousePointer2,
@@ -125,6 +127,8 @@ const ICONS = {
   filePlus: FilePlus,
   fileOut: FileOutput,
   form: TextCursorInput,
+  scan: ScanLine,
+  refresh: RefreshCw,
 } satisfies Record<string, IconNode>;
 
 export type IconName = keyof typeof ICONS;

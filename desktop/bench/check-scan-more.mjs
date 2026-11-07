@@ -1,0 +1,643 @@
+/**
+ * The rest of scanning, in the real app with the stand-in scanners and real
+ * clicks:
+ *  - settings shown per scanner (hidden, not greyed out): a one-sided gray
+ *    feeder with a resolution range, a network flatbed; every settings
+ *    group; Black and white (threshold), custom size (in and mm)
+ *  - presets: choosing one, Save as preset…, remembered next time; the main
+ *    menu's Create PDF from scanner ▸ a preset scans at once
+ *  - Insert pages from scanner (page thumbnails' menu) at page N and
+ *    before the first page
+ *  - Append to a PDF that isn't open (Browse…, through PAPERWING_TEST_OPEN):
+ *    it opens with the pages added, unsaved; the file on disk is untouched
+ *  - Save multiple files (PAPERWING_TEST_FOLDER): pages per file, prefix
+ *  - Recognize text right after scanning: the text is in the PDF
+ *  - All tools: Create a PDF ▸ Scanner, Convert ▸ Create PDF from, tool
+ *    search; Scan & OCR's start page; Enhance scanned pages (and Ctrl+Z)
+ *  - Import from a scanner app: files appear as they're written
+ *  - Add by IP address; a scan recovered after a crash
+ *   node bench/check-scan-more.mjs
+ */
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, appendFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
+import * as L from './scan-bench-lib.mjs';
+import * as P from './scan-pdf-check.mjs';
+import { launch } from './harness.mjs';
+
+const require = createRequire(import.meta.url);
+const { encodePng, render, pageContent } = require('../scan-test.cjs');
+const { check, until, sleep, click, press, choose, dialog } = L;
+const TMP = process.env.BENCH_TMP || tmpdir();
+const work = mkdtempSync(join(TMP, 'pw-scan-more-'));
+
+/** A 4-page A4 document (pages say their number) */
+async function fixture(name) {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let n = 1; n <= 4; n++)
+    doc.addPage([595, 842]).drawText(`Fixture page ${n}`, { x: 72, y: 760, size: 28, font });
+  const file = join(work, name);
+  writeFileSync(file, await doc.save());
+  return file;
+}
+const sha = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
+
+/** The open document's bytes, from the viewer */
+async function docBytes(page) {
+  const b64 = await page.evaluate(async () => {
+    const v = window.__acro.viewer;
+    const bytes = new Uint8Array(await v.exportBytes(v.current));
+    let s = '';
+    for (let k = 0; k < bytes.length; k += 0x8000)
+      s += String.fromCharCode(...bytes.subarray(k, k + 0x8000));
+    return btoa(s);
+  });
+  return Buffer.from(b64, 'base64');
+}
+async function pdfText(bytes) {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes), isEvalSupported: false }).promise;
+  let text = '';
+  for (let n = 1; n <= doc.numPages; n++)
+    text += (await (await doc.getPage(n)).getTextContent()).items.map((i) => i.str).join(' ') + '\n';
+  await doc.destroy();
+  return text;
+}
+
+/** What's under a point, through the viewer's shadow roots (a short
+ *  description, for when a right-click doesn't open the page's menu) */
+const underPoint = (page, at) =>
+  page.evaluate(({ x, y }) => {
+    let e = document.elementFromPoint(x, y);
+    while (e?.shadowRoot) {
+      const d = e.shadowRoot.elementFromPoint(x, y);
+      if (!d || d === e) break;
+      e = d;
+    }
+    const path = [];
+    for (let n = e; n && path.length < 5; n = n.parentElement)
+      path.push(`${n.tagName.toLowerCase()}${n.id ? '#' + n.id : ''}${typeof n.className === 'string' && n.className ? '.' + n.className.split(' ')[0] : ''}`);
+    return `(${Math.round(x)}, ${Math.round(y)}) of ${innerWidth}×${innerHeight}: ${path.join(' < ')}`;
+  }, at);
+
+/** The page thumbnail n (the viewer's sidebar), for a right-click: scrolled
+ *  into view, and the one really under the pointer there (the thumbnails
+ *  are drawn again after a page is inserted, and the list scrolls to it) */
+async function thumb(page, n) {
+  await page.evaluate((n) => {
+    const walk = (root) => {
+      for (const el of root.querySelectorAll('div'))
+        if (el.style.position === 'absolute' && el.textContent.trim() === String(n) && el.querySelector('img')) {
+          el.querySelector('img').scrollIntoView({ block: 'nearest' });
+          return true;
+        }
+      for (const el of root.querySelectorAll('*')) if (el.shadowRoot && walk(el.shadowRoot)) return true;
+      return false;
+    };
+    walk(document);
+  }, n);
+  await sleep(500);
+  return page.evaluate((n) => {
+    const deepAt = (x, y) => {
+      let e = document.elementFromPoint(x, y);
+      while (e?.shadowRoot) {
+        const d = e.shadowRoot.elementFromPoint(x, y);
+        if (!d || d === e) break;
+        e = d;
+      }
+      return e;
+    };
+    const out = [];
+    const walk = (root) => {
+      for (const el of root.querySelectorAll('div'))
+        if (el.style.position === 'absolute' && el.textContent.trim() === String(n) && el.querySelector('img')) {
+          const r = el.querySelector('img').getBoundingClientRect();
+          if (!r.width || !r.height) continue;
+          const at = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+          out.push({ ...at, under: el.contains(deepAt(at.x, at.y)) });
+        }
+      for (const el of root.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot);
+    };
+    walk(document);
+    return out.find((t) => t.under) ?? out[0] ?? null;
+  }, n);
+}
+
+/** Right-click on a thumbnail, then Insert pages from scanner… (asked
+ *  again if the menu didn't open: the viewer may still be settling) */
+let lastMenu = [];
+async function fromPageMenu(at) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.mouse.click(at.x, at.y, { button: 'right' });
+    await until(page, () => document.querySelector('.popover .menu-item'), undefined, 5000);
+    lastMenu = await page.evaluate(() =>
+      [...document.querySelectorAll('.popover .menu-item')].map((b) => b.textContent.trim())
+    );
+    if (await click(page, '.popover .menu-item', 'Insert pages from scanner')) return true;
+    if (!lastMenu.length) lastMenu = [`no menu; under the pointer ${await underPoint(page, at)}`];
+    await page.keyboard.press('Escape');
+    await sleep(1000);
+  }
+  return false;
+}
+
+const pageSizes = async (page) => PDFDocument.load(await docBytes(page)).then((d) => d.getPages().map((p) => Math.round(p.getWidth())));
+
+const doc1 = await fixture('Four pages.pdf');
+const watchDir = join(work, 'scanner app');
+const outDir = join(work, 'out');
+mkdirSync(watchDir);
+mkdirSync(outDir);
+
+/* Settings per scanner, and every group -------------------------------- */
+let app = await L.start({ PAPERWING_TEST_FOLDER: outDir });
+let { page } = app;
+check(await L.openDialog(page), 'the scan dialog opens');
+await choose(page, 'Scanner', 'Paperwing Test Feeder');
+await L.waitReady(page);
+let d = await dialog(page);
+check(d.sources === null, 'a feeder-only scanner: no Source');
+check(JSON.stringify(d.sides) === JSON.stringify(['Front sides', 'Both sides']), 'Pages: both sides (through Scan reverse sides)', JSON.stringify(d.sides));
+check(JSON.stringify(d.colors) === JSON.stringify(['Grayscale', 'Black and white']), 'only its color modes (no Autodetect without color)', JSON.stringify(d.colors));
+check(d.dpi.at(-1) === 'Custom…', 'a resolution range: Custom…', JSON.stringify(d.dpi));
+check(!d.buttons.includes('Preview'), 'no Preview button (hidden, not greyed out)');
+check(
+  /only a document feeder/.test(await page.evaluate(() => document.querySelector('.dlg-scan .sp-message')?.textContent ?? '')),
+  'and the preview pane says this scanner only has a feeder'
+);
+await choose(page, 'Resolution', 'Custom…');
+check((await L.shows(page, ['Custom resolution (dpi)']))['Custom resolution (dpi)'], 'Custom… asks for the resolution');
+await L.setValue(page, 'Custom resolution (dpi)', 350);
+check(/350 dpi/.test((await dialog(page)).summary), 'and uses it', (await dialog(page)).summary);
+
+await choose(page, 'Scanner', 'Paperwing Network Scanner');
+await L.waitReady(page);
+d = await dialog(page);
+check(d.sides === null && d.sources === null, 'a network flatbed: no Pages group at all');
+check(d.colors.includes('Black and white'), 'black and white anyway (made so after the scan)');
+check(d.previewTab, 'it can preview');
+
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Flatbed');
+await choose(page, 'Color mode', 'Black and white');
+check((await L.shows(page, ['Threshold']))['Threshold'], 'Black and white shows the threshold');
+await choose(page, 'Color mode', 'Grayscale');
+check(!(await L.shows(page, ['Threshold']))['Threshold'], 'other modes hide it');
+await choose(page, 'Paper size', 'Custom size');
+let shown = await L.shows(page, ['Width', 'Height', 'Units', 'Orientation']);
+check(shown.Width && shown.Height && shown.Units && !shown.Orientation, 'Custom size: width × height and units', JSON.stringify(shown));
+await L.setValue(page, 'Width', 5);
+await L.setValue(page, 'Height', 7);
+await choose(page, 'Units', 'mm');
+const mm = await page.evaluate(() => [
+  document.querySelector('.dlg-scan input[aria-label="Width"]').value,
+  document.querySelector('.dlg-scan input[aria-label="Height"]').value,
+]);
+check(mm.join() === '127,178', 'switching to mm converts the size', mm.join());
+await choose(page, 'Paper size', 'A5');
+check((await L.shows(page, ['Orientation']))['Orientation'], 'a paper size shows its orientation');
+for (const title of ['Clean-up', 'File size']) {
+  const closed = await page.evaluate(
+    (t) => [...document.querySelectorAll('.dlg-scan .sd-toggle')].find((b) => b.textContent.trim() === t)?.getAttribute('aria-expanded'),
+    title
+  );
+  check(closed === 'false', `${title} starts closed`);
+  await L.openGroup(page, title);
+}
+shown = await L.shows(page, [
+  'Deskew (straighten crooked pages)',
+  'Auto-crop to the page edges',
+  'Background removal',
+  'Descreen (printed photos, magazines)',
+  'Text sharpening',
+  'Despeckle (remove stray dots)',
+  'Remove blank pages',
+  'Remove edge shadows',
+  'Auto-rotate pages (finds upside-down text)',
+  'Rotate all pages',
+  'File size and quality',
+  'Color and grayscale compression',
+  'Compress after scanning (Compress a PDF)',
+]);
+check(Object.values(shown).every(Boolean), 'every clean-up and file size setting', JSON.stringify(shown));
+const deskewOn = await page.evaluate(() => document.querySelector('.dlg-scan input[aria-label="Deskew (straighten crooked pages)"]').checked);
+check(deskewOn, 'Deskew is on to begin with, like Acrobat');
+await choose(page, 'Rotate all pages', '180°');
+await choose(page, 'Background removal', 'Medium');
+await L.tick(page, 'Despeckle (remove stray dots)', true);
+await L.setValue(page, 'File size and quality', 0.2);
+await choose(page, 'Color and grayscale compression', 'ZIP (lossless)');
+await choose(page, 'Paper size', 'Letter');
+await press(page, 'Scan');
+await L.waitIdle(page);
+d = await dialog(page);
+check(d.thumbs === 1, 'scans with all of them', d.status);
+
+/* Presets ------------------------------------------------------------------ */
+await press(page, 'Cancel');
+await press(page, 'Discard 1 page');
+await L.openDialog(page);
+await choose(page, 'Preset', 'Black and white document');
+d = await dialog(page);
+check(d.colors && (await page.evaluate(() => {
+  const s = document.querySelector('.dlg-scan select[aria-label="Color mode"]');
+  return s.options[s.selectedIndex].textContent;
+})) === 'Black and white', 'Black and white document: black and white', d.summary);
+await click(page, '.dlg-scan .sd-link', 'Save as preset');
+await until(page, () => document.querySelector('[aria-label="Save as preset"]'));
+await page.type('[aria-label="Preset name"]', 'Receipts');
+await click(page, '[aria-label="Save as preset"] .accent-btn', 'Save');
+d = await dialog(page);
+check(d.preset === 'Receipts' && d.presets.includes('Receipts'), 'Save as preset… adds it, chosen', JSON.stringify(d.presets));
+await press(page, 'Cancel');
+await until(page, () => !document.querySelector('.dlg-scan'));
+await L.openDialog(page);
+check((await dialog(page)).preset === 'Receipts', 'the preset is remembered next time');
+await press(page, 'Cancel');
+await until(page, () => !document.querySelector('.dlg-scan'));
+// Main menu ▸ Create PDF from scanner ▸ a preset: scans at once
+await click(page, '#menu-btn');
+await until(page, () => document.querySelector('.menu .menu-item'));
+await click(page, '.menu .menu-item', 'Create PDF from scanner');
+const presetItems = await until(page, () => {
+  const items = [...document.querySelectorAll('.menu .menu-item')].map((m) => m.textContent.trim());
+  return items.includes('Grayscale document') && items;
+});
+check(presetItems && presetItems[0] === 'Scan…', 'the main menu lists Scan… and the presets', JSON.stringify(presetItems));
+await click(page, '.menu .menu-item', 'Grayscale document');
+await until(page, () => document.querySelectorAll('.dlg-scan .sr-page').length > 0, undefined, 30000);
+await L.waitIdle(page);
+d = await dialog(page);
+check(d?.thumbs >= 1 && d.preset === 'Grayscale document', 'a preset from the menu scans straight away', `${d?.thumbs} ${d?.preset}`);
+await press(page, 'Cancel');
+await press(page, (await dialog(page)).buttons.find((b) => b.startsWith('Discard')));
+
+/* Save multiple files ------------------------------------------------------ */
+await L.openDialog(page);
+await choose(page, 'Preset', 'My settings');
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Document feeder');
+await choose(page, 'Pages', 'Both sides');
+await click(page, '.dlg-scan .pd-radio', 'Save multiple files');
+shown = await L.shows(page, ['Pages per file', 'File name prefix']);
+check(shown['Pages per file'] && shown['File name prefix'], 'Save multiple files: pages per file, prefix, folder');
+await L.setValue(page, 'Pages per file', 2);
+await L.setValue(page, 'File name prefix', 'Batch');
+await click(page, '.dlg-scan .sd-sub .pill-btn', 'Choose');
+await press(page, 'Scan');
+await L.waitIdle(page);
+await press(page, 'Scan is complete');
+await until(page, () => !document.querySelector('.dlg-scan'), undefined, 30000);
+const files = readdirSync(outDir).sort();
+check(JSON.stringify(files) === JSON.stringify(['Batch 1.pdf', 'Batch 2.pdf', 'Batch 3.pdf']), '6 pages, 2 per file: Batch 1-3.pdf in the chosen folder', JSON.stringify(files));
+const counts = await Promise.all(files.map(async (f) => (await PDFDocument.load(readFileSync(join(outDir, f)))).getPageCount()));
+check(counts.join() === '2,2,2', 'two pages each', counts.join());
+// Which pages went where, by the stand-in's page labels (sheet and side;
+// sheet 2's back comes out blank)
+const inFiles = [];
+for (const f of files) {
+  const bytes = readFileSync(join(outDir, f));
+  const got = [];
+  for (let k = 0; k < 2; k++) got.push(P.labelText(P.readLabel(await P.renderPage(bytes, k, 50))).replace('↓', ''));
+  inFiles.push(got.join('+'));
+}
+const s = parseInt(inFiles[0], 10);
+check(
+  inFiles.join(' | ') === `${s}F+${s}B | ${s + 1}F+blank | ${s + 2}F+${s + 2}B`,
+  'each file has its two pages, in order',
+  inFiles.join(' | ')
+);
+check(/Saved 3 files/.test(await L.toasts(page)), 'and the notice says where');
+await app.close();
+
+/* Insert pages at page N; append to a PDF that isn't open ----------------- */
+app = await L.start({ PAPERWING_TEST_OPEN: doc1 });
+page = app.page;
+const diskBefore = sha(doc1);
+await app.openFile(doc1);
+await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 4);
+await page.evaluate(() => document.querySelector('#right-rail [data-panel="sidebar-panel:thumbnails"]').click());
+await sleep(2500);
+// (page 1's thumbnail: in view on any screen)
+const t1 = await thumb(page, 1);
+check(!!t1, 'page thumbnails shown');
+check(await fromPageMenu(t1), "the page's menu: Insert pages from scanner…", lastMenu.join(' | '));
+await L.waitReady(page);
+d = await dialog(page);
+check(d.title === 'Insert pages from scanner', 'the dialog says what it will do');
+const insertAt = await page.evaluate(() => ({
+  pos: document.querySelector('.dlg-scan select[aria-label="Location"]').value,
+  page: document.querySelector('.dlg-scan select[aria-label="Page"]').value,
+  n: document.querySelector('.dlg-scan input[aria-label="Page number"]').value,
+}));
+check(insertAt.pos === 'after' && insertAt.page === 'number' && insertAt.n === '1', 'Insert Pages: after page 1 (the one clicked)', JSON.stringify(insertAt));
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Flatbed');
+await choose(page, 'Paper size', 'Letter');
+await press(page, 'Scan');
+await L.waitIdle(page);
+await press(page, 'Scan is complete');
+await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 5, undefined, 30000);
+let sizes = await pageSizes(page);
+check(sizes.join() === '595,612,595,595,595', 'the scanned (Letter) page is page 2', sizes.join());
+// (the thumbnails are drawn again with the new page: find page 1's again)
+await sleep(1500);
+const t1again = (await thumb(page, 1)) ?? t1;
+check(await fromPageMenu(t1again), "the page's menu again, after inserting", lastMenu.join(' | '));
+check(!!(await L.waitReady(page)), 'Insert pages from scanner opens again');
+await choose(page, 'Location', 'Before');
+await choose(page, 'Page', 'First');
+check(!(await L.shows(page, ['Page number']))['Page number'], 'First: no page number');
+await press(page, 'Scan');
+await L.waitIdle(page);
+await press(page, 'Scan is complete');
+await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 6, undefined, 30000);
+sizes = await pageSizes(page);
+check(sizes.join() === '612,595,612,595,595,595', 'before the first page', sizes.join());
+// Close it (discarding) so Browse… opens it fresh
+await page.evaluate(() => window.__acro && null);
+await app.close();
+
+app = await L.start({ PAPERWING_TEST_OPEN: doc1 });
+page = app.page;
+check(await L.openDialog(page), 'with no document open');
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Flatbed');
+await click(page, '.dlg-scan .pd-radio', 'Append to file');
+await choose(page, 'File to append to', 'Browse…');
+const browsed = await until(page, () => {
+  const s = document.querySelector('.dlg-scan select[aria-label="File to append to"]');
+  return s.options[s.selectedIndex]?.textContent.includes('(not open)') && s.options[s.selectedIndex].textContent;
+});
+check(browsed === 'Four pages.pdf (not open)', 'Browse… picks a PDF that isn’t open', browsed);
+await press(page, 'Scan');
+await L.waitIdle(page);
+await press(page, 'Scan is complete');
+await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 5, undefined, 30000);
+let info = await L.docInfo(page);
+check(info.name === 'Four pages.pdf' && info.pages === 5 && info.dirty, 'it opens with the page added at the end, unsaved', JSON.stringify(info));
+check(sha(doc1) === diskBefore, 'the file on disk is untouched');
+await L.undo(page);
+check(!!(await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 4)), 'Ctrl+Z takes the page out');
+await app.close();
+
+/* Recognize text right after scanning --------------------------------------- */
+// (PAPERWING_TEST_OPEN: if Enhance scanned pages ever asked for a file
+// instead of using the open document, it gets this one, and the check below
+// fails; never a real file dialog)
+const decoy = await fixture('Picked instead.pdf');
+app = await L.start({ PAPERWING_TEST_OPEN: decoy });
+page = app.page;
+await L.openDialog(page);
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Flatbed');
+await choose(page, 'Paper size', 'Letter');
+await choose(page, 'Color mode', 'Grayscale');
+await L.tick(page, 'Recognize text (OCR)', true);
+check((await L.shows(page, ['Language']))['Language'], 'Recognize text: its language');
+await choose(page, 'Language', 'English');
+await press(page, 'Scan');
+await L.waitIdle(page);
+await press(page, 'Scan is complete');
+await until(page, () => /Recognizing/.test(document.querySelector('.dlg-scan .sd-status')?.textContent ?? ''), undefined, 15000);
+await until(page, () => !document.querySelector('.dlg-scan'), undefined, 180000);
+await until(page, () => /^Scan /.test(document.querySelector('#tabs .tab.is-active')?.textContent.trim() ?? ''));
+await sleep(1500);
+const text = await pdfText(await docBytes(page));
+// (the stand-in's blocky letters read a little differently on each OS)
+check((text.match(/SHEET|TEST|LAZY|DOG|QUICK|PAGE|OVER|SCAN/gi) ?? []).length >= 3, 'the new document has the scanned text in it', text.slice(0, 120).replace(/\s+/g, ' '));
+
+/* PDF/A, and Compress a PDF after scanning ------------------------------------ */
+await L.openDialog(page);
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Flatbed');
+await L.tick(page, 'Recognize text (OCR)', false);
+await L.tick(page, 'Make PDF/A compliant', true);
+await L.openGroup(page, 'File size');
+await L.tick(page, 'Compress after scanning (Compress a PDF)', true);
+await press(page, 'Scan');
+await L.waitIdle(page);
+await press(page, 'Scan is complete');
+await until(page, () => !document.querySelector('.dlg-scan'), undefined, 30000);
+const pdfaTab = await until(page, () => /^Scan /.test(document.querySelector('#tabs .tab.is-active')?.textContent.trim() ?? '') && !/PDF.A compliant/.test(document.querySelector('#toasts')?.textContent ?? '') ? document.querySelector('#tabs .tab.is-active').textContent : null, undefined, 120000);
+await sleep(2000);
+const pdfaBytes = (await docBytes(page)).toString('latin1');
+check(!!pdfaTab && /pdfaid:part/.test(pdfaBytes), 'Make PDF/A compliant: the new document says it is PDF/A', String(/pdfaid:part.{0,20}/.exec(pdfaBytes)?.[0] ?? (await L.toasts(page))));
+const compressOpen = await until(page, () => [...document.querySelectorAll('.lp-title, .fh-title')].some((t) => /Compress/.test(t.textContent)), undefined, 20000);
+check(!!compressOpen, 'Compress after scanning: Compress a PDF opens on it');
+// PDF/A's other parts: the output intent with its color profile, and the
+// XMP metadata (a full validation needs veraPDF, not here)
+check(
+  /\/OutputIntents/.test(pdfaBytes) && /GTS_PDFA/.test(pdfaBytes) && /\/DestOutputProfile/.test(pdfaBytes) && /\/Type\s*\/Metadata/.test(pdfaBytes),
+  'PDF/A: an output intent with its color profile, and XMP metadata'
+);
+await click(page, '[aria-label="Back to tools"]');
+await sleep(500);
+// Add metadata: Edit metadata opens on the new scan, like Acrobat
+await L.openDialog(page);
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Flatbed');
+await L.tick(page, 'Make PDF/A compliant', false);
+await L.openGroup(page, 'File size');
+await L.tick(page, 'Compress after scanning (Compress a PDF)', false);
+await L.tick(page, 'Add metadata (document properties)', true);
+await press(page, 'Scan');
+await L.waitIdle(page);
+await press(page, 'Scan is complete');
+await until(page, () => !document.querySelector('.dlg-scan'), undefined, 30000);
+const metaOpen = await until(page, () => [...document.querySelectorAll('.lp-title, .fh-title')].some((t) => /metadata/i.test(t.textContent)), undefined, 20000);
+check(!!metaOpen, 'Add metadata: Edit metadata opens on the new scan');
+await click(page, '[aria-label="Back to tools"]');
+await sleep(500);
+
+/* All tools, search, Scan & OCR, Enhance -------------------------------------- */
+await click(page, '#gb-tabs [data-panel="convert"]');
+await sleep(500);
+const convert = await page.evaluate(() =>
+  [...document.querySelectorAll('.lp-tool')].filter((t) => t.offsetParent).map((t) => t.textContent.trim())
+);
+check(convert.includes('Scanner'), 'Convert ▸ Create PDF from: Scanner', JSON.stringify(convert.slice(0, 12)));
+await click(page, '#gb-tabs [data-panel="all"]');
+await sleep(400);
+await click(page, '.lp-section', 'Create a PDF');
+await sleep(300);
+const all = await page.evaluate(() =>
+  [...document.querySelectorAll('.lp-tool')].filter((t) => t.offsetParent).map((t) => t.textContent.trim())
+);
+check(all.includes('Scanner'), 'All tools ▸ Create a PDF ▸ Scanner');
+check(all.includes('Scan & OCR'), 'All tools ▸ Scan & OCR');
+/** Types into the tool search that's shown (each tab has its own panel) */
+const search = async (q) => {
+  const box = await page.evaluate(() => {
+    const i = [...document.querySelectorAll('.lp-search input')].find((x) => x.offsetParent);
+    i.value = '';
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+    // (focused for sure: on the Mac runner the click sometimes left focus on
+    // the page, and the letters typed became shortcuts: C opened Crop PDF)
+    i.focus();
+    const r = i.getBoundingClientRect();
+    return { x: r.x + 20, y: r.y + r.height / 2 };
+  });
+  await page.mouse.click(box.x, box.y);
+  await page.keyboard.type(q);
+  await sleep(300);
+  return page.evaluate(() =>
+    [...document.querySelectorAll('.lp-tool')].filter((t) => t.offsetParent).map((t) => t.textContent.trim())
+  );
+};
+let found = await search('scanner');
+check(found.includes('Scanner'), 'tool search "scanner": Scanner', JSON.stringify(found));
+found = await search('scan');
+check(['Scanner', 'Scan & OCR', 'Enhance scanned pages'].every((t) => found.includes(t)), 'tool search "scan": Scanner, Scan & OCR, Enhance scanned pages', JSON.stringify(found));
+await click(page, '.lp-tool', 'Scan & OCR');
+const tiles = await until(page, () => {
+  const d = document.querySelector('.dlg-scan-ocr');
+  return d && [...d.querySelectorAll('.so-title')].map((t) => t.textContent);
+});
+check(JSON.stringify(tiles) === JSON.stringify(['Select a file', 'Scan a document', 'Enhance scanned pages']), "Scan & OCR: Acrobat's start page", JSON.stringify(tiles));
+check(/Select a file or scan a document to recognize text/.test(await page.evaluate(() => document.querySelector('.dlg-scan-ocr').textContent)), 'with its words');
+await click(page, '.so-tile', 'Scan a document');
+await L.waitReady(page);
+check(await page.evaluate(() => document.querySelector('.dlg-scan input[aria-label="Recognize text (OCR)"]').checked), 'Scan a document: the scan dialog with Recognize text on');
+await press(page, 'Cancel');
+await until(page, () => !document.querySelector('.dlg-scan'));
+// Enhance a document with several pages: the 4-page one, open and shown
+await app.openFile(doc1);
+await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 4, undefined, 20000);
+await sleep(1000);
+const before = await L.pageCount(page);
+const bytesBefore = (await docBytes(page)).length;
+// With a full-page tool open on it (Crop PDF), Enhance still works on the
+// document: the tool closes. (Enhance used to ask for a file then: the
+// macOS runner hit it when a stray C opened Crop PDF.)
+const tabsBefore = await page.evaluate(() => document.querySelectorAll('#tabs .tab').length);
+await search('crop');
+await click(page, '.lp-tool', 'Crop PDF');
+const cropOpen = await until(page, () => [...document.querySelectorAll('#tool-full .fh-title')].some((t) => t.offsetParent && /Crop/.test(t.textContent)), undefined, 20000);
+check(!!cropOpen, 'Crop PDF open in full view on it');
+const enhanceFound = await search('enhance');
+await click(page, '.lp-tool', 'Enhance scanned pages');
+await until(page, () => document.querySelector('.dlg-enhance'), undefined, 10000);
+const enhanceFor = await page.evaluate(() => document.querySelector('.dlg-enhance')?.textContent ?? '');
+check(
+  /Four pages/.test(enhanceFor) && !/Picked instead/.test(enhanceFor),
+  'Enhance scanned pages: its choices, for the open document',
+  `${JSON.stringify(enhanceFound)}; ${enhanceFor.slice(0, 80) || 'no dialog'}`
+);
+check(
+  await page.evaluate((n) => !document.querySelector('#tool-full .fh-title') && document.querySelectorAll('#tabs .tab').length === n, tabsBefore),
+  'and Crop PDF closed, no file opened instead'
+);
+await click(page, '.dlg-enhance .accent-btn', 'Enhance');
+const enhanced = await until(page, () => /Enhanced the scanned pages/.test(document.querySelector('#toasts')?.textContent ?? ''), undefined, 60000);
+info = await L.docInfo(page);
+check(!!enhanced && info.dirty && info.pages === before, 'it changes the pages, unsaved', JSON.stringify(info));
+const changed = (await docBytes(page)).length;
+await L.undo(page);
+await sleep(1500);
+const back = (await docBytes(page)).length;
+// (the pages drawn as pictures are bigger than the text ones they replaced)
+check(changed > bytesBefore * 1.5 && back < changed * 0.6, 'Ctrl+Z undoes it', `${bytesBefore} -> ${changed} -> ${back}`);
+await app.close();
+
+/* Import from a scanner app; add by IP address; recovered after a crash --- */
+const profile = mkdtempSync(join(TMP, 'pw-scan-profile-'));
+app = await launch({ profile, env: { PAPERWING_SCAN_TEST: '1', PAPERWING_TEST_FOLDER: watchDir } });
+page = app.page;
+await sleep(2500);
+await L.openDialog(page);
+await choose(page, 'Scanner', 'Import from a scanner app…');
+d = await dialog(page);
+check(d.sides === null && d.colors === null, 'Import from a scanner app: no scanner settings');
+await click(page, '.dlg-scan .sd-folder .pill-btn', 'Choose');
+await until(page, () => /Waiting for new scans/.test(document.querySelector('.dlg-scan .sd-status').textContent));
+// A scanner app saving a picture, then a PDF in pieces
+const img = render(pageContent(1, { sheet: 1, side: 'front', blank: false, width: 8.5 }), { x: 0, y: 0, width: 8.5, height: 11 }, 60, { color: 'gray' });
+writeFileSync(join(watchDir, 'scan 001.png'), img.png);
+const pdf = readFileSync(doc1);
+const half = Math.floor(pdf.length / 2);
+writeFileSync(join(watchDir, 'scan 002.pdf'), pdf.subarray(0, half));
+await until(page, () => document.querySelectorAll('.dlg-scan .sr-page').length >= 1, undefined, 15000);
+await sleep(2500);
+check((await dialog(page)).thumbs === 1, 'a new picture shows; a half-written PDF waits', `${(await dialog(page)).thumbs}`);
+appendFileSync(join(watchDir, 'scan 002.pdf'), pdf.subarray(half));
+await until(page, () => document.querySelectorAll('.dlg-scan .sr-page').length === 5, undefined, 15000);
+check((await dialog(page)).thumbs === 5, 'then its 4 pages', `${(await dialog(page)).thumbs}`);
+await press(page, 'Scan is complete');
+await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 5, undefined, 30000);
+check((await L.docInfo(page)).pages === 5, 'they make one new document');
+void encodePng;
+
+check(await L.openDialog(page), 'the scan dialog opens again', JSON.stringify(await dialog(page)));
+await click(page, '.dlg-scan .sd-link', 'Add by IP address');
+await until(page, () => document.querySelector('[aria-label="Add a network scanner"]'));
+await page.type('[aria-label="IP address or host name"]', '10.0.0.250');
+await click(page, '[aria-label="Add a network scanner"] .accent-btn', 'Add');
+const refused = await until(page, () => document.querySelector('[aria-label="Add a network scanner"] .sd-status')?.textContent);
+check(/No scanner answered at 10\.0\.0\.250/.test(refused ?? ''), 'an address where nothing answers says so', refused);
+await page.$eval('[aria-label="IP address or host name"]', (i) => (i.value = ''));
+await page.type('[aria-label="IP address or host name"]', '192.0.2.44');
+await click(page, '[aria-label="Add a network scanner"] .accent-btn', 'Add');
+await until(page, () => !document.querySelector('[aria-label="Add a network scanner"]'));
+await L.waitReady(page);
+check((await dialog(page)).scanner === 'Network scanner at 192.0.2.44', 'Add by IP address adds it and chooses it', (await dialog(page)).scanner);
+await press(page, 'Scan');
+await L.waitIdle(page);
+await press(page, 'Scan is complete');
+await until(page, () => /^Scan /.test(document.querySelector('#tabs .tab.is-active')?.textContent.trim() ?? ''), undefined, 30000);
+await sleep(6000); // (the recovery copy is written a few seconds in)
+app.child.kill('SIGKILL');
+await new Promise((r) => app.child.once('exit', r));
+app = await launch({ profile, env: { PAPERWING_SCAN_TEST: '1' } });
+page = app.page;
+const recovered = await until(page, () => /Recovered \d documents?/.test(document.querySelector('#toasts')?.textContent ?? ''), undefined, 20000);
+const names = await page.evaluate(() => [...document.querySelectorAll('#tabs .tab')].map((t) => t.textContent.trim()));
+check(!!recovered && names.some((n) => /^Scan \d{4}/.test(n)), 'after a crash, the unsaved scans come back', JSON.stringify(names));
+await app.close();
+
+/* A scanner slow to get ready (a stuck driver) doesn't hold the dialog -- */
+app = await L.start({ PAPERWING_SCAN_TEST_SLOW: 'Paperwing Test Scanner' });
+page = app.page;
+const openSlow = async () => {
+  await click(page, '#create-btn');
+  await until(page, () => document.querySelector('.menu .menu-item'));
+  await click(page, '.menu .menu-item', 'From scanner');
+  // (whichever scanner it starts on, the slow one is chosen)
+  await until(page, () => document.querySelector('.dlg-scan select[aria-label="Scanner"] option'));
+  await until(page, () => !document.querySelector('.dlg-scan select[aria-label="Scanner"]').disabled);
+  if ((await dialog(page)).scanner !== 'Paperwing Test Scanner') await choose(page, 'Scanner', 'Paperwing Test Scanner');
+  return until(page, () => /Getting the scanner ready/.test(document.querySelector('.dlg-scan .sd-status')?.textContent ?? ''));
+};
+check(!!(await openSlow()), 'a slow scanner: "Getting the scanner ready…"');
+await press(page, 'Cancel');
+check(!!(await until(page, () => !document.querySelector('.dlg-scan'), undefined, 3000)), 'Cancel closes the dialog while it waits');
+check(!!(await openSlow()), 'opened again, still waiting for the slow scanner');
+const free = await page.evaluate(() => {
+  const d = document.querySelector('.dlg-scan');
+  const link = [...d.querySelectorAll('.sd-link')].find((b) => b.textContent.startsWith('Add by IP'));
+  return !d.querySelector('select[aria-label="Scanner"]').disabled && !!link && !link.disabled;
+});
+check(free, 'meanwhile another scanner can be chosen, or one added by IP address');
+await choose(page, 'Scanner', 'Paperwing Test Feeder');
+check(!!(await L.waitReady(page, 8000)), 'another scanner is ready without waiting for the slow one');
+await sleep(31000); // (the slow scanner's late answer arrives)
+const after = await dialog(page);
+check(
+  after?.scanner === 'Paperwing Test Feeder' && !!after.colors && !after.colors.includes('Color'),
+  "the slow scanner's late answer doesn't replace the chosen one's (the feeder's gray and B&W only)",
+  JSON.stringify({ scanner: after?.scanner, colors: after?.colors })
+);
+await app.close();
+
+L.finish();

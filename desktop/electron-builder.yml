@@ -11,6 +11,9 @@ files:
   - main.cjs
   - preload.cjs
   - print.cjs
+  - scan.cjs
+  - escl.cjs
+  - mdns.cjs
   - engines.json
   - package.json
 
@@ -58,6 +61,14 @@ afterPack: scripts/after-pack.cjs
 win:
   # Platform icons come from build/icon.svg (scripts/gen-icons.mjs)
   icon: build/icon.ico
+  # The scanner helpers: paperwing-scan.exe (WIA, 64-bit TWAIN) and
+  # paperwing-twain32.exe (32-bit TWAIN), built by native/win-scanner/build.mjs
+  # (after-pack.cjs checks they're there)
+  extraResources:
+    - from: native/win-scanner/out
+      to: scanner
+      filter:
+        - '**/*'
   target:
     - target: nsis
       arch: [x64]
@@ -96,6 +107,12 @@ mac:
   extendInfo:
     NSDocumentsFolderUsageDescription: Paperwing opens and saves PDF files you choose.
     NSDownloadsFolderUsageDescription: Paperwing saves exported files to your Downloads folder.
+    # Network scanners (escl.cjs): macOS asks once before Paperwing may look
+    # for them, and the services it looks for must be declared
+    NSLocalNetworkUsageDescription: Paperwing looks for scanners on your network so you can scan documents straight into a PDF.
+    NSBonjourServices:
+      - _uscan._tcp
+      - _uscans._tcp
 
 dmg:
   title: ${productName} ${version}

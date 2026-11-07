@@ -9,6 +9,7 @@ import {
   allToolGroups,
   convertTools,
   editTools,
+  enableScanning,
   getTool,
   quickTools,
   recommendedTools,
@@ -33,6 +34,8 @@ import { fillable, type FieldState, type LiveField } from './form-model';
 import type { PrintBridge } from './print';
 import type { Presentation } from './present';
 import { showModal } from './modal';
+import type { ScanBridge, ScanOutcome } from './scan';
+import { scanName } from './scan-settings';
 import {
   type AvailableUpdate,
   checkForUpdates,
@@ -77,6 +80,9 @@ import {
   updateRecent,
   type RecentFile,
 } from './recent';
+
+// Scanning's tools (Create a PDF ▸ Scanner, Scan & OCR…) in the desktop app
+if (desktop?.scan) enableScanning();
 
 /** Page changes, form reading and printing use pdf-lib, which loads the
  *  first time one of them is needed rather than with the app */
@@ -2300,6 +2306,7 @@ function mountTool(tab: Tab, tool: AppTool, files: File[]) {
  *  in an empty workspace it either starts empty or asks for a PDF first. */
 async function openToolOnDoc(tab: Tab, tool: AppTool, files: File[] = []) {
   noteToolUsed(tool.id, tool.name);
+  if (tool.paperwing) return runPaperwingTool(tool);
   if (!tool.href && !tool.action) return;
 
   if (tab.blank) {
@@ -2327,6 +2334,11 @@ async function openToolOnDoc(tab: Tab, tool: AppTool, files: File[] = []) {
 
 /** From Home, menus or the palette: use the open document, else a workspace */
 async function runTool(tool: AppTool) {
+  // (scanning's tools are dialogs: no workspace needed)
+  if (tool.paperwing) {
+    noteToolUsed(tool.id, tool.name);
+    return runPaperwingTool(tool);
+  }
   const current = activeTab();
   if (current) {
     await openToolOnDoc(current, tool);
@@ -3452,6 +3464,15 @@ function pageMenu(tab: Tab, page: number, x: number, y: number) {
         );
       },
     },
+    ...(desktop?.scan
+      ? [
+          {
+            label: 'Insert pages from scanner…',
+            icon: icon('scan', 16),
+            onClick: (): void => void scanToPdf({ insert: { tab, page } }),
+          },
+        ]
+      : []),
     {
       label: 'Extract page',
       icon: icon('fileOut', 16),
@@ -4403,6 +4424,16 @@ function createMenuItems(): MenuItem[] {
     'email-to-pdf': 'From email',
   };
   return [
+    // (desktop app only: the shell talks to the scanner)
+    ...(desktop?.scan
+      ? [
+          {
+            label: 'From scanner',
+            icon: icon('scan', 18),
+            onClick: (): void => void scanToPdf(),
+          },
+        ]
+      : []),
     ...ids.map((id) => {
       const t = getTool(id)!;
       return {
@@ -4443,6 +4474,15 @@ $('#menu-btn').addEventListener('click', (e) => {
       icon: icon('plus', 16),
       onClick: () => showMenu($('#create-btn'), createMenuItems()),
     },
+    ...(desktop?.scan
+      ? [
+          {
+            label: 'Create PDF from scanner',
+            icon: icon('scan', 16),
+            onClick: (): void => showScanPresetMenu($('#menu-btn')),
+          },
+        ]
+      : []),
     {
       label: 'Reopen closed document',
       shortcut: sc('reopen'),
@@ -4691,6 +4731,289 @@ function showAbout() {
     ),
     'dlg-about'
   );
+}
+
+/* Scanning ------------------------------------------------------------ */
+
+let scanningNow = false;
+
+/** File ▸ Create PDF from scanner ▸ a preset scans at once, as in Acrobat */
+function showScanPresetMenu(anchor: HTMLElement) {
+  void import('./scan-settings').then(({ BUILTIN_PRESETS }) =>
+    showMenu(anchor, [
+      {
+        label: 'Scan…',
+        icon: icon('scan', 16),
+        onClick: (): void => void scanToPdf(),
+      },
+      { divider: true },
+      ...BUILTIN_PRESETS.map((p) => ({
+        label: p.label,
+        onClick: (): void => void scanToPdf({ preset: p.id, autoStart: true }),
+      })),
+    ])
+  );
+}
+
+/** Scanning's own tools (catalog.ts): the scan dialog, Scan & OCR's start
+ *  page, Enhance scanned pages */
+function runPaperwingTool(tool: AppTool): Promise<void> {
+  if (tool.paperwing === 'scan') return scanToPdf();
+  if (tool.paperwing === 'scan-ocr') return showScanOcrStart();
+  return enhanceScanned();
+}
+
+/**
+ * Scans (scan.ts). The pages become a new unsaved document (recovered
+ * after a crash like a tool's result), go at the end of an open document or
+ * of a PDF on disk (opened with them added: saving is up to the person,
+ * and Ctrl+Z takes them out), are inserted where asked, or are saved as
+ * several files.
+ */
+async function scanToPdf(
+  opts: {
+    preset?: string;
+    autoStart?: boolean;
+    ocr?: boolean;
+    insert?: { tab: Tab; page: number };
+  } = {}
+): Promise<void> {
+  if (!desktop?.scan || scanningNow || document.querySelector('.dlg-backdrop'))
+    return;
+  scanningNow = true;
+  try {
+    const [{ showScanDialog }, { tesseractLanguages }] = await Promise.all([
+      import('./scan'),
+      import('../js/config/tesseract-languages'),
+    ]);
+    const docs = tabs.filter((t) => !t.blank && !t.loading && !t.fullTool);
+    const active = activeDoc();
+    const into = opts.insert?.tab;
+    const result = await showScanDialog(desktop as ScanBridge, {
+      isMac,
+      mode: into ? 'insert' : 'create',
+      documents: docs.map((t) => ({ id: t.id, name: t.name })),
+      activeDocument: active && docs.includes(active) ? active.id : null,
+      insert: into
+        ? {
+            name: into.name,
+            total: into.page.total || viewer.pageInfo(into.id)?.total || 1,
+            page: (opts.insert?.page ?? 0) + 1,
+          }
+        : undefined,
+      preset: opts.preset,
+      autoStart: opts.autoStart,
+      ocr: opts.ocr,
+      browse: async () => {
+        const p = (await pickFiles()).find((x) => isPdf(x.file));
+        return p ? { name: p.file.name, path: p.path, file: p.file } : null;
+      },
+      recognize: async (pdf, language, progress) =>
+        (await import('./scan-finish')).recognizeText(pdf, language, progress),
+      detectOrientation: async (image) =>
+        (await import('./scan-finish')).detectOrientation(image),
+      languages: tesseractLanguages,
+    });
+    if (result) await placeScan(result, into);
+  } finally {
+    scanningNow = false;
+  }
+}
+
+/** Waits for a document that's opening to be shown */
+async function whenLoaded(tab: Tab | undefined): Promise<Tab | undefined> {
+  for (let k = 0; tab && tab.loading && k < 300; k++)
+    await new Promise((r) => setTimeout(r, 100));
+  return tab && tabs.includes(tab) && !tab.loading ? tab : undefined;
+}
+
+async function placeScan(result: ScanOutcome, into?: Tab) {
+  const pageWord = result.pages === 1 ? 'page' : 'pages';
+  if (result.output === 'multiple') {
+    const n = result.saved.length;
+    toast(
+      `Saved ${n} file${n === 1 ? '' : 's'} (${result.pages} ${pageWord}) in ${result.folder}`,
+      desktop?.showInFolder
+        ? {
+            label: 'Show',
+            onClick: () => void desktop!.showInFolder!(result.saved[0].path),
+          }
+        : undefined
+    );
+    return;
+  }
+  const scanned = result.pdf.slice().buffer;
+  const add = async (tab: Tab, after: number, done: string) => {
+    activate(tab.id);
+    await changePages(
+      tab,
+      (b) => insertPagesFrom(b, after, scanned),
+      after + 2,
+      done
+    );
+  };
+  const lastOf = (tab: Tab) =>
+    Math.max(0, (tab.page.total || viewer.pageInfo(tab.id)?.total || 1) - 1);
+  if (result.output === 'insert') {
+    if (into && tabs.includes(into))
+      await add(
+        into,
+        result.after,
+        `Inserted ${result.pages} scanned ${pageWord} into ${into.name}`
+      );
+    return;
+  }
+  if (result.output === 'append') {
+    const to = result.to;
+    const tab =
+      to.kind === 'open'
+        ? tabs.find((t) => t.id === to.id)
+        : await whenLoaded(
+            await openDocument(to.file.file, { path: to.file.path })
+          );
+    if (tab && tabs.includes(tab))
+      await add(
+        tab,
+        lastOf(tab),
+        `Added ${result.pages} scanned ${pageWord} to ${tab.name}`
+      );
+    return;
+  }
+  let pdf = result.pdf;
+  if (result.pdfa) {
+    const busy = statusToast('Making the scan PDF/A compliant…');
+    try {
+      pdf = await (await import('./scan-finish')).makePdfA(pdf, () => {});
+    } catch (err) {
+      console.error(err);
+      toast(
+        "The scan couldn't be made PDF/A compliant here. It opens as it is: use Convert ▸ PDF to PDF/A on it."
+      );
+    } finally {
+      busy.close();
+    }
+  }
+  const name = uniqueTabName(scanName(new Date()));
+  const file = new File([pdf as BlobPart], name, { type: 'application/pdf' });
+  const target = await openDocument(file, {}, undefined, undefined, {});
+  if (!target) {
+    saveBlob(file, name);
+    return;
+  }
+  savePrompt(
+    target,
+    `Scanned ${result.pages} ${pageWord} into ${name}. It isn't saved yet`
+  );
+  // One tool at a time: the metadata first (Acrobat asks for it right
+  // away), else Compress a PDF (text recognized already: it comes first)
+  const next = result.metadata
+    ? getTool('edit-metadata')
+    : result.compress
+      ? getTool('compress-pdf')
+      : undefined;
+  if (next) await openToolOnDoc(target, next);
+  if (result.metadata && result.compress)
+    toast('To make the file smaller afterwards: Compress a PDF');
+}
+
+/** All tools ▸ Scan & OCR: a start page like Acrobat's */
+function showScanOcrStart(): Promise<void> {
+  if (document.querySelector('.dlg-backdrop')) return Promise.resolve();
+  const ocrTool = getTool('ocr-pdf');
+  let close = () => {};
+  const tile = (
+    iconName: string,
+    color: string,
+    title: string,
+    desc: string,
+    run: () => void
+  ) =>
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'so-tile',
+        onClick: (): void => {
+          close();
+          run();
+        },
+      },
+      toolIcon(iconName, color, 28),
+      h('span', { class: 'so-title' }, title),
+      h('span', { class: 'so-desc' }, desc)
+    );
+  close = dialog(
+    'Scan & OCR',
+    h(
+      'div',
+      { class: 'dlg-body so-start' },
+      h('p', {}, 'Select a file or scan a document to recognize text.'),
+      h(
+        'div',
+        { class: 'so-tiles' },
+        tile(
+          'file-magnifying-glass',
+          '#e5322d',
+          'Select a file',
+          'Make a PDF that’s already scanned searchable and copyable.',
+          () => {
+            if (ocrTool) void runTool(ocrTool);
+          }
+        ),
+        tile(
+          'scan',
+          '#e5322d',
+          'Scan a document',
+          'Scan paper with your scanner and recognize its text.',
+          () => void scanToPdf({ ocr: true })
+        ),
+        tile(
+          'magic-wand',
+          '#e34850',
+          'Enhance scanned pages',
+          'Straighten, clean up and sharpen the pages of a scanned PDF.',
+          () => void enhanceScanned()
+        )
+      )
+    ),
+    'dlg-scan-ocr'
+  );
+  return Promise.resolve();
+}
+
+/** Enhance scanned pages: the scan clean-up, on an existing PDF's pages.
+ *  The open document changes (unsaved; Ctrl+Z undoes it); with none open,
+ *  a PDF is picked and opened first */
+async function enhanceScanned(): Promise<void> {
+  if (document.querySelector('.dlg-backdrop')) return;
+  let tab = activeDoc();
+  // A full-page tool open on it (Crop, Edit a PDF…) closes first, asking
+  // if it has changes, as for the viewer's own tools: Enhance works on the
+  // document, not on a file asked for instead
+  if (tab?.fullTool && !(await closeFullTool(tab))) return;
+  if (!tab || tab.loading) {
+    const p = (await pickFiles()).find((x) => isPdf(x.file));
+    if (!p) return;
+    tab = await whenLoaded(
+      await openDocument(p.file, { handle: p.handle, path: p.path })
+    );
+    if (!tab) return;
+  }
+  const target = tab;
+  const { showEnhanceDialog } = await import('./scan-enhance');
+  const choice = await showEnhanceDialog(target.name);
+  if (!choice || !tabs.includes(target)) return;
+  const busy = statusToast(`Enhancing the pages of ${target.name}…`);
+  try {
+    await changePages(
+      target,
+      (b) => choice.run(b),
+      target.page.current || 1,
+      `Enhanced the scanned pages of ${target.name}`
+    );
+  } finally {
+    busy.close();
+  }
 }
 
 /* What's new ---------------------------------------------------------- */
@@ -5470,6 +5793,43 @@ function paletteCommands(): PaletteItem[] {
       icon: icon('theme', 16),
       run: () => setThemePref('system'),
     },
+    ...(desktop?.scan
+      ? [
+          {
+            label: 'Create PDF from scanner',
+            icon: icon('scan', 16),
+            run: (): void => void scanToPdf(),
+          },
+          ...(activeDoc()
+            ? [
+                {
+                  label: 'Insert pages from scanner',
+                  icon: icon('scan', 16),
+                  run: (): void => {
+                    const doc = activeDoc();
+                    if (doc)
+                      void scanToPdf({
+                        insert: {
+                          tab: doc,
+                          page: Math.max(0, doc.page.current - 1),
+                        },
+                      });
+                  },
+                },
+              ]
+            : []),
+          {
+            label: 'Scan & OCR',
+            icon: icon('scan', 16),
+            run: (): void => void showScanOcrStart(),
+          },
+          {
+            label: 'Enhance scanned pages',
+            icon: icon('scan', 16),
+            run: (): void => void enhanceScanned(),
+          },
+        ]
+      : []),
     { label: 'Keyboard shortcuts', icon: icon('help', 16), run: showShortcuts },
     {
       label: "What's new in Paperwing",
@@ -5941,6 +6301,9 @@ if (desktop) {
     if (command === 'about') return showAbout();
     if (command === 'shortcuts') return showShortcuts();
     if (command === 'whatsNew') return void showWhatsNew();
+    if (command === 'scan') return void scanToPdf();
+    if (command.startsWith('scan:'))
+      return void scanToPdf({ preset: command.slice(5), autoStart: true });
     if (command === 'undo' || command === 'redo') {
       // Inside a tool, undo belongs to the tool (as with forwarded keys):
       // it undoes typing in the focused field

@@ -61,6 +61,7 @@ affiliated with Adobe ([Trademarks](#trademarks)) or with PaperWingPDF, a separa
 - 🔒 **Private by default**: everything runs locally, with no account, telemetry or uploads
 - ⌨️ **Acrobat's shortcuts**, including single-key tools (H, V, S, U, D, X), plus a command palette (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>)
 - 📝 **Forms and printing** that work like Acrobat's: fill in on the page, print with a preview
+- 🖨️ **Scanning** like Acrobat's: any scanner (WIA, TWAIN, Image Capture, network), preview, clean-up and OCR
 - ⚡ **Fast and light**: opens in about a second and scrolls at a steady 60 fps
 - 💾 **Never lose work**: unsaved-change markers, session restore and recovery after a crash
 - 🌗 **Light and dark themes** that follow your system

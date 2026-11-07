@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The 32-bit helper: only TWAIN, for scanners whose TWAIN driver is
+       32-bit only (a 64-bit process can't load it). Same source, same
+       protocol; scan.cjs runs it for "twain32:" scanners. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>paperwing-twain32</AssemblyName>
+    <RootNamespace>Paperwing.Scan</RootNamespace>
+    <PlatformTarget>x86</PlatformTarget>
+    <Prefer32Bit>true</Prefer32Bit>
+    <DefineConstants>$(DefineConstants);TWAIN32</DefineConstants>
+    <ApplicationManifest>..\src\app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\src\**\*.cs" Exclude="..\src\Wia\**" />
+    <PackageReference Include="NAPS2.NTwain" Version="1.0.1" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+</Project>

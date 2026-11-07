@@ -20,7 +20,11 @@ export interface AppTool {
   action?: ViewerAction;
   /** Needs the whole document area rather than the side panel */
   full?: boolean;
+  /** One of Paperwing's own (scanning: app.ts runs it) */
+  paperwing?: PaperwingTool;
 }
+
+export type PaperwingTool = 'scan' | 'scan-ocr' | 'enhance-scan';
 
 export interface ToolGroup {
   name: string;
@@ -126,6 +130,53 @@ export function getTool(id: string): AppTool | undefined {
   return byId.get(id);
 }
 
+/** Scanning (desktop app): Paperwing's own tools, not BentoPDF's pages */
+let scanning = false;
+
+/** Adds the scanning tools: Create a PDF ▸ Scanner (so also Convert ▸
+ *  Create PDF from), Scan & OCR's start page, Enhance scanned pages */
+export function enableScanning(): void {
+  if (scanning) return;
+  scanning = true;
+  const scanner: AppTool = {
+    id: 'scanner',
+    name: 'Scanner',
+    icon: 'scan',
+    color: C.create,
+    desc: 'Scan paper documents into a PDF, with a flatbed or document feeder.',
+    paperwing: 'scan',
+  };
+  const scanOcr: AppTool = {
+    id: 'scan-ocr',
+    name: 'Scan & OCR',
+    icon: byId.get('ocr-pdf')?.icon ?? 'scan',
+    color: byId.get('ocr-pdf')?.color ?? C.optimize,
+    desc: 'Scan a document or select a file to recognize text, or enhance scanned pages.',
+    paperwing: 'scan-ocr',
+  };
+  const enhance: AppTool = {
+    id: 'enhance-scan',
+    name: 'Enhance scanned pages',
+    icon: 'magic-wand',
+    color: C.optimize,
+    desc: 'Straighten, clean up and sharpen pages that were scanned.',
+    paperwing: 'enhance-scan',
+  };
+  for (const t of [scanner, scanOcr, enhance]) byId.set(t.id, t);
+  groups.find((g) => g.name === 'Create a PDF')?.tools.unshift(scanner);
+  groups.find((g) => g.name === 'Optimize & repair')?.tools.push(enhance);
+}
+
+/** All tools ▸ Scan & OCR: the start page with scanning, else OCR alone */
+const scanAndOcr = (): AppTool =>
+  scanning
+    ? byId.get('scan-ocr')!
+    : alias(
+        'ocr-pdf',
+        'Scan & OCR',
+        'Make scanned documents searchable and editable.'
+      );
+
 /** Override name/description to match Acrobat's wording */
 function alias(id: string, name: string, desc?: string): AppTool {
   const t = byId.get(id)!;
@@ -160,11 +211,7 @@ export const quickTools = (): AppTool[] => [
     'Reorder, rotate, insert and delete pages.'
   ),
   byId.get('comment')!,
-  alias(
-    'ocr-pdf',
-    'Scan & OCR',
-    'Make scanned documents searchable and editable.'
-  ),
+  scanAndOcr(),
   alias('protect-pdf', 'Protect a PDF', 'Add a password to restrict access.'),
   byId.get('redact')!,
   alias(
@@ -259,7 +306,7 @@ export const allToolGroups = (): ToolGroup[] => [
       alias('image-to-pdf', 'Create a PDF'),
       alias('pdf-to-word', 'Export a PDF'),
       alias('merge-pdf', 'Combine files'),
-      alias('ocr-pdf', 'Scan & OCR'),
+      scanAndOcr(),
       alias('compress-pdf', 'Compress a PDF'),
     ],
   },
