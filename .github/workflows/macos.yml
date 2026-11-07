@@ -100,7 +100,7 @@ jobs:
           PW_SCREENS: ${{ runner.temp }}/cert-screens
         run: |
           node bench/check-cert-sign.mjs
-          "$RUNNER_TEMP/venv/bin/python" tests/validate-signed.py "$RUNNER_TEMP/app-signed/Contract (signed) (signed).pdf"
+          "$RUNNER_TEMP/venv/bin/python" tests/validate-signed.py "$RUNNER_TEMP/app-signed/Contract (signed) (signed) (signed).pdf"
 
       - name: Certificate screenshots
         if: ${{ always() }}
