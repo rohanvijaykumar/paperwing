@@ -184,8 +184,6 @@ export const dialog = (page) =>
       const s = [...d.querySelectorAll(`select[aria-label="${label}"]`)].find(shown);
       return s ? s.options[s.selectedIndex]?.textContent : null;
     };
-    const has = (label) =>
-      [...d.querySelectorAll(`[aria-label="${label}"]`)].some(shown);
     return {
       title: d.querySelector('.dlg-head h2').textContent,
       scanners: opts('Scanner'),
@@ -198,7 +196,6 @@ export const dialog = (page) =>
       dpi: opts('Resolution'),
       papers: opts('Paper size'),
       paper: value('Paper size'),
-      has,
       summary: d.querySelector('.sd-summary').textContent,
       status: d.querySelector('.sd-status').textContent,
       thumbs: d.querySelectorAll('.sr-page').length,

@@ -378,6 +378,10 @@ export function showScanDialog(
     let lastPass: { ids: number[]; feeder: boolean; duplex: boolean } | null = null;
     let watching = '';
     let watchFolder = '';
+    /** A resolution typed in (a scanner with a range), not one listed */
+    let dpiCustom = false;
+    /** Cancel was selected once with pages scanned: again discards them */
+    let confirmDiscard = false;
     let saveFolder: { path: string; name: string } | null = null;
     const picked: PickedFile[] = [];
     const urls = new Set<string>();
@@ -776,7 +780,8 @@ export function showScanDialog(
       settings.flipBacks = flip.input.checked;
       settings.color = (color.value || settings.color) as ScanSettings['color'];
       settings.threshold = Number(threshold.value);
-      if (dpi.value === 'custom') {
+      dpiCustom = dpi.value === 'custom';
+      if (dpiCustom) {
         const v = Math.round(Number(customDpi.value));
         const r = source()?.resolutionRange;
         if (r && v >= r.min && v <= r.max) settings.dpi = v;
@@ -847,7 +852,7 @@ export function showScanDialog(
       if (color.value && color.value !== settings.color) settings.color = color.value as ScanSettings['color'];
       thresholdRow.hidden = !v.threshold;
       const offered = offeredResolutions(s);
-      const custom = v.customDpi && !offered.includes(settings.dpi);
+      const custom = v.customDpi && (dpiCustom || !offered.includes(settings.dpi));
       fill(
         dpi,
         [
@@ -1176,7 +1181,6 @@ export function showScanDialog(
       });
     };
 
-    let confirmDiscard = false;
     async function scanPass(kind: 'first' | 'more' | 'reverse' | 'rescan', rescanId?: number) {
       if (busy || !device || !caps) return;
       readControls();
