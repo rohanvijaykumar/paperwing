@@ -443,7 +443,10 @@ async function open(files, env = {}) {
   };
   /** Validate signatures on the open document: each card's title and
    *  status line, and the summary */
-  u.validate = async (shotName, { systemTrust = false } = {}) => {
+  u.validate = async (
+    shotName,
+    { systemTrust = false, trustFile = null } = {}
+  ) => {
     await u.bar();
     await u.clickText('#cert-bar button', 'Validate signatures');
     const frame = await until(async () =>
@@ -476,6 +479,18 @@ async function open(files, env = {}) {
         };
       });
     const results = await until(read, 30000);
+    if (trustFile) {
+      // Custom certificate: the organisation's root, chosen as trusted
+      await (await frame.$('#cert-input')).uploadFile(trustFile);
+      await sleep(3000);
+      results.withTrustFile = await read();
+      if (shotName) {
+        await frame.evaluate(() =>
+          document.querySelector('#results-section')?.scrollIntoView()
+        );
+        await u.shot(`${shotName}-trusted`);
+      }
+    }
     if (systemTrust) {
       // Trust root certificates in the Windows store / Keychain
       await frame.evaluate(() =>
@@ -1260,6 +1275,21 @@ sections.ocsp = async () => {
           count: 1,
           reason: 'Invoice approved',
         });
+        const v = await u.validate('validate-ca-issued', {
+          trustFile: join(pki, 'ca.pem'),
+        });
+        check(
+          v.cards[0]?.status ===
+            'Signature Intact: Signer Identity Not Verified' &&
+            /issued by Paperwing QA Root CA/.test(v.cards[0].explanation),
+          'Validate signatures, nothing trusted: intact, issuer not trusted, and how to trust it',
+          v.cards[0]?.status
+        );
+        check(
+          v.withTrustFile?.cards[0]?.status === 'Valid Signature',
+          'with the CA’s certificate chosen as trusted: Valid Signature',
+          v.withTrustFile?.cards[0]?.status
+        );
         const py = pyhanko(join(OUT, 'Invoice (signed).pdf'), [
           join(pki, 'ca.pem'),
         ]);
