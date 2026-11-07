@@ -284,6 +284,9 @@ for (const theme of ['light', 'dark']) {
       outline: cs.outlineStyle,
       pseudo: [pseudo('::before'), pseudo('::after')],
       glass: cs.backdropFilter,
+      alpha: Number(cs.backgroundColor.match(/[\d.]+/g)[3] ?? 1),
+      // (macOS runners, for one, have Reduce transparency on)
+      reduced: matchMedia('(prefers-reduced-transparency: reduce)').matches,
       // a 1px ring in the shadow would draw a line too
       ring: /\b0px 0px 0px [1-9]/.test(cs.boxShadow),
       title: dlg.getAttribute('aria-label'),
@@ -307,9 +310,14 @@ for (const theme of ['light', 'dark']) {
       !about.ring,
     `the glass panel has no border or outline (border ${about.border}, outline ${about.outline})`
   );
+  // with Reduce transparency on, the panel is solid instead
   check(
-    about.glass.includes('blur'),
-    `the panel is frosted glass (${about.glass})`
+    about.reduced
+      ? about.glass === 'none' && about.alpha >= 0.9
+      : about.glass.includes('blur'),
+    about.reduced
+      ? `reduced transparency: the panel is solid (opacity ${about.alpha})`
+      : `the panel is frosted glass (${about.glass})`
   );
   check(
     about.title === 'About Paperwing',
