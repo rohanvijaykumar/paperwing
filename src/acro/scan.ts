@@ -7,7 +7,7 @@
  * end of the open one. The scanning itself happens in the desktop shell
  * (desktop/scan.cjs: WIA on Windows, ImageCaptureCore on macOS).
  */
-import { PDFDocument } from 'pdf-lib';
+import { buildScanPdf, type EncodedPage } from './scan-pdf';
 import type {
   DesktopBridge,
   ScanError,
@@ -61,14 +61,8 @@ export interface ScannedPage {
   dpi: number;
 }
 
-/** A page ready for the PDF */
-export interface PreparedPage {
-  bytes: Uint8Array;
-  kind: 'jpg' | 'png';
-  width: number;
-  height: number;
-  dpi: number;
-}
+/** A page ready for the PDF (JPEG/PNG, CCITT G4 or Flate) */
+export type PreparedPage = EncodedPage;
 
 export interface ScanOutcome {
   pdf: Uint8Array;
@@ -236,24 +230,8 @@ export async function preparePage(
 }
 
 /** One PDF page per image, at its real size (from its resolution) */
-export async function buildPdf(pages: PreparedPage[]): Promise<Uint8Array> {
-  // (pdf-lib would name itself the producer when saving)
-  const doc = await PDFDocument.create({ updateMetadata: false });
-  const now = new Date();
-  doc.setProducer('Paperwing');
-  doc.setCreator('Paperwing');
-  doc.setCreationDate(now);
-  doc.setModificationDate(now);
-  for (const p of pages) {
-    const image =
-      p.kind === 'jpg'
-        ? await doc.embedJpg(p.bytes)
-        : await doc.embedPng(p.bytes);
-    const w = (p.width / p.dpi) * 72;
-    const h = (p.height / p.dpi) * 72;
-    doc.addPage([w, h]).drawImage(image, { x: 0, y: 0, width: w, height: h });
-  }
-  return doc.save();
+export function buildPdf(pages: PreparedPage[]): Promise<Uint8Array> {
+  return buildScanPdf(pages);
 }
 
 /** What a failed scan says */
