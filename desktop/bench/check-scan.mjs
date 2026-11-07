@@ -133,6 +133,8 @@ await page.mouse.move(nw.x + 15, nw.y + 20, { steps: 4 });
 await page.mouse.move(nw.x + 30, nw.y + 40, { steps: 4 });
 await page.mouse.up();
 const dragged = (await dialog(page))?.box;
+// (in inches: how far the drag went depends on the window's size)
+const draggedBox = await L.boxNow(page, { width: 8.5, height: 14 });
 check(dragged && dragged !== d.box, 'dragging a corner changes the box', dragged);
 await press(page, 'Scan');
 await L.waitIdle(page);
@@ -156,11 +158,14 @@ await sleep(1500);
 let info = await L.docInfo(page);
 check(!!doc && info.pages === 2, 'Scan is complete: a new document "Scan <date> <time>.pdf" with both pages', JSON.stringify(info));
 check(info.dirty, "it isn't saved yet (closing asks)");
-// The box was about 5.8 × 11.8 in after the drag: the page is that size
+// The page is the size of the box after the drag (not the whole glass)
 check(
-  info.size && info.size.width > 360 && info.size.width < 470 && info.size.height > 780 && info.size.height < 900,
+  info.size &&
+    Math.abs(info.size.width - draggedBox.width * 72) < 3 &&
+    Math.abs(info.size.height - draggedBox.height * 72) < 3 &&
+    info.size.height < 14 * 72 - 20,
   'its pages are the size of the box, not the whole glass',
-  JSON.stringify(info.size)
+  `${JSON.stringify(info.size)} for ${JSON.stringify(draggedBox)}`
 );
 check(/Scanned 2 pages into Scan .*\.pdf/.test(await L.toasts(page)), 'and the notice offers to save it');
 
