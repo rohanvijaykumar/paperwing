@@ -81,8 +81,7 @@ export async function digest(
   data: Uint8Array | Uint8Array[]
 ): Promise<Uint8Array> {
   const parts = Array.isArray(data) ? data : [data];
-  const whole =
-    parts.length === 1 ? parts[0] : concat(...parts.map((p) => p));
+  const whole = parts.length === 1 ? parts[0] : concat(...parts.map((p) => p));
   return new Uint8Array(
     await crypto.subtle.digest(
       hash === 'sha384' ? 'SHA-384' : 'SHA-256',

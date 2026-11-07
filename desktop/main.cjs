@@ -26,6 +26,7 @@ const { Readable, Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const crypto = require('node:crypto');
 const { createPrinting } = require('./print.cjs');
+const { createCerts, helperPath, windowHandleOf } = require('./certs.cjs');
 
 /** PAPERWING_TRACE=1 prints startup timings (ms since the process started) */
 const trace = process.env.PAPERWING_TRACE
@@ -407,19 +408,18 @@ function isRelayRequest(url) {
   }
 }
 
-async function relay(request) {
-  const deny = (status, text) =>
-    new Response(text, {
-      status,
-      headers: { 'Content-Type': 'text/plain', ...SECURITY_HEADERS },
-    });
+/** A request to a timestamp or certificate server, from the main process
+ *  (http(s), GET or POST, size- and time-limited, never this computer).
+ *  Resolves with { status, contentType, body } or { error, status } */
+async function relayFetch(url, method, contentType, body) {
   let target;
   try {
-    target = new URL(new URL(request.url).searchParams.get('url') || '');
+    target = new URL(url);
   } catch {
-    return deny(400, 'Bad URL');
+    return { error: 'Bad URL', status: 400 };
   }
-  if (!/^https?:$/.test(target.protocol)) return deny(400, 'Bad URL');
+  if (!/^https?:$/.test(target.protocol))
+    return { error: 'Bad URL', status: 400 };
   // Timestamp and certificate servers are on the internet: not this
   // computer or the cloud metadata address
   if (
@@ -427,20 +427,17 @@ async function relay(request) {
       target.hostname
     )
   )
-    return deny(403, 'Not allowed');
-  if (request.method !== 'GET' && request.method !== 'POST')
-    return deny(405, 'Method not allowed');
-  const body =
-    request.method === 'POST' ? Buffer.from(await request.arrayBuffer()) : null;
-  if (body && body.length > RELAY_MAX_BYTES) return deny(413, 'Too large');
-  trace(`relay ${request.method} ${target.href}`);
+    return { error: 'Not allowed', status: 403 };
+  if (method !== 'GET' && method !== 'POST')
+    return { error: 'Method not allowed', status: 405 };
+  if (body && body.length > RELAY_MAX_BYTES)
+    return { error: 'Too large', status: 413 };
+  trace(`relay ${method} ${target.href}`);
   try {
     const res = await net.fetch(target.href, {
-      method: request.method,
-      headers: request.headers.get('Content-Type')
-        ? { 'Content-Type': request.headers.get('Content-Type') }
-        : {},
-      body,
+      method,
+      headers: contentType ? { 'Content-Type': contentType } : {},
+      body: method === 'POST' ? body : null,
       redirect: 'follow',
       signal: AbortSignal.timeout(RELAY_TIMEOUT_MS),
     });
@@ -449,21 +446,41 @@ async function relay(request) {
     let size = 0;
     for await (const chunk of res.body ?? []) {
       size += chunk.length;
-      if (size > RELAY_MAX_BYTES) return deny(502, 'Response too large');
+      if (size > RELAY_MAX_BYTES)
+        return { error: 'Response too large', status: 502 };
       parts.push(Buffer.from(chunk));
     }
-    const data = Buffer.concat(parts);
-    return new Response(data, {
+    return {
       status: res.status,
-      headers: {
-        'Content-Type':
-          res.headers.get('Content-Type') || 'application/octet-stream',
-        ...SECURITY_HEADERS,
-      },
-    });
+      contentType:
+        res.headers.get('Content-Type') || 'application/octet-stream',
+      body: Buffer.concat(parts),
+    };
   } catch (err) {
-    return deny(502, `Relay failed: ${err?.message ?? err}`);
+    return { error: `Relay failed: ${err?.message ?? err}`, status: 502 };
   }
+}
+
+async function relay(request) {
+  const deny = (status, text) =>
+    new Response(text, {
+      status,
+      headers: { 'Content-Type': 'text/plain', ...SECURITY_HEADERS },
+    });
+  const target = new URL(request.url).searchParams.get('url') || '';
+  const body =
+    request.method === 'POST' ? Buffer.from(await request.arrayBuffer()) : null;
+  const res = await relayFetch(
+    target,
+    request.method,
+    request.headers.get('Content-Type'),
+    body
+  );
+  if (res.error) return deny(res.status, res.error);
+  return new Response(res.body, {
+    status: res.status,
+    headers: { 'Content-Type': res.contentType, ...SECURITY_HEADERS },
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -1087,6 +1104,68 @@ ipcMain.handle('paperwing:print-pages', (e, data, request) => {
 ipcMain.handle('paperwing:html-to-pdf', (e, html) => {
   if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
   return getPrinting().htmlToPdf(html);
+});
+
+// Signing with certificates installed on this computer (certs.cjs): the
+// certificate store, the Keychain, smart cards. Listing never opens a key;
+// signing shows the system's PIN prompt in front of this window.
+let certs = null;
+const getCerts = () =>
+  (certs ??= createCerts({
+    helper: helperPath({
+      packaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+    }),
+  }));
+
+ipcMain.handle('paperwing:certs-list', (e) => {
+  if (!senderIsApp(e)) return { ok: false, error: 'failed', certs: [] };
+  return getCerts().list();
+});
+
+ipcMain.handle('paperwing:certs-sign', (e, id, hash, alg) => {
+  if (!senderIsApp(e)) return { ok: false, error: 'failed' };
+  return getCerts().sign(id, hash, alg, windowHandleOf(mainWindow));
+});
+
+ipcMain.handle('paperwing:certs-roots', (e) => {
+  if (!senderIsApp(e)) return { ok: false, certs: [] };
+  return getCerts().roots();
+});
+
+// Configure New Digital ID ▸ Create: the new ID's .pfx, where the user
+// chooses (only that file is written)
+ipcMain.handle('paperwing:certs-save-id', async (e, suggestedName, data) => {
+  if (!senderIsApp(e) || !(data instanceof Uint8Array)) return false;
+  const name =
+    typeof suggestedName === 'string' &&
+    /^[^\\/:*?"<>|]{1,120}\.pfx$/i.test(suggestedName)
+      ? suggestedName
+      : 'Digital ID.pfx';
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: path.join(
+      (await lastFolder()) ?? app.getPath('documents'),
+      name
+    ),
+    filters: [{ name: 'Digital ID', extensions: ['pfx', 'p12'] }],
+  });
+  if (canceled || !filePath) return false;
+  await writeAtomic(filePath, data);
+  return true;
+});
+
+// Timestamp servers and the servers that answer certificate checks, for
+// signing in the app page (as the relay does for tool pages)
+ipcMain.handle('paperwing:certs-fetch', async (e, url, init) => {
+  if (!senderIsApp(e) || typeof url !== 'string' || !init)
+    return { error: 'Not allowed', status: 403 };
+  const body = init.body instanceof Uint8Array ? Buffer.from(init.body) : null;
+  const contentType =
+    typeof init.contentType === 'string' ? init.contentType : null;
+  const res = await relayFetch(url, init.method, contentType, body);
+  return res.error
+    ? { error: res.error, status: res.status }
+    : { status: res.status, contentType: res.contentType, body: res.body };
 });
 
 // Home ▸ Clear recent also clears the OS's list

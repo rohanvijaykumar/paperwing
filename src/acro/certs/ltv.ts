@@ -142,7 +142,9 @@ async function issuerOf(
           0,
           1,
           ...(sd.certificates ?? [])
-            .filter((c): c is pkijs.Certificate => c instanceof pkijs.Certificate)
+            .filter(
+              (c): c is pkijs.Certificate => c instanceof pkijs.Certificate
+            )
             .map((c) => new Uint8Array(c.toSchema().toBER()))
         );
       }

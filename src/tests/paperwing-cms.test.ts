@@ -39,7 +39,10 @@ import {
   idStatus,
 } from '../acro/certs/x509';
 
-const ids = new Map<string, Promise<{ certDer: Uint8Array; keyDer: Uint8Array }>>();
+const ids = new Map<
+  string,
+  Promise<{ certDer: Uint8Array; keyDer: Uint8Array }>
+>();
 function testId(keyType: KeyAlg, curve?: Curve) {
   const k = `${keyType}-${curve ?? ''}`;
   if (!ids.has(k))
@@ -76,7 +79,10 @@ const opensslAvailable = (() => {
 })();
 
 const lines = (b: Uint8Array) =>
-  Buffer.from(b).toString('base64').match(/.{1,64}/g)!.join('\n');
+  Buffer.from(b)
+    .toString('base64')
+    .match(/.{1,64}/g)!
+    .join('\n');
 const pem = (der: Uint8Array) =>
   `-----BEGIN CERTIFICATE-----\n${lines(der)}\n-----END CERTIFICATE-----\n`;
 
@@ -144,26 +150,28 @@ describe('CMS builder', () => {
         [OID.contentType, OID.messageDigest, OID.signingCertificateV2].sort()
       );
       expect(
-        (attr(sd, OID.contentType)!.values[0] as asn1js.ObjectIdentifier)
-          .valueBlock.toString()
+        (
+          attr(sd, OID.contentType)!.values[0] as asn1js.ObjectIdentifier
+        ).valueBlock.toString()
       ).toBe(OID.data);
       const md = (attr(sd, OID.messageDigest)!.values[0] as asn1js.OctetString)
         .valueBlock.valueHexView;
       expect([...md]).toEqual([...(await digest(hash, content))]);
-      const ess = attr(sd, OID.signingCertificateV2)!.values[0] as asn1js.Sequence;
+      const ess = attr(sd, OID.signingCertificateV2)!
+        .values[0] as asn1js.Sequence;
       const certId = (
         (ess.valueBlock.value[0] as asn1js.Sequence).valueBlock
           .value[0] as asn1js.Sequence
       ).valueBlock.value;
       // SHA-256 is the default, so the first field is the hash itself
       expect(certId[0]).toBeInstanceOf(asn1js.OctetString);
-      expect([...(certId[0] as asn1js.OctetString).valueBlock.valueHexView]).toEqual(
-        [...(await digest('sha256', certDer))]
-      );
+      expect([
+        ...(certId[0] as asn1js.OctetString).valueBlock.valueHexView,
+      ]).toEqual([...(await digest('sha256', certDer))]);
       const issuerSerial = (certId[1] as asn1js.Sequence).valueBlock.value;
-      expect(
-        [...(issuerSerial[1] as asn1js.Integer).valueBeforeDecodeView]
-      ).toEqual([...certParts(certDer).serial]);
+      expect([
+        ...(issuerSerial[1] as asn1js.Integer).valueBeforeDecodeView,
+      ]).toEqual([...certParts(certDer).serial]);
 
       // What was signed is the signed attributes as stored, retagged 0x31
       const stored = new Uint8Array(si.signedAttrs!.toSchema().toBER());
@@ -373,7 +381,10 @@ describe('Certificates and Acrobat’s filters', () => {
     expect(info.keyAlg).toBe('rsa');
     expect(info.keyBits).toBe(2048);
     expect(info.keyUsage).toEqual([0, 1]);
-    expect(info.extKeyUsage).toEqual([EKU.emailProtection, EKU.documentSigning]);
+    expect(info.extKeyUsage).toEqual([
+      EKU.emailProtection,
+      EKU.documentSigning,
+    ]);
     expect(info.sha256).toMatch(/^[0-9A-F]{64}$/);
     const years =
       (info.notAfter.getTime() - info.notBefore.getTime()) /
@@ -434,9 +445,15 @@ describe('Certificates and Acrobat’s filters', () => {
       idStatus({ ...base, extKeyUsage: [EKU.serverAuth] }, true, now).hidden
     ).toBe(true);
     expect(
-      idStatus({ ...base, extKeyUsage: [EKU.clientAuth, EKU.emailProtection] }, true, now).usable
+      idStatus(
+        { ...base, extKeyUsage: [EKU.clientAuth, EKU.emailProtection] },
+        true,
+        now
+      ).usable
     ).toBe(true);
-    expect(idStatus({ ...base, extKeyUsage: null }, true, now).usable).toBe(true);
+    expect(idStatus({ ...base, extKeyUsage: null }, true, now).usable).toBe(
+      true
+    );
   });
 
   it('expired and not yet valid IDs show, disabled, with the reason', () => {
@@ -449,9 +466,10 @@ describe('Certificates and Acrobat’s filters', () => {
   });
 
   it('keys Paperwing can’t sign with show, disabled', () => {
-    expect(
-      idStatus({ ...base, keyAlg: null }, true, now)
-    ).toMatchObject({ usable: false, hidden: false });
+    expect(idStatus({ ...base, keyAlg: null }, true, now)).toMatchObject({
+      usable: false,
+      hidden: false,
+    });
     expect(
       idStatus({ ...base, keyAlg: 'ec', curve: null }, true, now).usable
     ).toBe(false);
@@ -464,7 +482,10 @@ describe('Certificates and Acrobat’s filters', () => {
 describe('Digital ID files', () => {
   it('a new self-signed ID saved as .pfx reads back and signs (RSA and ECDSA)', async () => {
     for (const keyType of ['rsa', 'ec'] as KeyAlg[]) {
-      const { certDer, keyDer } = await testId(keyType, keyType === 'ec' ? 'P-256' : undefined);
+      const { certDer, keyDer } = await testId(
+        keyType,
+        keyType === 'ec' ? 'P-256' : undefined
+      );
       const pfx = makePfx(keyDer, [certDer], 'correct horse', 'Test ID');
       const id = await readPfx(pfx, 'correct horse');
       expect([...id.certDer]).toEqual([...certDer]);
@@ -486,22 +507,33 @@ describe('Digital ID files', () => {
     }
   });
 
-  it.skipIf(!opensslAvailable)('OpenSSL opens the .pfx Paperwing saves', async () => {
-    const { certDer, keyDer } = await testId('ec', 'P-256');
-    const dir = mkdtempSync(join(tmpdir(), 'pw-pfx-'));
-    try {
-      writeFileSync(join(dir, 'id.pfx'), makePfx(keyDer, [certDer], 'pw'));
-      const out = execFileSync(
-        'openssl',
-        ['pkcs12', '-in', join(dir, 'id.pfx'), '-passin', 'pass:pw', '-nodes', '-info'],
-        { stdio: ['ignore', 'pipe', 'pipe'] }
-      ).toString();
-      expect(out).toMatch(/BEGIN CERTIFICATE/);
-      expect(out).toMatch(/BEGIN PRIVATE KEY/);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
+  it.skipIf(!opensslAvailable)(
+    'OpenSSL opens the .pfx Paperwing saves',
+    async () => {
+      const { certDer, keyDer } = await testId('ec', 'P-256');
+      const dir = mkdtempSync(join(tmpdir(), 'pw-pfx-'));
+      try {
+        writeFileSync(join(dir, 'id.pfx'), makePfx(keyDer, [certDer], 'pw'));
+        const out = execFileSync(
+          'openssl',
+          [
+            'pkcs12',
+            '-in',
+            join(dir, 'id.pfx'),
+            '-passin',
+            'pass:pw',
+            '-nodes',
+            '-info',
+          ],
+          { stdio: ['ignore', 'pipe', 'pipe'] }
+        ).toString();
+        expect(out).toMatch(/BEGIN CERTIFICATE/);
+        expect(out).toMatch(/BEGIN PRIVATE KEY/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }
-  });
+  );
 
   it('reads the .pfx files forge itself makes (the old way, 3DES)', async () => {
     const keys = forge.pki.rsa.generateKeyPair({ bits: 1024, e: 0x10001 });
@@ -572,8 +604,13 @@ describe('Digital ID files', () => {
     );
     expect((await readPem(pem(certDer) + encPem, 'secret')).keyAlg).toBe('ec');
     expect(
-      (await readIdFile('id.pem', new TextEncoder().encode(pem(certDer) + pkcs8), ''))
-        .keyAlg
+      (
+        await readIdFile(
+          'id.pem',
+          new TextEncoder().encode(pem(certDer) + pkcs8),
+          ''
+        )
+      ).keyAlg
     ).toBe('ec');
   });
 

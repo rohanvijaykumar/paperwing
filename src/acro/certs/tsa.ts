@@ -82,8 +82,8 @@ export function readTimestampResponse(
   if (parsed.offset === -1 || !(resp instanceof asn1js.Sequence))
     throw new TimestampError('The timestamp server sent something else.');
   const [statusInfo, tokenBlock] = resp.valueBlock.value as asn1js.Sequence[];
-  const status = (statusInfo?.valueBlock.value[0] as asn1js.Integer)
-    ?.valueBlock.valueDec;
+  const status = (statusInfo?.valueBlock.value[0] as asn1js.Integer)?.valueBlock
+    .valueDec;
   if (status !== 0 && status !== 1)
     throw new TimestampError(
       `The timestamp server refused the request (status ${status ?? 'unknown'}).`
@@ -99,9 +99,7 @@ export function readTimestampResponse(
   const content = signed.encapContentInfo.eContent;
   if (!content)
     throw new TimestampError('The timestamp server sent an empty timestamp.');
-  const tst = pkijs.TSTInfo.fromBER(
-    new Uint8Array(content.getValue()).slice()
-  );
+  const tst = pkijs.TSTInfo.fromBER(new Uint8Array(content.getValue()).slice());
   if (
     !sameBytes(
       new Uint8Array(tst.messageImprint.hashedMessage.valueBlock.valueHexView),
