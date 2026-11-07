@@ -1355,7 +1355,7 @@ function contentOf(box: HTMLElement): HTMLElement | null {
   return content;
 }
 
-function findPages(
+export function findPages(
   root: ShadowRoot,
   layout: { scale: number; pages: Map<number, { x: number; y: number }> }
 ): { page: HTMLElement; index: number }[] {

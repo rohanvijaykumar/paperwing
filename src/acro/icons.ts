@@ -60,6 +60,9 @@ import {
   FilePlus,
   FileOutput,
   TextCursorInput,
+  RefreshCw,
+  ShieldCheck,
+  Clock,
   type IconNode,
 } from 'lucide';
 
@@ -125,6 +128,9 @@ const ICONS = {
   filePlus: FilePlus,
   fileOut: FileOutput,
   form: TextCursorInput,
+  refresh: RefreshCw,
+  certificate: ShieldCheck,
+  clock: Clock,
 } satisfies Record<string, IconNode>;
 
 export type IconName = keyof typeof ICONS;

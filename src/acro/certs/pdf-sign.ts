@@ -66,9 +66,7 @@ export function placeholderSize(
   timestamped: boolean
 ): number {
   const bytes =
-    certs.reduce((n, c) => n + c.length, 0) +
-    4096 +
-    (timestamped ? 16384 : 0);
+    certs.reduce((n, c) => n + c.length, 0) + 4096 + (timestamped ? 16384 : 0);
   return bytes * 2;
 }
 

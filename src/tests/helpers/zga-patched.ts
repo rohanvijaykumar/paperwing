@@ -8,10 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, dirname } from 'node:path';
-import {
-  applyPatches,
-  signerPatchesFor,
-} from '../../../reskin/signer-patches';
+import { applyPatches, signerPatchesFor } from '../../../reskin/signer-patches';
 
 export function loadPatchedZga(): Record<string, unknown> {
   const require = createRequire(import.meta.url);

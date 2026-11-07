@@ -208,8 +208,7 @@ export async function certInfo(der: Uint8Array): Promise<CertInfo> {
     ? ((eku.parsedValue as pkijs.ExtKeyUsage | undefined)?.keyPurposes ?? [])
     : null;
   const bc = extension(cert, '2.5.29.19');
-  const isCa = !!(bc?.parsedValue as pkijs.BasicConstraints | undefined)
-    ?.cA;
+  const isCa = !!(bc?.parsedValue as pkijs.BasicConstraints | undefined)?.cA;
   const [sha1, sha256] = await Promise.all(
     ['SHA-1', 'SHA-256'].map(async (h) =>
       hex(await crypto.subtle.digest(h, der as Uint8Array<ArrayBuffer>))
