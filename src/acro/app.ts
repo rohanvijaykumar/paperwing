@@ -4810,6 +4810,8 @@ async function scanToPdf(
       },
       recognize: async (pdf, language, progress) =>
         (await import('./scan-finish')).recognizeText(pdf, language, progress),
+      detectOrientation: async (image) =>
+        (await import('./scan-finish')).detectOrientation(image),
       languages: tesseractLanguages,
     });
     if (result) await placeScan(result, into);

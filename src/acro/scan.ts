@@ -57,12 +57,13 @@ import {
 } from './scan-settings';
 import {
   buildPdf,
+  createPageProcessor,
   encodePage,
-  processPage,
   type PdfPart,
   type ProcessedPage,
 } from './scan-process';
-import { createGlassPreview, findDocument } from './scan-preview';
+import { createGlassPreview } from './scan-preview';
+import type { OrientationDetector } from './scan-image';
 import { createReview, type ReviewPage } from './scan-review';
 import { loadPdfjs } from './thumbnails';
 
@@ -116,6 +117,8 @@ export interface ScanDialogOptions {
   ): Promise<Uint8Array>;
   /** OCR languages: code -> name */
   languages: Record<string, string>;
+  /** Which way up a page is (Auto-rotate pages) */
+  detectOrientation?: OrientationDetector;
 }
 
 export type ScanOutcome =
@@ -377,6 +380,8 @@ export function showScanDialog(
     /** The last pass's pages (fronts, for Scan reverse sides) */
     let lastPass: { ids: number[]; feeder: boolean; duplex: boolean } | null = null;
     let watching = '';
+    /** Cleans up the pages, in a worker */
+    const processor = createPageProcessor(options.detectOrientation);
     let watchFolder = '';
     /** A resolution typed in (a scanner with a range), not one listed */
     let dpiCustom = false;
@@ -479,11 +484,6 @@ export function showScanDialog(
     const compression = select('Color and grayscale compression');
     fill(compression, [
       ['jpeg', 'JPEG (smaller)'],
-      ['zip', 'ZIP (lossless)'],
-    ]);
-    const bwCompression = select('Black and white compression');
-    fill(bwCompression, [
-      ['g4', 'CCITT Group 4'],
       ['zip', 'ZIP (lossless)'],
     ]);
 
@@ -600,7 +600,7 @@ export function showScanDialog(
         el('span', { class: 'sd-quality-scale' }, el('small', {}, 'Small size'), quality, el('small', {}, 'High quality'))
       ),
       row('Color and grayscale', compression),
-      row('Black and white', bwCompression)
+      el('p', { class: 'pd-hint' }, 'Black and white pages: CCITT Group 4 (lossless, and small).')
     );
     const insertRows = el(
       'div',
@@ -761,7 +761,6 @@ export function showScanDialog(
       rotateAll.value = String(settings.rotate);
       quality.value = String(settings.quality);
       compression.value = settings.compression;
-      bwCompression.value = settings.bwCompression;
       outNew.input.checked = settings.output === 'new';
       outAppend.input.checked = settings.output === 'append';
       outMultiple.input.checked = settings.output === 'multiple';
@@ -808,7 +807,6 @@ export function showScanDialog(
       settings.rotate = Number(rotateAll.value) as ScanSettings['rotate'];
       settings.quality = Number(quality.value);
       settings.compression = compression.value as ScanSettings['compression'];
-      settings.bwCompression = bwCompression.value as ScanSettings['bwCompression'];
       settings.output = outMultiple.input.checked
         ? 'multiple'
         : outAppend.input.checked
@@ -1141,7 +1139,7 @@ export function showScanDialog(
       if (r.ok && r.page) {
         const blob = new Blob([r.page.data as BlobPart], { type: r.page.mime });
         const size = { width: s.maxWidth, height: s.maxHeight };
-        const box: Box | null = await findDocument(blob, size).catch((): null => null);
+        const box: Box | null = await processor.findDocument(blob, size).catch((): null => null);
         glass.show(blob, size, box ?? { x: 0, y: 0, width: size.width, height: size.height });
         if (box) settings.paper = 'preview';
         status.textContent = box
@@ -1156,23 +1154,26 @@ export function showScanDialog(
     /* Scanning --------------------------------------------------------------- */
     /** Cleans up each page as it arrives, one after another */
     let processing: Promise<void> = Promise.resolve();
-    const process = (page: Page, data: Uint8Array, info: ScanPageInfo, plan: ProcessPlan) => {
+    const process = (page: Page, data: Uint8Array, info: ScanPageInfo, plan: ProcessPlan, flip = false) => {
       processing = processing.then(async () => {
         try {
-          const done = await processPage({ data, mime: info.mime, dpi: info.dpi }, plan);
+          const done = await processor.process({ data, mime: info.mime, dpi: info.dpi }, plan, flip);
           if (page.source.kind === 'scan') page.source.processed = done;
           page.blank = done.blank;
-          page.url = thumb(done.image);
-        } catch {
-          // Shown as it came, if it can't be cleaned up
+          page.url = thumb(done.thumb);
+        } catch (err) {
+          // Kept as it came, if it can't be cleaned up
+          console.error(err);
           const blob = new Blob([data as BlobPart], { type: info.mime });
           if (page.source.kind === 'scan')
             page.source.processed = {
+              kind: 'color',
               image: blob,
+              bitmap: null,
+              thumb: blob,
               width: info.width ?? 0,
               height: info.height ?? 0,
               dpi: info.dpi,
-              color: 'color',
               blank: false,
             };
           page.url = thumb(blob);
@@ -1200,9 +1201,7 @@ export function showScanDialog(
           id: nextPageId++,
           source: { kind: 'scan', processed: null, side: info.side },
           url: '',
-          // The backs of a top-bound stack come upside down
-          rotation:
-            settings.flipBacks && (kind === 'reverse' || info.side === 'back') ? 180 : 0,
+          rotation: 0,
           blank: false,
           keep: false,
           rescannable: true,
@@ -1213,7 +1212,8 @@ export function showScanDialog(
           renderPages();
           review.showLast();
         }
-        process(page, data, info, plan);
+        // The backs of a top-bound stack come upside down
+        process(page, data, info, plan, settings.flipBacks && (kind === 'reverse' || info.side === 'back'));
         const total = pages.length + (kind === 'reverse' ? got.length : 0);
         status.textContent = `Scanned ${total} page${total === 1 ? '' : 's'}…`;
         // A rescan wants one page: the rest of a feeder stays in it
@@ -1373,7 +1373,7 @@ export function showScanDialog(
         if (p.source.kind === 'pdf')
           parts.push({ kind: 'pdf', bytes: p.source.bytes, index: p.source.index, rotation: p.rotation });
         else if (p.source.processed)
-          parts.push({ kind: 'image', page: await encodePage(p.source.processed, settings, p.rotation) });
+          parts.push({ kind: 'image', page: await encodePage(p.source.processed, settings), rotation: p.rotation });
       }
       return parts;
     }
@@ -1478,6 +1478,8 @@ export function showScanDialog(
       if (busy === 'scan' || busy === 'preview') void bridge.cancelScan();
       backdrop.remove();
       for (const u of urls) URL.revokeObjectURL(u);
+      // (after anything still being cleaned up)
+      void processing.then(() => processor.dispose());
       resolve(outcome);
     }
 
@@ -1748,7 +1750,6 @@ export function showScanDialog(
       rotateAll,
       quality,
       compression,
-      bwCompression,
       outNew.input,
       outAppend.input,
       outMultiple.input,
