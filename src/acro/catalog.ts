@@ -181,6 +181,16 @@ export const quickTools = (): AppTool[] => [
   ),
   alias('form-creator', 'Prepare a form', 'Create fillable form fields.'),
   alias('sign-pdf', 'Fill & Sign', 'Fill in forms and add your signature.'),
+  // (desktop app: signing with installed Digital IDs, as in Acrobat)
+  ...(desktop?.certs
+    ? [
+        alias(
+          'digital-sign-pdf',
+          'Use a certificate',
+          'Sign with a Digital ID from your computer, a smart card or a file.'
+        ),
+      ]
+    : []),
   alias(
     'compare-pdfs',
     'Compare files',

@@ -20,7 +20,11 @@ import { loadPatchedZga } from './helpers/zga-patched';
 
 vi.mock('zgapdfsigner', () => loadPatchedZga());
 
-import { signPdf, placeholderSize } from '../acro/certs/pdf-sign';
+import {
+  lockedBySignature,
+  placeholderSize,
+  signPdf,
+} from '../acro/certs/pdf-sign';
 import { OID, type Curve, type KeyAlg } from '../acro/certs/cms';
 import { keySigner } from '../acro/certs/file-id';
 import { createSelfSignedId } from '../acro/certs/x509';
@@ -208,6 +212,10 @@ describe('signing a PDF with an external key', () => {
       PDFName.of('FieldMDP')
     );
     expect(sigRef.get(PDFName.of('Data'))).toBeInstanceOf(PDFRef);
+    // …so it can't be signed again
+    expect(await lockedBySignature(signed)).toBe(true);
+    expect(await lockedBySignature(await signWith('rsa'))).toBe(false);
+    expect(await lockedBySignature(SAMPLE)).toBe(false);
   });
 
   it('a second signature keeps the first one valid', async () => {
@@ -386,9 +394,15 @@ async function fakeTsa() {
       certificates: [cert],
     });
     await sd.sign(keys.privateKey, 0, 'SHA-256');
+    // pkijs always writes eContent as a constructed OCTET STRING; timestamp
+    // servers write a primitive one (pyHanko insists), so put that back
+    const schema = sd.toSchema(true);
+    const encap = schema.valueBlock.value[2] as asn1js.Sequence;
+    (encap.valueBlock.value[1] as asn1js.Constructed).valueBlock.value[0] =
+      new asn1js.OctetString({ valueHex: tst.toSchema().toBER() });
     const token = new pkijs.ContentInfo({
       contentType: OID.signedData,
-      content: sd.toSchema(true),
+      content: schema,
     });
     const resp = new pkijs.TimeStampResp({
       status: new pkijs.PKIStatusInfo({ status: 0 }),
@@ -402,3 +416,111 @@ async function fakeTsa() {
   };
   return state;
 }
+
+describe('Validate signatures: trusting root certificates (system roots)', () => {
+  /** A certificate for `subjectKeys`, issued by `issuer` (self if absent) */
+  async function issue(
+    name: string,
+    subjectKeys: CryptoKeyPair,
+    issuer: { name: string; keys: CryptoKeyPair } | null,
+    ca: boolean
+  ): Promise<Uint8Array> {
+    const dn = (cn: string) => {
+      const rdn = new pkijs.RelativeDistinguishedNames();
+      rdn.typesAndValues.push(
+        new pkijs.AttributeTypeAndValue({
+          type: '2.5.4.3',
+          value: new asn1js.Utf8String({ value: cn }),
+        })
+      );
+      return rdn;
+    };
+    const cert = new pkijs.Certificate();
+    cert.version = 2;
+    cert.serialNumber = new asn1js.Integer({
+      value: Math.floor(Math.random() * 1e9),
+    });
+    cert.subject = dn(name);
+    cert.issuer = dn(issuer?.name ?? name);
+    cert.notBefore.value = new Date(Date.now() - 86400000);
+    cert.notAfter.value = new Date(Date.now() + 86400000 * 365);
+    await cert.subjectPublicKeyInfo.importKey(subjectKeys.publicKey);
+    cert.extensions = [
+      new pkijs.Extension({
+        extnID: '2.5.29.19',
+        critical: true,
+        extnValue: new pkijs.BasicConstraints({ cA: ca })
+          .toSchema()
+          .toBER(false),
+      }),
+    ];
+    await cert.sign((issuer?.keys ?? subjectKeys).privateKey, 'SHA-256');
+    return new Uint8Array(cert.toSchema(true).toBER(false));
+  }
+  const ec = (curve: string) =>
+    crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: curve }, true, [
+      'sign',
+      'verify',
+    ]) as Promise<CryptoKeyPair>;
+
+  it('an ECDSA signer under an ECDSA root is trusted when that root is', async () => {
+    const rootKeys = await ec('P-384');
+    const leafKeys = await ec('P-256');
+    const rootDer = await issue('Test Root CA', rootKeys, null, true);
+    const leafDer = await issue(
+      'Test Signer',
+      leafKeys,
+      { name: 'Test Root CA', keys: rootKeys },
+      false
+    );
+    const pkcs8 = new Uint8Array(
+      await crypto.subtle.exportKey('pkcs8', leafKeys.privateKey)
+    );
+    const signed = await signPdf({
+      pdf: SAMPLE,
+      certDer: leafDer,
+      chainDer: [rootDer],
+      keyAlg: 'ec',
+      curve: 'P-256',
+      sign: await keySigner(pkcs8, 'ec', 'P-256'),
+    });
+    const other = await issue('Another Root', await ec('P-256'), null, true);
+    const [trusted] = await validatePdfSignatures(signed, [other, rootDer]);
+    expect(trusted.cryptoVerified).toBe(true);
+    expect(trusted.isTrusted).toBe(true);
+    expect(trusted.signerName).toBe('Test Signer');
+    const [untrusted] = await validatePdfSignatures(signed, [other]);
+    expect(untrusted.isTrusted).toBe(false);
+    const [none] = await validatePdfSignatures(signed);
+    expect(none.isTrusted).toBe(false);
+  });
+});
+
+describe('zgapdfsigner patches', () => {
+  it('each fits exactly once; a changed library is reported, not half-patched', async () => {
+    const { applyPatches, SIGNER_PATCHES, FETCH_PATCHES, signerPatchesFor } =
+      await import('../../reskin/signer-patches');
+    const lib = resolve(__dirname, '../../node_modules/zgapdfsigner/lib');
+    const signer = readFileSync(join(lib, 'zgapdfsigner.js'), 'utf8');
+    const fetchJs = readFileSync(join(lib, 'zgafetch.js'), 'utf8');
+    expect(applyPatches(signer, SIGNER_PATCHES).applied).toEqual([
+      'external signer',
+    ]);
+    expect(applyPatches(fetchJs, FETCH_PATCHES).applied).toEqual([
+      'signer browser check',
+    ]);
+    expect(signerPatchesFor('/x/zgapdfsigner/lib/zgapdfsigner.js')).toBe(
+      SIGNER_PATCHES
+    );
+    expect(signerPatchesFor('/x/other.js')).toBeNull();
+    // One of the places moved: the whole patch is left out and named
+    const moved = signer.replace(
+      'var asn1sig = null;',
+      'var asn1sig = undefined;'
+    );
+    const result = applyPatches(moved, SIGNER_PATCHES);
+    expect(result.applied).toEqual([]);
+    expect(result.missed).toEqual(['external signer']);
+    expect(result.code).toBe(moved);
+  });
+});

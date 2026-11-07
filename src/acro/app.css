@@ -2285,7 +2285,7 @@ body.is-dragging-page * {
 /* Use a certificate (desktop app, src/acro/certs/) */
 #cert-bar {
   position: absolute;
-  bottom: 24px;
+  top: 16px;
   left: 50%;
   z-index: 6;
   display: flex;
@@ -2318,6 +2318,13 @@ body.is-dragging-page * {
 }
 #cert-bar .db-close {
   flex: none;
+}
+#doc-stage:has(#disk-bar) #cert-bar,
+#doc-stage:has(#script-bar) #cert-bar {
+  top: 64px;
+}
+#doc-stage:has(#disk-bar):has(#script-bar) #cert-bar {
+  top: 112px;
 }
 #doc-stage.has-form-panel #cert-bar {
   left: calc((100% - var(--form-panel-w)) / 2);
