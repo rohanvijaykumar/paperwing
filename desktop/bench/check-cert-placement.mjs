@@ -188,6 +188,7 @@ for (const c of CASES) {
         const r = l.getBoundingClientRect();
         const top = Math.max(r.top, host.getBoundingClientRect().top);
         const bottom = Math.min(r.bottom, innerHeight - 10);
+        const hostBox = host.getBoundingClientRect();
         return r.width > 0
           ? {
               left: r.left,
@@ -196,6 +197,8 @@ for (const c of CASES) {
               h: r.height,
               visTop: top,
               visBottom: bottom,
+              visLeft: Math.max(r.left, hostBox.left),
+              visRight: Math.min(r.right, hostBox.right, innerWidth - 10),
             }
           : null;
       });
@@ -228,12 +231,28 @@ for (const c of CASES) {
     // A box in the visible part of the page: from 20% to 60% across, and a
     // band near the top of what's on screen (the middle when zoomed in, clear
     // of the bar over the top of the document)
-    const x0 = layer.left + layer.w * 0.2;
-    const x1 = layer.left + layer.w * 0.6;
+    // (zoomed in, the page can be wider than the window: across what's shown)
+    const across = c.zoomAtStart
+      ? [layer.visLeft, layer.visRight - layer.visLeft]
+      : [layer.left, layer.w];
+    const x0 = across[0] + across[1] * 0.3;
+    const x1 = across[0] + across[1] * 0.6;
     const y0 =
       layer.visTop +
       (layer.visBottom - layer.visTop) * (c.zoomAtStart ? 0.45 : 0.15);
     const y1 = y0 + Math.min(70, (layer.visBottom - layer.visTop) * 0.12);
+    // (what's under the pointer where the drag starts, to tell why if it fails)
+    const under = await page.evaluate(
+      (x, y) => {
+        const host = [...document.querySelectorAll('#viewer-host *')].find(
+          (e) => e.shadowRoot
+        );
+        const el = host?.shadowRoot?.elementFromPoint(x, y);
+        return `${el?.tagName ?? 'nothing'}.${el?.className ?? ''} at ${Math.round(x)},${Math.round(y)} of ${innerWidth}×${innerHeight}`;
+      },
+      x0,
+      y0
+    );
     await page.mouse.move(x0, y0);
     await page.mouse.down();
     await page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 6 });
@@ -252,7 +271,7 @@ for (const c of CASES) {
       ))
     )
       throw new Error(
-        `the box was drawn, but Sign with a Digital ID didn’t open (bar: ${await text('#cert-bar')})`
+        `the box was drawn, but Sign with a Digital ID didn’t open (bar: ${await text('#cert-bar')}; drag started on ${under})`
       );
     await page.evaluate((name) => {
       [...document.querySelectorAll('#cid-dialog .cid-row')]
