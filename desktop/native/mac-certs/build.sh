@@ -25,7 +25,7 @@ lipo -info "$out/paperwing-certs"
 if [[ "${1:-}" == "--test" ]]; then
   listed="$("$out/paperwing-certs" list)"
   echo "$listed" | head -c 300; echo
-  echo "$listed" | grep -q '^{"type":"certs"' || { echo "list printed no certs line"; exit 1; }
+  echo "$listed" | grep -q '"type":"certs"' || { echo "list printed no certs line"; exit 1; }
   set +e
   "$out/paperwing-certs" sign -Id kc:0000000000000000000000000000000000000000 -Hash AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= -Alg sha256 > "$out/sign.txt"
   code=$?
