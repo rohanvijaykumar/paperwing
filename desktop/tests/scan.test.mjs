@@ -808,6 +808,8 @@ describe(
     });
 
     test('its settings, and a feeder scan page by page', async () => {
+      // (the sample's feeder holds this many sheets; the helpers inherit it)
+      process.env.CAP_XFERCOUNT = '3';
       const s = real();
       const sample = (await s.list()).scanners.find((e) => /^twainworkinggroup:/.test(e.key));
       for (const device of sample.devices.filter((d) => d.driver.startsWith('twain'))) {
@@ -831,6 +833,7 @@ describe(
     });
 
     test('cancel stops a feeder run and lets the scanner go', async () => {
+      process.env.CAP_XFERCOUNT = '12';
       const s = real();
       const sample = (await s.list()).scanners.find((e) => /^twainworkinggroup:/.test(e.key));
       const id = sample.devices[0].id;
