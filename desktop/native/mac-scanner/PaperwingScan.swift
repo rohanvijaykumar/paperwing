@@ -25,8 +25,7 @@ func emit(_ obj: [String: Any]) {
 
 /// What happened, for the logs (scan.cjs keeps the helper's stderr)
 func debug(_ message: String) {
-  FileHandle.standardError.write("paperwing-scan: \(message)
-".data(using: .utf8)!)
+  FileHandle.standardError.write(("paperwing-scan: " + message + "\n").data(using: .utf8)!)
 }
 
 func fail(_ code: String, _ message: String) -> Never {
