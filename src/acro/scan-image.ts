@@ -803,7 +803,7 @@ function findDocument(L0: Uint8Array, w: number, h: number): Rect | null {
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++)
       if (x < ring || y < ring || x >= w - ring || y >= h - ring)
-        hist[S[y * w + x]]++;
+        hist[S[y * w + x] | 0] += 1; // (a byte value: a number index, never a name)
   let bg = 0;
   let best = -1;
   for (let v = 0; v < 256; v++) {
