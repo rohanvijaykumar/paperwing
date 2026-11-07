@@ -524,3 +524,186 @@ describe('zgapdfsigner patches', () => {
     expect(result.code).toBe(moved);
   });
 });
+
+describe('long-term validation (DSS)', () => {
+  const OCSP_URL = 'http://ocsp.example.test/';
+
+  async function makeChain() {
+    const caKeys = (await crypto.subtle.generateKey(
+      {
+        name: 'RSASSA-PKCS1-v1_5',
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: 'SHA-256',
+      },
+      true,
+      ['sign', 'verify']
+    )) as CryptoKeyPair;
+    const leafKeys = (await crypto.subtle.generateKey(
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      true,
+      ['sign', 'verify']
+    )) as CryptoKeyPair;
+    const name = (cn: string) => {
+      const rdn = new pkijs.RelativeDistinguishedNames();
+      rdn.typesAndValues.push(
+        new pkijs.AttributeTypeAndValue({
+          type: '2.5.4.3',
+          value: new asn1js.Utf8String({ value: cn }),
+        })
+      );
+      return rdn;
+    };
+    const make = async (
+      cn: string,
+      keys: CryptoKeyPair,
+      ca: boolean,
+      serial: number
+    ) => {
+      const c = new pkijs.Certificate();
+      c.version = 2;
+      c.serialNumber = new asn1js.Integer({ value: serial });
+      c.subject = name(cn);
+      c.issuer = name('LTV Test CA');
+      c.notBefore.value = new Date(Date.now() - 86400000);
+      c.notAfter.value = new Date(Date.now() + 86400000 * 365);
+      await c.subjectPublicKeyInfo.importKey(keys.publicKey);
+      c.extensions = [
+        new pkijs.Extension({
+          extnID: '2.5.29.19',
+          critical: true,
+          extnValue: new pkijs.BasicConstraints({ cA: ca })
+            .toSchema()
+            .toBER(false),
+        }),
+      ];
+      if (!ca)
+        c.extensions.push(
+          new pkijs.Extension({
+            extnID: '1.3.6.1.5.5.7.1.1',
+            extnValue: new pkijs.InfoAccess({
+              accessDescriptions: [
+                new pkijs.AccessDescription({
+                  accessMethod: '1.3.6.1.5.5.7.48.1',
+                  accessLocation: new pkijs.GeneralName({
+                    type: 6,
+                    value: OCSP_URL,
+                  }),
+                }),
+              ],
+            })
+              .toSchema()
+              .toBER(false),
+          })
+        );
+      await c.sign(caKeys.privateKey, 'SHA-256');
+      return c;
+    };
+    const ca = await make('LTV Test CA', caKeys, true, 1);
+    const leaf = await make('LTV Signer', leafKeys, false, 2);
+    return { ca, caKeys, leaf, leafKeys };
+  }
+
+  /** An OCSP responder (the CA answers for itself) */
+  function responder(
+    chain: Awaited<ReturnType<typeof makeChain>>,
+    revoked: boolean
+  ) {
+    const asked: string[] = [];
+    const fetcher: Fetcher = async (url, init) => {
+      asked.push(url);
+      const req = pkijs.OCSPRequest.fromBER(init.body!.slice());
+      const basic = new pkijs.BasicOCSPResponse();
+      basic.tbsResponseData.responderID = chain.ca.subject;
+      basic.tbsResponseData.producedAt = new Date();
+      basic.tbsResponseData.responses.push(
+        new pkijs.SingleResponse({
+          certID: req.tbsRequest.requestList[0].reqCert,
+          certStatus: revoked
+            ? new asn1js.Constructed({
+                idBlock: { tagClass: 3, tagNumber: 1 },
+                value: [new asn1js.GeneralizedTime({ valueDate: new Date() })],
+              })
+            : new asn1js.Primitive({
+                idBlock: { tagClass: 3, tagNumber: 0 },
+                lenBlockLength: 1,
+              }),
+          thisUpdate: new Date(),
+        })
+      );
+      basic.certs = [chain.ca];
+      await basic.sign(chain.caKeys.privateKey, 'SHA-256');
+      const resp = new pkijs.OCSPResponse({
+        responseStatus: new asn1js.Enumerated({ value: 0 }),
+        responseBytes: new pkijs.ResponseBytes({
+          responseType: '1.3.6.1.5.5.7.48.1.1',
+          response: new asn1js.OctetString({
+            valueHex: basic.toSchema().toBER(false),
+          }),
+        }),
+      });
+      return {
+        status: 200,
+        contentType: 'application/ocsp-response',
+        body: new Uint8Array(resp.toSchema().toBER(false)),
+      };
+    };
+    return { fetcher, asked };
+  }
+
+  async function sign(
+    chain: Awaited<ReturnType<typeof makeChain>>,
+    fetcher: Fetcher
+  ) {
+    const der = (c: pkijs.Certificate) =>
+      new Uint8Array(c.toSchema().toBER(false));
+    return signPdf({
+      pdf: SAMPLE,
+      certDer: der(chain.leaf),
+      chainDer: [der(chain.ca)],
+      keyAlg: 'ec',
+      curve: 'P-256',
+      sign: await keySigner(
+        new Uint8Array(
+          await crypto.subtle.exportKey('pkcs8', chain.leafKeys.privateKey)
+        ),
+        'ec',
+        'P-256'
+      ),
+      ltv: true,
+      fetcher,
+    });
+  }
+
+  it('adds the OCSP reply and the certificates to the DSS, after the signature', async () => {
+    const chain = await makeChain();
+    const { fetcher, asked } = responder(chain, false);
+    const signed = await sign(chain, fetcher);
+    expect(asked).toEqual([OCSP_URL]);
+    const doc = await PDFDocument.load(signed);
+    const dss = doc.catalog.lookup(PDFName.of('DSS'), PDFDict);
+    expect(dss.lookup(PDFName.of('OCSPs'), PDFArray).size()).toBe(1);
+    expect(dss.lookup(PDFName.of('Certs'), PDFArray).size()).toBe(2);
+    expect(dss.lookup(PDFName.of('VRI'), PDFDict).keys()).toHaveLength(1);
+    // (the signature still verifies: the DSS is an update after it)
+    await verifyEach(signed);
+    const [r] = await validatePdfSignatures(signed);
+    expect(r.cryptoVerified).toBe(true);
+  });
+
+  it('a revoked certificate stops the signing with a plain message', async () => {
+    const chain = await makeChain();
+    const { fetcher } = responder(chain, true);
+    await expect(sign(chain, fetcher)).rejects.toThrow(/revoked/);
+  });
+
+  it('a responder that can’t be reached leaves the DSS out; the signature stands', async () => {
+    const chain = await makeChain();
+    const signed = await sign(chain, async () => {
+      throw new Error('offline');
+    });
+    const doc = await PDFDocument.load(signed);
+    expect(doc.catalog.lookup(PDFName.of('DSS'))).toBeUndefined();
+    await verifyEach(signed);
+  });
+});
