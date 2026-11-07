@@ -1,6 +1,6 @@
 /**
  * The scan dialog's flatbed preview: a quick scan of the whole glass, with
- * a box around the document (found by detectDocument) whose corners can be
+ * a box around the document (scan-image.ts finds it) whose corners can be
  * dragged, or moved with the arrow keys. The real scan covers only the box.
  */
 import type { Box } from './scan-settings';
@@ -177,61 +177,3 @@ export function createGlassPreview(onBoxChange: (box: Box) => void): GlassPrevie
 }
 
 const round = (v: number) => Math.round(v * 100) / 100;
-
-/**
- * Where the document lies on a preview of the glass: the box around what
- * differs from the lid (its color taken from the edges), in inches.
- * Null when nothing stands out (an empty glass).
- */
-export async function findDocument(
-  image: Blob,
-  glass: { width: number; height: number }
-): Promise<Box | null> {
-  const bitmap = await createImageBitmap(image);
-  const scale = Math.min(1, 400 / Math.max(bitmap.width, bitmap.height));
-  const w = Math.max(1, Math.round(bitmap.width * scale));
-  const h = Math.max(1, Math.round(bitmap.height * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-  ctx.drawImage(bitmap, 0, 0, w, h);
-  bitmap.close();
-  const px = ctx.getImageData(0, 0, w, h).data;
-  const lum = (x: number, y: number) => {
-    const o = (y * w + x) * 4;
-    return 0.299 * px[o] + 0.587 * px[o + 1] + 0.114 * px[o + 2];
-  };
-  const edge: number[] = [];
-  for (let x = 0; x < w; x += 2) edge.push(lum(x, 0), lum(x, h - 1));
-  for (let y = 0; y < h; y += 2) edge.push(lum(0, y), lum(w - 1, y));
-  edge.sort((a, b) => a - b);
-  const lid = edge[Math.floor(edge.length / 2)];
-  const differs = (x: number, y: number) => Math.abs(lum(x, y) - lid) > 14;
-  const cols = new Array<number>(w).fill(0);
-  const rows = new Array<number>(h).fill(0);
-  for (let y = 0; y < h; y++)
-    for (let x = 0; x < w; x++)
-      if (differs(x, y)) {
-        cols[x]++;
-        rows[y]++;
-      }
-  // A row or column counts when a fair part of it differs (not a speck)
-  const first = (a: number[], min: number) => a.findIndex((n) => n > min);
-  const last = (a: number[], min: number) =>
-    a.length - 1 - [...a].reverse().findIndex((n) => n > min);
-  const x0 = first(cols, h * 0.05);
-  const y0 = first(rows, w * 0.05);
-  if (x0 < 0 || y0 < 0) return null;
-  const x1 = last(cols, h * 0.05);
-  const y1 = last(rows, w * 0.05);
-  const box = {
-    x: round((x0 / w) * glass.width),
-    y: round((y0 / h) * glass.height),
-    width: round(((x1 - x0 + 1) / w) * glass.width),
-    height: round(((y1 - y0 + 1) / h) * glass.height),
-  };
-  // Nearly the whole glass: nothing was found (or it's a full-size page)
-  if (box.width * box.height > glass.width * glass.height * 0.97) return null;
-  return box.width >= MIN && box.height >= MIN ? box : null;
-}

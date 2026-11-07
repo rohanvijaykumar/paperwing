@@ -1,19 +1,17 @@
 /**
  * Enhance scanned pages (All tools ▸ Scan & OCR): scanning's clean-up run
- * on the pages of a PDF that was scanned earlier. Each page is drawn at
- * 300 dpi, cleaned up like a fresh scan (scan-process.ts) and put back at
- * its size; pages found blank can go.
+ * on the pages of a PDF that was scanned earlier (scan-pdf.ts's
+ * enhancePdfPages, in the clean-up worker). Each page is drawn at its scan
+ * resolution, cleaned up like a fresh scan and put back at its size; pages
+ * found blank can go.
  */
 import { showModal } from './modal';
 import { icon } from './icons';
 import { loadPdfjs } from './thumbnails';
-import {
-  buildPdf,
-  encodePage,
-  processPage,
-  type PdfPart,
-} from './scan-process';
-import type { Level, ProcessPlan } from './scan-settings';
+import { createScanImageClient } from './scan-image-client';
+import type { ScanImage, ScanImageSettings } from './scan-image';
+import { enhancePdfPages } from './scan-pdf';
+import type { Level } from './scan-settings';
 
 export interface EnhanceOptions {
   color: 'keep' | 'gray' | 'bw';
@@ -38,27 +36,18 @@ export const DEFAULT_ENHANCE: EnhanceOptions = {
 };
 
 /** The clean-up for an existing page */
-export function enhancePlan(o: EnhanceOptions): ProcessPlan {
+export function enhanceSettings(o: EnhanceOptions): Partial<ScanImageSettings> {
   return {
-    color: o.color === 'keep' ? 'auto' : o.color,
-    threshold: o.color === 'bw' ? 128 : null,
-    brightness: 0,
-    contrast: 0,
-    invert: false,
+    colorMode: o.color === 'keep' ? 'auto' : o.color,
     deskew: o.deskew,
-    autoCrop: false,
-    background: o.background,
+    backgroundRemoval: o.background,
     descreen: o.descreen,
-    sharpen: o.sharpen,
+    textSharpening: o.sharpen,
     despeckle: o.despeckle,
-    edgeShadow: o.edgeShadow,
-    blankSensitivity: o.removeBlank ? 50 : null,
-    rotate: 0,
-    autoRotate: false,
+    edgeShadowRemoval: o.edgeShadow,
+    removeBlank: { enabled: o.removeBlank, sensitivity: 50 },
   };
 }
-
-const DPI = 300;
 
 /** The PDF with every page cleaned up (blank ones left out if asked; never
  *  all of them) */
@@ -68,56 +57,41 @@ export async function enhancePdf(
   progress: (page: number, of: number) => void = () => {}
 ): Promise<ArrayBuffer> {
   const { lib, worker } = await loadPdfjs();
+  const data = new Uint8Array(bytes.slice(0));
   const doc = await lib.getDocument({
-    data: new Uint8Array(bytes.slice(0)),
+    data: data.slice(),
     worker,
     wasmUrl: import.meta.env.BASE_URL + 'pdfjs-viewer/wasm/',
     isEvalSupported: false,
   }).promise;
-  const plan = enhancePlan(o);
-  const parts: PdfPart[] = [];
-  const blanks: PdfPart[] = [];
+  const client = createScanImageClient();
   try {
-    for (let n = 1; n <= doc.numPages; n++) {
-      progress(n, doc.numPages);
-      const page = await doc.getPage(n);
-      const viewport = page.getViewport({ scale: DPI / 72 });
+    const render = async (index: number, dpi: number): Promise<ScanImage> => {
+      const page = await doc.getPage(index + 1);
+      const viewport = page.getViewport({ scale: dpi / 72 });
       const canvas = document.createElement('canvas');
       canvas.width = Math.ceil(viewport.width);
       canvas.height = Math.ceil(viewport.height);
-      const ctx = canvas.getContext('2d')!;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvas, canvasContext: ctx, viewport }).promise;
-      const png = await new Promise<Blob | null>((r) =>
-        canvas.toBlob(r, 'image/png')
-      );
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
       canvas.width = canvas.height = 0;
-      if (!png) throw new Error(`page ${n} couldn't be drawn`);
-      const done = await processPage(
-        {
-          data: new Uint8Array(await png.arrayBuffer()),
-          mime: 'image/png',
-          dpi: DPI,
-        },
-        plan
-      );
-      const part: PdfPart = {
-        kind: 'image',
-        page: await encodePage(done, {
-          quality: 0.75,
-          compression: 'jpeg',
-          bwCompression: 'g4',
-        }),
-      };
-      (done.blank ? blanks : parts).push(part);
       page.cleanup();
-    }
+      return { width: img.width, height: img.height, channels: 4, data: img.data, dpi };
+    };
+    const result = await enhancePdfPages(data, enhanceSettings(o), render, {
+      encode: { compression: 'jpeg', quality: 0.75 },
+      prepare: (image, settings, encode) =>
+        client.preparePage(image, settings, encode, { transfer: true }),
+      onProgress: progress,
+    });
+    return result.pdf.slice().buffer;
   } finally {
+    client.dispose();
     void doc.destroy();
   }
-  const out = await buildPdf(parts.length ? parts : blanks);
-  return out.slice().buffer;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(
