@@ -1,9 +1,19 @@
 import forge from 'node-forge';
 import * as pkijs from 'pkijs';
 import { SignatureValidationResult } from '@/types';
-import type { ExtractedSignatureWithError, PdfValueSpan } from '@/types';
+import type {
+  DocTimestampResult,
+  ExtractedSignatureWithError,
+  PdfValueSpan,
+} from '@/types';
 
 import { trText } from '../i18n/i18n.js';
+import { laterChanges } from './signature-changes.js';
+import {
+  checkTimestampToken,
+  coveredBytes,
+  signatureTimestamp,
+} from './signature-timestamps.js';
 
 const INSECURE_DIGEST_OIDS = new Set<string>([
   '1.2.840.113549.2.5',
@@ -27,6 +37,21 @@ const PDF_STRING_ESCAPES: Record<string, string> = {
 
 export function extractSignatures(
   pdfBytes: Uint8Array
+): ExtractedSignatureWithError[] {
+  return extractSignatureDictionaries(pdfBytes, isSignatureDictionary);
+}
+
+/** Document timestamps (Add a timestamp): each an RFC 3161 token over the
+ *  document as it was then */
+export function extractDocTimestamps(
+  pdfBytes: Uint8Array
+): ExtractedSignatureWithError[] {
+  return extractSignatureDictionaries(pdfBytes, isDocTimestampDictionary);
+}
+
+function extractSignatureDictionaries(
+  pdfBytes: Uint8Array,
+  matches: (pdfString: string, entries: Map<string, PdfValueSpan>) => boolean
 ): ExtractedSignatureWithError[] {
   const signatures: ExtractedSignatureWithError[] = [];
   const pdfString = new TextDecoder('latin1').decode(pdfBytes);
@@ -53,7 +78,7 @@ export function extractSignatures(
     if (end < 0) continue;
 
     for (const entries of dictionaries) {
-      if (isSignatureDictionary(pdfString, entries)) {
+      if (matches(pdfString, entries)) {
         signatures.push(
           readSignatureDictionary(
             pdfString,
@@ -93,6 +118,22 @@ function isSignatureDictionary(
   );
 }
 
+function isDocTimestampDictionary(
+  pdfString: string,
+  entries: Map<string, PdfValueSpan>
+): boolean {
+  const name = (key: string) => {
+    const span = entries.get(key);
+    return span ? pdfString.slice(span.start, span.end) : undefined;
+  };
+  return (
+    entries.has('ByteRange') &&
+    entries.has('Contents') &&
+    (name('Type') === '/DocTimeStamp' ||
+      (name('Type') === undefined && name('SubFilter') === '/ETSI.RFC3161'))
+  );
+}
+
 function readSignatureDictionary(
   pdfString: string,
   pdfBytes: Uint8Array,
@@ -100,9 +141,7 @@ function readSignatureDictionary(
   index: number
 ): ExtractedSignatureWithError {
   const text = (key: string) => decodePdfText(pdfBytes, entries.get(key));
-  const timeMatch = text('M')?.match(
-    /^D:(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/
-  );
+
   const signature: ExtractedSignatureWithError = {
     index,
     contents: new Uint8Array(0),
@@ -111,9 +150,7 @@ function readSignatureDictionary(
     location: text('Location'),
     contactInfo: text('ContactInfo'),
     name: text('Name'),
-    signingTime: timeMatch
-      ? `${timeMatch[1]}-${timeMatch[2]}-${timeMatch[3]}T${timeMatch[4]}:${timeMatch[5]}:${timeMatch[6]}`
-      : undefined,
+    signingTime: pdfDateToIso(text('M')),
   };
 
   const rangeSpan = entries.get('ByteRange');
@@ -172,6 +209,20 @@ function readSignatureDictionary(
 
   signature.contents = contents.slice(0, derObjectLength);
   return signature;
+}
+
+/**
+ * A PDF date (D:YYYYMMDDHHmmSS with its time zone: Z, +HH'mm' or -HH'mm')
+ * as an ISO 8601 string Date can read. Without the zone the time would be
+ * read as this computer's local time, hours off for a signature made
+ * elsewhere (or stored in UTC, as most signers do).
+ */
+export function pdfDateToIso(value: string | undefined): string | undefined {
+  const m = value?.match(/^(?:D:)?(\d{14})(Z|[+-]\d\d)?'?(\d\d)?/);
+  if (!m) return undefined;
+  const [, t, zone, minutes] = m;
+  const tz = !zone ? '' : zone === 'Z' ? 'Z' : `${zone}:${minutes ?? '00'}`;
+  return `${t.slice(0, 4)}-${t.slice(4, 6)}-${t.slice(6, 8)}T${t.slice(8, 10)}:${t.slice(10, 12)}:${t.slice(12, 14)}${tz}`;
 }
 
 function getByteRangeError(
@@ -517,8 +568,20 @@ export async function validateSignature(
     result.validTo = signerCert.validity.notAfter;
     result.serialNumber = signerCert.serialNumber;
 
+    // A timestamp proves when it was signed: the certificate must have been
+    // valid then (as Acrobat checks); without one, now
+    const stamp = await signatureTimestamp(signature.contents);
+    if (stamp)
+      result.timestamp = {
+        time: stamp.time,
+        authority: stamp.authority,
+        valid: stamp.valid,
+        problem: stamp.problem,
+      };
     const now = new Date();
-    result.isExpired = now > result.validTo || now < result.validFrom;
+    const at = stamp?.valid ? stamp.time : now;
+    result.isExpired = at > result.validTo || at < result.validFrom;
+    result.expiredNow = now > result.validTo;
 
     result.isSelfSigned = signerCert.isIssuer(signerCert);
 
@@ -617,9 +680,21 @@ export async function validateSignature(
         verification.reason || trText('Cryptographic verification failed');
     }
 
+    // Signed again or timestamped later: only those additions leave this
+    // signature valid; anything else changed the document after it
+    if (
+      verification.status === 'verified' &&
+      result.coverageStatus === 'partial'
+    ) {
+      const later = await laterChanges(pdfBytes, signature.byteRange);
+      result.laterChanges = later.kind;
+      result.laterChangeDetails = later.details;
+    }
     result.isValid =
       verification.status === 'verified' &&
-      result.coverageStatus === 'full' &&
+      (result.coverageStatus === 'full' ||
+        (result.coverageStatus === 'partial' &&
+          result.laterChanges !== 'other')) &&
       !result.usesInsecureDigest;
   } catch (e) {
     result.errorMessage =
@@ -731,6 +806,62 @@ export async function validatePdfSignatures(
   const signatures = extractSignatures(pdfBytes);
   return Promise.all(
     signatures.map((sig) => validateSignature(sig, pdfBytes, trustedCert))
+  );
+}
+
+/** Each document timestamp, checked: the token over the bytes it covers,
+ *  and what changed after it */
+export async function validateDocTimestamps(
+  pdfBytes: Uint8Array,
+  trusted?: TrustSource
+): Promise<DocTimestampResult[]> {
+  const anchors = trustAnchors(trusted);
+  return Promise.all(
+    extractDocTimestamps(pdfBytes).map(async (ts) => {
+      const result: DocTimestampResult = {
+        index: ts.index,
+        valid: false,
+        authority: trText('Unknown'),
+        coverageStatus: 'unknown',
+        isTrusted: false,
+      };
+      if (ts.extractionError) {
+        result.problem = ts.extractionError;
+        return result;
+      }
+      const end = ts.byteRange[2] + ts.byteRange[3];
+      result.coverageStatus = end === pdfBytes.length ? 'full' : 'partial';
+      const check = await checkTimestampToken(
+        ts.contents,
+        coveredBytes(pdfBytes, ts.byteRange)
+      );
+      if (!check) {
+        result.problem = trText('This isn’t a timestamp Paperwing can read.');
+        return result;
+      }
+      result.time = check.time;
+      result.authority = check.authority;
+      result.problem = check.problem;
+      if (anchors.length && check.certificates.length) {
+        try {
+          const certs = check.certificates.map(certFromDer);
+          const tsa =
+            certs.find(
+              (c) => c.subject.getField('CN')?.value === check.authority
+            ) ?? certs[0];
+          result.isTrusted = await chainsToTrustedCert(tsa, certs, anchors);
+        } catch {
+          result.isTrusted = false;
+        }
+      }
+      if (check.valid && result.coverageStatus === 'partial') {
+        const later = await laterChanges(pdfBytes, ts.byteRange);
+        result.laterChanges = later.kind;
+        result.laterChangeDetails = later.details;
+      }
+      result.valid = check.valid && result.laterChanges !== 'other';
+      return result;
+    })
   );
 }
 
