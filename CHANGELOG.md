@@ -21,7 +21,12 @@ All notable changes to Paperwing are documented here. Paperwing follows
     **Import from a scanner app** watches the folder it saves to.
   - **Presets** (Autodetect color mode, Black and white, Grayscale and Color document, Color
     photograph, and your own with Save as preset…), settings kept per preset and per scanner.
-  - **Preview** on a flatbed: the document is found and boxed; drag the corners to scan just that.
+  - **Preview** on a flatbed: the whole glass, fitted to the window; the document is found and
+    boxed; drag the corners to scan just that (exactly that, whichever driver: the box is cut out
+    of the scan here, as some drivers ignore where an area starts). The paper size chosen shows as
+    its box on the glass. Color mode, threshold, brightness and contrast show on the preview as
+    they're changed, and the pages come out the same. Preview stays available between passes; with
+    the document feeder chosen, the pane says why it can't preview.
   - Flatbed or feeder, front sides or both (Scan reverse sides for one-sided feeders), flip back
     sides; color mode with threshold, resolution, paper sizes, auto-size and custom sizes,
     brightness and contrast. Only what the scanner can do is shown; what it can't do itself is done
