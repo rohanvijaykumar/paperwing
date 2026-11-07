@@ -324,8 +324,11 @@ check(!!(await until(page, () => window.__acro.viewer.pageInfo(window.__acro.vie
 await app.close();
 
 /* Recognize text right after scanning --------------------------------------- */
-// (PAPERWING_TEST_OPEN: Enhance scanned pages never waits on a real file dialog)
-app = await L.start({ PAPERWING_TEST_OPEN: doc1 });
+// (PAPERWING_TEST_OPEN: if Enhance scanned pages ever asked for a file
+// instead of using the open document, it gets this one, and the check below
+// fails; never a real file dialog)
+const decoy = await fixture('Picked instead.pdf');
+app = await L.start({ PAPERWING_TEST_OPEN: decoy });
 page = app.page;
 await L.openDialog(page);
 await choose(page, 'Scanner', 'Paperwing Test Scanner');
@@ -391,6 +394,9 @@ const search = async (q) => {
     const i = [...document.querySelectorAll('.lp-search input')].find((x) => x.offsetParent);
     i.value = '';
     i.dispatchEvent(new Event('input', { bubbles: true }));
+    // (focused for sure: on the Mac runner the click sometimes left focus on
+    // the page, and the letters typed became shortcuts: C opened Crop PDF)
+    i.focus();
     const r = i.getBoundingClientRect();
     return { x: r.x + 20, y: r.y + r.height / 2 };
   });
@@ -423,17 +429,26 @@ await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.curre
 await sleep(1000);
 const before = await L.pageCount(page);
 const bytesBefore = (await docBytes(page)).length;
-await page.evaluate(() => document.querySelector('.lp-search input')?.blur());
-let enhanceFound = [];
-for (let attempt = 0; attempt < 3 && !(await page.$('.dlg-enhance')); attempt++) {
-  enhanceFound = await search('enhance');
-  await click(page, '.lp-tool', 'Enhance scanned pages');
-  await until(page, () => document.querySelector('.dlg-enhance'), undefined, 8000);
-}
+// With a full-page tool open on it (Crop PDF), Enhance still works on the
+// document: the tool closes. (Enhance used to ask for a file then: the
+// macOS runner hit it when a stray C opened Crop PDF.)
+const tabsBefore = await page.evaluate(() => document.querySelectorAll('#tabs .tab').length);
+await search('crop');
+await click(page, '.lp-tool', 'Crop PDF');
+const cropOpen = await until(page, () => [...document.querySelectorAll('#tool-full .fh-title')].some((t) => t.offsetParent && /Crop/.test(t.textContent)), undefined, 20000);
+check(!!cropOpen, 'Crop PDF open in full view on it');
+const enhanceFound = await search('enhance');
+await click(page, '.lp-tool', 'Enhance scanned pages');
+await until(page, () => document.querySelector('.dlg-enhance'), undefined, 10000);
+const enhanceFor = await page.evaluate(() => document.querySelector('.dlg-enhance')?.textContent ?? '');
 check(
-  !!(await page.$('.dlg-enhance')),
-  'Enhance scanned pages: its choices',
-  `${JSON.stringify(enhanceFound)}; dialogs open: ${await page.evaluate(() => [...document.querySelectorAll('.dlg-backdrop [role=dialog]')].map((d) => d.getAttribute('aria-label')).join(', '))}`
+  /Four pages/.test(enhanceFor) && !/Picked instead/.test(enhanceFor),
+  'Enhance scanned pages: its choices, for the open document',
+  `${JSON.stringify(enhanceFound)}; ${enhanceFor.slice(0, 80) || 'no dialog'}`
+);
+check(
+  await page.evaluate((n) => !document.querySelector('#tool-full .fh-title') && document.querySelectorAll('#tabs .tab').length === n, tabsBefore),
+  'and Crop PDF closed, no file opened instead'
 );
 await click(page, '.dlg-enhance .accent-btn', 'Enhance');
 const enhanced = await until(page, () => /Enhanced the scanned pages/.test(document.querySelector('#toasts')?.textContent ?? ''), undefined, 60000);
