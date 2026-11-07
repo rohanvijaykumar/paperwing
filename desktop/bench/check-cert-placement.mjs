@@ -176,7 +176,7 @@ for (const c of CASES) {
             )
             ?.click();
         });
-    const layer = await until(() =>
+    const readLayer = () =>
       page.evaluate(() => {
         const host = [...document.querySelectorAll('#viewer-host *')].find(
           (e) => e.shadowRoot
@@ -198,8 +198,20 @@ for (const c of CASES) {
               visBottom: bottom,
             }
           : null;
-      })
-    );
+      });
+    let layer = await until(readLayer);
+    // Zoomed: wait until the page has stopped moving before drawing on it
+    for (let n = 0; c.zoomAtStart && layer && n < 20; n++) {
+      await sleep(500);
+      const again = await readLayer();
+      const same =
+        !!again &&
+        ['left', 'top', 'w', 'h'].every(
+          (k) => Math.abs(again[k] - layer[k]) < 1
+        );
+      layer = again ?? layer;
+      if (same) break;
+    }
     if (!layer) {
       // (what the page looked like, to tell why)
       const why = await page.evaluate(() => {
@@ -214,10 +226,13 @@ for (const c of CASES) {
       throw new Error(`the page took no box: ${JSON.stringify(why)}`);
     }
     // A box in the visible part of the page: from 20% to 60% across, and a
-    // band near the top of what's on screen
+    // band near the top of what's on screen (the middle when zoomed in, clear
+    // of the bar over the top of the document)
     const x0 = layer.left + layer.w * 0.2;
     const x1 = layer.left + layer.w * 0.6;
-    const y0 = layer.visTop + (layer.visBottom - layer.visTop) * 0.15;
+    const y0 =
+      layer.visTop +
+      (layer.visBottom - layer.visTop) * (c.zoomAtStart ? 0.45 : 0.15);
     const y1 = y0 + Math.min(70, (layer.visBottom - layer.visTop) * 0.12);
     await page.mouse.move(x0, y0);
     await page.mouse.down();
@@ -230,10 +245,15 @@ for (const c of CASES) {
       width: (x1 - x0) / layer.w,
       height: (y1 - y0) / layer.h,
     };
-    await until(
-      async () => (await page.$$('#cid-dialog .cid-row')).length > 0,
-      30000
-    );
+    if (
+      !(await until(
+        async () => (await page.$$('#cid-dialog .cid-row')).length > 0,
+        30000
+      ))
+    )
+      throw new Error(
+        `the box was drawn, but Sign with a Digital ID didn’t open (bar: ${await text('#cert-bar')})`
+      );
     await page.evaluate((name) => {
       [...document.querySelectorAll('#cid-dialog .cid-row')]
         .find((r) => r.querySelector('.cid-name b')?.textContent === name)
