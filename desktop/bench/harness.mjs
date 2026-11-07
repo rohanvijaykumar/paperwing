@@ -3,7 +3,7 @@
  * profile and connects to its window, for the performance benchmarks.
  */
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -108,6 +108,15 @@ export async function launch({
       await sleep(100);
     }
   }
+  // What a test saves (a tool's ZIP or image result…) goes into its
+  // profile, never the computer's Downloads folder
+  const downloads = join(userData, 'downloads');
+  mkdirSync(downloads, { recursive: true });
+  const cdp = await browser.target().createCDPSession();
+  await cdp.send('Browser.setDownloadBehavior', {
+    behavior: 'allowAndName',
+    downloadPath: downloads,
+  });
   const pages = await browser.pages();
   const page = pages.find((p) => p.url().startsWith('app://paperwing'));
 

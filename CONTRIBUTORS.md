@@ -32,6 +32,7 @@ People whose bug reports led to a fix.
   messages didn't appear ([#27](https://github.com/rohanvijaykumar/paperwing/issues/27), 1.2.4)
 - u/WildAd9195 (on Reddit): highlighted text couldn't be copied
   ([#38](https://github.com/rohanvijaykumar/paperwing/issues/38))
+- u/dwbmb (on Reddit): the tools said "upload" and "download", as if files went to a server
 
 To list everyone with commits in Paperwing (leaving out BentoPDF's commits and bots) and everyone
 whose bug report was fixed, run `node desktop/scripts/contributors.mjs`.
