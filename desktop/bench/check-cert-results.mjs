@@ -1139,9 +1139,10 @@ sections.pages = async () => {
     { file: rot, label: 'a tiny box', page: 0, box: [0.5, 0.5, 0.52, 0.515] },
     {
       file: rot,
+      // (from 10% across: the quick tools float over the page's left edge)
       label: 'a box as wide as the page',
       page: 0,
-      box: [0.01, 0.42, 0.99, 0.58],
+      box: [0.1, 0.42, 0.97, 0.58],
     },
     {
       file: rot,
