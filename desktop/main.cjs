@@ -1043,12 +1043,23 @@ function rememberFolder(filePath) {
     });
 }
 
+// Benches of a development build save without the dialog, into this folder
+const testSaveDir = !app.isPackaged && process.env.PAPERWING_TEST_SAVE_DIR;
+function showSaveDialog(win, options) {
+  if (testSaveDir)
+    return Promise.resolve({
+      canceled: false,
+      filePath: path.join(testSaveDir, path.basename(options.defaultPath)),
+    });
+  return dialog.showSaveDialog(win, options);
+}
+
 ipcMain.handle('paperwing:save-as', async (e, suggestedName, data, near) => {
   if (!senderIsApp(e)) return null;
   const own =
     typeof near === 'string' ? await folderThere(path.dirname(near)) : null;
   const start = own ?? (await lastFolder()) ?? app.getPath('documents');
-  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+  const { canceled, filePath } = await showSaveDialog(mainWindow, {
     defaultPath: path.join(start, suggestedName),
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
   });
@@ -1142,7 +1153,7 @@ ipcMain.handle('paperwing:certs-save-id', async (e, suggestedName, data) => {
     /^[^\\/:*?"<>|]{1,120}\.pfx$/i.test(suggestedName)
       ? suggestedName
       : 'Digital ID.pfx';
-  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+  const { canceled, filePath } = await showSaveDialog(mainWindow, {
     defaultPath: path.join(
       (await lastFolder()) ?? app.getPath('documents'),
       name

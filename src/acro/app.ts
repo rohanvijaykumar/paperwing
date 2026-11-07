@@ -1332,6 +1332,14 @@ async function startDigitalSign(tab: Tab): Promise<void> {
   if (tab.loading || drawingBox) return;
   const certs = desktop?.certs;
   const flow = await certsFlow();
+  const current = await docBytesAsIs(tab, 'sign');
+  if (current && (await flow.lockedBySignature(new Uint8Array(current)))) {
+    toast(
+      `${tab.name} was locked when it was signed, so it can't be signed again.`
+    );
+    return;
+  }
+  if (!tabs.includes(tab) || drawingBox) return;
   const drawing = flow.drawSignatureBox(viewer, tab.id);
   drawingBox = { tabId: tab.id, cancel: drawing.cancel };
   renderCertBar();
@@ -1345,8 +1353,8 @@ async function startDigitalSign(tab: Tab): Promise<void> {
     docName: tab.name,
     box,
     getPdf: async () => {
-      await settleForms([tab]);
-      const bytes = await exportDoc(tab, 'sign');
+      // (as it is on disk if unchanged, so signatures in it stay valid)
+      const bytes = await docBytesAsIs(tab, 'sign');
       return bytes ? new Uint8Array(bytes) : null;
     },
     save: async (signed, name) => {
@@ -1401,7 +1409,10 @@ async function showSignedVersion(
   tab.page = viewer.pageInfo(tab.id) ?? tab.page;
   renderTabs();
   persistSession();
-  if (activeId === tab.id) renderDocChrome(tab);
+  if (activeId === tab.id) {
+    document.title = `${tab.name} - Paperwing`;
+    renderDocChrome(tab);
+  }
   toast(`Signed and saved as ${saved.name}`);
 }
 
@@ -2294,6 +2305,21 @@ window.addEventListener('message', async (e: MessageEvent) => {
       id: e.data.id,
       data: result?.ok ? result.data : null,
     });
+  } else if (e.data?.type === 'acro:system-roots') {
+    // Validate signatures ▸ trust the system's root certificates (the tool
+    // can't reach the desktop bridge itself)
+    const res = desktop?.certs
+      ? await desktop.certs
+          .roots()
+          .catch(() => ({ ok: false, certs: [] as string[] }))
+      : { ok: false, certs: [] as string[] };
+    postToFrame(ft, {
+      type: 'acro:system-roots',
+      id: e.data.id,
+      certs: res.certs.map((c) =>
+        Uint8Array.from(atob(c), (ch) => ch.charCodeAt(0))
+      ),
+    });
   } else if (e.data?.type === 'acro:download' && e.data.blob instanceof Blob) {
     const blob = e.data.blob;
     const name = uniqueTabName(String(e.data.name || 'download'));
@@ -2477,7 +2503,9 @@ async function openToolOnDoc(tab: Tab, tool: AppTool, files: File[] = []) {
 
   // Another full-page tool replaces the open one
   if (tool.full && !(await mayDiscardTool(tab))) return;
-  const bytes = await exportDoc(tab, `open ${tool.name} on`);
+  const bytes = SIGNATURE_TOOLS.has(tool.id)
+    ? await docBytesAsIs(tab, `open ${tool.name} on`)
+    : await exportDoc(tab, `open ${tool.name} on`);
   // (closed meanwhile)
   if (!tabs.includes(tab)) return;
   const docFiles = bytes
@@ -4085,6 +4113,47 @@ async function docBlob(tab: Tab): Promise<Blob | null> {
   await settleForms([tab]);
   const bytes = await exportDoc(tab, 'save');
   return bytes ? new Blob([bytes], { type: 'application/pdf' }) : null;
+}
+
+/** Tools that check or add to a document's signatures: they need its
+ *  bytes exactly as signed */
+const SIGNATURE_TOOLS = new Set([
+  'validate-signature-pdf',
+  'timestamp-pdf',
+  'digital-sign-pdf',
+]);
+
+/**
+ * The document exactly as it is on disk when nothing has changed since it
+ * was opened or saved, else as shown (exportDoc). Exporting writes the
+ * whole file anew, which breaks the signatures in it: validating them, or
+ * signing again, needs the very bytes that were signed.
+ */
+async function docBytesAsIs(
+  tab: Tab,
+  doing: string
+): Promise<ArrayBuffer | null> {
+  await settleForms([tab]);
+  if (!isDirty(tab) && tab.diskHash) {
+    try {
+      const data = tab.path
+        ? await desktop?.readFile(tab.path)
+        : tab.handle
+          ? new Uint8Array(await (await tab.handle.getFile()).arrayBuffer())
+          : null;
+      if (data) {
+        const bytes = new Uint8Array(data);
+        const [was, now] = await Promise.all([
+          tab.diskHash,
+          fingerprint(bytes),
+        ]);
+        if (was && was === now) return bytes.buffer;
+      }
+    } catch {
+      // (gone or unreadable: what's shown)
+    }
+  }
+  return exportDoc(tab, doing);
 }
 
 /** The document as shown (with its edits), or null, saying why, if it
