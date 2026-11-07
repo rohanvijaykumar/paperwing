@@ -36,6 +36,9 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ### Fixed
 
+- Saving a document with no changes writes it exactly as it was, so the signatures in it stay
+  valid (Save, Save As and Download; Validate signatures and Add a timestamp get it as it is too).
+- Form fields on rotated pages show in the right place.
 - **Dialogs work with the keyboard and screen readers.** A dialog takes focus when it opens, Tab
   stays inside it, screen readers announce it, and closing it (or a menu) returns focus to where
   you were. By [@BronzeKnuckles](https://github.com/BronzeKnuckles)

@@ -1119,7 +1119,9 @@ export class FormLayer {
       (a) => a.annotationType === WIDGET
     );
     if (this.session !== s || !layer.div.isConnected) return;
-    const viewport = page.getViewport({ scale: 1 });
+    // The page as the viewer's box holds it, unrotated: the viewer turns
+    // the box itself for the page's /Rotate (and the view's rotation)
+    const viewport = page.getViewport({ scale: 1, rotation: 0 });
     layer.width = viewport.width;
     this.fit(layer);
     // Fields pdf.js leaves to the page's drawing: PDFium draws them

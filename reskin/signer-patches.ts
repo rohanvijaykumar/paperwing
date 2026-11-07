@@ -89,6 +89,13 @@ export const SIGNER_PATCHES: CodePatch[] = [
         'if(_this.opt.pwExternal && _this.opt.pwExternal.lock && !docMdp){\n\t\t\twidgetObj["Lock"] = pdfcont.obj({\n\t\t\t\t"Type": "SigFieldLock",\n\t\t\t\t"Action": "All",\n\t\t\t\t"P": 1,\n\t\t\t});\n\t\t}\n\t\t/** @type {PDFLib.PDFRef} */\n\t\tvar widgetDictRef = pdfcont.register(pdfcont.obj(widgetObj));',
         1,
       ],
+      // The field's rectangle with its corners in order (on a rotated page
+      // they came out swapped, and PDFium then doesn't draw the appearance)
+      [
+        '"Rect": signcrt.getSignRect(),',
+        '"Rect": _this.opt.pwExternal ? (function(r){return [Math.min(r[0], r[2]), Math.min(r[1], r[3]), Math.max(r[0], r[2]), Math.max(r[1], r[3])];})(signcrt.getSignRect()) : signcrt.getSignRect(),',
+        1,
+      ],
       // The signature itself, from the caller's CMS builder
       [
         'var asn1sig = null;\n\t\tif(_this.cchain){',

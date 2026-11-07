@@ -15,6 +15,7 @@ import {
   PDFName,
   PDFNumber,
   PDFRef,
+  degrees,
 } from 'pdf-lib';
 import { loadPatchedZga } from './helpers/zga-patched';
 
@@ -703,4 +704,90 @@ describe('long-term validation (DSS)', () => {
     expect(doc.catalog.lookup(PDFName.of('DSS'))).toBeUndefined();
     await verifyEach(signed);
   });
+});
+
+describe('placement on rotated and cropped pages', () => {
+  /** A page with this rotation, CropBox (and MediaBox) */
+  async function page(rotate: number, media: number[], crop: number[]) {
+    const doc = await PDFDocument.create();
+    const p = doc.addPage([media[2] - media[0], media[3] - media[1]]);
+    p.setMediaBox(media[0], media[1], media[2] - media[0], media[3] - media[1]);
+    p.setCropBox(crop[0], crop[1], crop[2] - crop[0], crop[3] - crop[1]);
+    p.setRotation(degrees(rotate));
+    return doc.save();
+  }
+
+  /** Where pdf.js (independently) says that box is in PDF user space: the
+   *  box is in the page's own frame (unrotated), as the viewer's page
+   *  layer measures it */
+  async function expected(
+    pdf: Uint8Array,
+    box: { x: number; y: number; width: number; height: number }
+  ) {
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const doc = await pdfjs.getDocument({ data: pdf.slice() }).promise;
+    const vp = (await doc.getPage(1)).getViewport({ scale: 1, rotation: 0 });
+    const [ax, ay] = vp.convertToPdfPoint(box.x * vp.width, box.y * vp.height);
+    const [bx, by] = vp.convertToPdfPoint(
+      (box.x + box.width) * vp.width,
+      (box.y + box.height) * vp.height
+    );
+    await doc.destroy();
+    return [
+      Math.min(ax, bx),
+      Math.min(ay, by),
+      Math.max(ax, bx),
+      Math.max(ay, by),
+    ];
+  }
+
+  for (const rotate of [0, 90, 180, 270])
+    for (const [label, media, crop] of [
+      ['full page', [0, 0, 612, 792], [0, 0, 612, 792]],
+      ['offset CropBox', [0, 0, 612, 792], [40, 90, 520, 700]],
+      ['offset MediaBox and CropBox', [20, 30, 632, 822], [60, 120, 540, 760]],
+    ] as [string, number[], number[]][])
+      it(`/Rotate ${rotate}, ${label}: the field lands where the box was drawn`, async () => {
+        const pdf = await page(rotate, media, crop);
+        const box = { x: 0.15, y: 0.6, width: 0.45, height: 0.12 };
+        const signed = await signWith(
+          'rsa',
+          {
+            appearance: { page: 0, box, png: await tinyPng() },
+          },
+          pdf
+        );
+        const doc = await PDFDocument.load(signed);
+        const annots = doc.getPage(0).node.Annots()!;
+        const widget = doc.context.lookup(
+          annots.get(annots.size() - 1)
+        ) as PDFDict;
+        const r = (widget.get(PDFName.of('Rect')) as PDFArray)
+          .asArray()
+          .map((n) => (n as PDFNumber).asNumber());
+        // Corners in order (PDFium draws nothing for a swapped one)
+        expect(r[0]).toBeLessThan(r[2]);
+        expect(r[1]).toBeLessThan(r[3]);
+        const rect = [
+          Math.min(r[0], r[2]),
+          Math.min(r[1], r[3]),
+          Math.max(r[0], r[2]),
+          Math.max(r[1], r[3]),
+        ];
+        const want = await expected(pdf, box);
+        // The test image is 2:1, so the field may be narrower than the box
+        // along the page's shown width: check the corner it's anchored to
+        // and that it stays inside the box
+        for (let i = 0; i < 4; i++) {
+          expect(rect[i]).toBeGreaterThanOrEqual(want[i < 2 ? i : i - 2] - 0.5);
+          expect(rect[i]).toBeLessThanOrEqual(want[i < 2 ? i + 2 : i] + 0.5);
+        }
+        // The test image (2:1) keeps its proportions, so the field fills
+        // the box in one direction
+        const fills = [0, 1].some(
+          (i) => Math.abs(rect[i + 2] - rect[i] - (want[i + 2] - want[i])) < 0.5
+        );
+        expect(fills).toBe(true);
+        await verifyEach(signed);
+      });
 });
