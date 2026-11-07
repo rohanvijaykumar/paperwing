@@ -735,7 +735,15 @@ test('live: finds and scans a scanner announced by the system', { skip: !process
       (e) => console.log('browse failed', e.code, e.message)
     );
   }
-  const s = result.scanners?.find((x) => x.name === process.env.ESCL_LIVE_NAME);
+  let s = result.scanners?.find((x) => x.name === process.env.ESCL_LIVE_NAME);
+  // Where this process may not use multicast (macOS Local Network privacy
+  // on CI), the address the system's Bonjour resolved it to
+  if (!s && result.code === 'blocked' && process.env.ESCL_LIVE_ADDRESS) {
+    console.log('multicast blocked here; adding', process.env.ESCL_LIVE_ADDRESS);
+    const added = await c.add(process.env.ESCL_LIVE_ADDRESS);
+    console.log('added', JSON.stringify(added));
+    s = added.scanners?.[0];
+  }
   assert.ok(s, `no scanner called ${process.env.ESCL_LIVE_NAME}`);
   const caps = await c.caps(s.id);
   assert.equal(caps.type, 'caps', JSON.stringify(caps));

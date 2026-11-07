@@ -64,7 +64,7 @@ const MESSAGES = {
   'cover-open': "The scanner's cover is open.",
   unsupported: "The scanner can't scan with these settings.",
   blocked:
-    "Paperwing isn't allowed to look for scanners on the local network. Allow it in your system's privacy or firewall settings.",
+    "Paperwing isn't allowed to look for scanners on the local network. Allow it when asked, or in your system's privacy or firewall settings, then search again.",
   failed: 'The scanner reported a problem.',
 };
 

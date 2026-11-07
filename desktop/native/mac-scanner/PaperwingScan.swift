@@ -23,7 +23,14 @@ func emit(_ obj: [String: Any]) {
   FileHandle.standardOutput.write(line.data(using: .utf8)!)
 }
 
+/// What happened, for the logs (scan.cjs keeps the helper's stderr)
+func debug(_ message: String) {
+  FileHandle.standardError.write("paperwing-scan: \(message)
+".data(using: .utf8)!)
+}
+
 func fail(_ code: String, _ message: String) -> Never {
+  debug("\(code): \(message)")
   emit(["type": "error", "code": code, "message": message])
   exit(2)
 }
@@ -280,24 +287,46 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
   func device(_ device: ICDevice, didOpenSessionWithError error: Error?) {
     if let error = error {
       let code = (error as NSError).code
-      fail(code == icTimedOut ? "offline" : "busy",
-        error.localizedDescription)
+      fail(code == icTimedOut ? "offline" : "busy", error.localizedDescription)
     }
-    guard let scanner = target else { return }
+    debug("session open; units \(target?.availableFunctionalUnitTypes ?? [])")
+    // A scanner describes its parts once it's ready (network scanners take a
+    // moment); some never say so, hence the fallback
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self.begin() }
+  }
+
+  func deviceDidBecomeReady(_ device: ICDevice) {
+    debug("ready")
+    begin()
+  }
+
+  var begun = false
+  var requested: ICScannerFunctionalUnitType?
+
+  func select(_ type: ICScannerFunctionalUnitType) {
+    requested = type
+    debug("selecting \(type.rawValue)")
+    target?.requestSelect(type)
+  }
+
+  func begin() {
+    guard !begun, let scanner = target, scanner.hasOpenSession else { return }
+    begun = true
     if cancelled { return finish(["type": "done", "pages": 0, "cancelled": true]) }
     let types = scanner.availableFunctionalUnitTypes.compactMap {
       ICScannerFunctionalUnitType(rawValue: $0.uintValue)
     }
+    debug("units \(types.map { $0.rawValue }), selected \(scanner.selectedFunctionalUnit.type.rawValue)")
     switch command {
     case "caps":
       pendingUnits = types.filter { $0 == .flatbed || $0 == .documentFeeder }
       if pendingUnits.isEmpty { pendingUnits = [scanner.selectedFunctionalUnit.type] }
-      scanner.requestSelect(pendingUnits.removeFirst())
+      select(pendingUnits.removeFirst())
     case "preview":
       if !types.contains(.flatbed) && !types.isEmpty {
         fail("unsupported", "This scanner has no flatbed to preview")
       }
-      scanner.requestSelect(.flatbed)
+      select(.flatbed)
     default:
       let want: ICScannerFunctionalUnitType =
         options.source == "feeder" ? .documentFeeder : .flatbed
@@ -305,7 +334,7 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
         fail("unsupported",
           "This scanner has no \(options.source == "feeder" ? "document feeder" : "flatbed")")
       }
-      scanner.requestSelect(want)
+      select(want)
     }
   }
 
@@ -318,6 +347,10 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
   func scannerDevice(
     _ scanner: ICScannerDevice, didSelect functionalUnit: ICScannerFunctionalUnit, error: Error?
   ) {
+    debug("selected \(functionalUnit.type.rawValue) \(error.map { "\($0)" } ?? "")")
+    // The scanner picking its own unit as the session opens isn't our answer
+    guard requested != nil, functionalUnit.type == requested || error != nil else { return }
+    requested = nil
     if let error = error { fail("busy", error.localizedDescription) }
     if cancelled { return finish(["type": "done", "pages": 0, "cancelled": true]) }
     switch command {
@@ -327,7 +360,7 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
         finish(["type": "caps", "driver": "ica", "nativeUi": false, "sources": sources])
         return
       }
-      scanner.requestSelect(pendingUnits.removeFirst())
+      select(pendingUnits.removeFirst())
     case "preview":
       guard functionalUnit.canPerformOverviewScan else {
         fail("unsupported", "This scanner can't make a preview")

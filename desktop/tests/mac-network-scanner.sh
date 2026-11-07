@@ -39,7 +39,7 @@ echo "--- Bonjour sees:"
 (dns-sd -L "$name" _uscan._tcp local & b=$!; sleep 3; kill $b) 2>&1
 
 echo "--- (a) escl.cjs finds and scans it"
-ESCL_LIVE_NAME="$name" node --test --test-name-pattern="live" tests/escl.test.mjs || failed=1
+ESCL_LIVE_NAME="$name" ESCL_LIVE_ADDRESS="$(scutil --get LocalHostName).local:$port" node --test --test-name-pattern="live" tests/escl.test.mjs || failed=1
 
 echo "--- (b) Image Capture (the Swift helper)"
 helper=native/mac-scanner/out/paperwing-scan
