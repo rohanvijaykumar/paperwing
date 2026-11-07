@@ -1051,6 +1051,12 @@ function rememberFolder(filePath) {
 // Benches of a development build save without the dialog, into this folder
 const testSaveDir = !app.isPackaged && process.env.PAPERWING_TEST_SAVE_DIR;
 function showSaveDialog(win, options) {
+  // (a test's "Cancel" in the next Save As: this file in the folder)
+  const cancel = testSaveDir && path.join(testSaveDir, '.cancel-next-save');
+  if (cancel && fs.existsSync(cancel)) {
+    fs.rmSync(cancel);
+    return Promise.resolve({ canceled: true, filePath: '' });
+  }
   if (testSaveDir)
     return Promise.resolve({
       canceled: false,

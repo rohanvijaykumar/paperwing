@@ -423,12 +423,17 @@ try {
     console.log(
       `     validator says: ${result.replace(/\s+/g, ' ').slice(0, 700)}`
     );
-    // (earlier signatures cover their own revision: "partial coverage")
+    // Self-signed test IDs: intact, identity not verified; the earlier ones
+    // cover their own version (signed again later), which leaves them valid
     check(
-      !/Cryptographic Verification Failed|does not verify|Content hash does not match/i.test(
-        result
-      ),
-      'every signature verifies'
+      !/Invalid|Changed after signing|Couldn’t check/i.test(result) &&
+        (result.match(/Self-Signed: Signer Identity Not Verified/g) ?? [])
+          .length === 3,
+      'every signature verifies, none changed after signing'
+    );
+    check(
+      (result.match(/Covers its version/g) ?? []).length === 2,
+      'the first two cover their version, signed again later'
     );
   }
   await shot('11-validate', '#doc-stage');
