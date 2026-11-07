@@ -1371,16 +1371,22 @@ export function findPages(
     const r = outer.getBoundingClientRect();
     const x = (r.left - origin.left) / scale;
     const y = (r.top - origin.top) / scale;
+    // Pages narrower (or shorter) than others are centred across the
+    // document, away from their slot's corner (a portrait page among
+    // landscape ones, mixed page rotations): one side lines up with the
+    // layout, and the nearest such slot is the page
     let best = -1;
     let bestD = Infinity;
     for (const [index, p] of layout.pages) {
-      const d = Math.abs(p.y - y) + Math.abs(p.x - x);
-      if (d < bestD) {
-        bestD = d;
+      const dx = Math.abs(p.x - x);
+      const dy = Math.abs(p.y - y);
+      if (dx >= 4 && dy >= 4) continue;
+      if (dx + dy < bestD) {
+        bestD = dx + dy;
         best = index;
       }
     }
-    if (best >= 0 && bestD < 4) out.push({ page: box, index: best });
+    if (best >= 0) out.push({ page: box, index: best });
   }
   return out;
 }
