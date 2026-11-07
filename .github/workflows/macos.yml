@@ -171,6 +171,11 @@ jobs:
         working-directory: desktop
         run: node bench/check-scan-more.mjs
 
+      - name: 'Scanning: what it makes, checked (area, preview, sizes, colors, filters)'
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-scan-output.mjs
+
       - name: Scanning a network scanner
         if: ${{ !cancelled() }}
         working-directory: desktop

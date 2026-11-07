@@ -117,7 +117,7 @@ jobs:
   windows-scanner-twain:
     needs: windows-scanner-helper
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -126,6 +126,10 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
 
       - name: Get the helpers
         uses: actions/download-artifact@v8
@@ -167,3 +171,27 @@ jobs:
         env:
           PAPERWING_TWAIN_SAMPLE: '1'
         run: node --test --test-name-pattern="TWAIN sample" desktop/tests/scan.test.mjs
+
+      # The real app with it, real clicks: a box drawn on the preview comes
+      # out as that part of the preview (the sample ignores where an area
+      # starts), color modes, resolutions, paper sizes, its feeder
+      - name: Install the app's dependencies
+        if: ${{ !cancelled() }}
+        run: |
+          npm ci
+          npm ci --prefix desktop
+
+      - name: Build the web app
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: npm run build:web
+
+      - name: Scan with it in the real app
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        env:
+          BENCH_TMP: ${{ runner.temp }}\paperwing-bench
+          PAPERWING_TWAIN_SAMPLE: '1'
+        run: |
+          New-Item -ItemType Directory -Force $env:BENCH_TMP | Out-Null
+          node bench/check-scan-real.mjs
