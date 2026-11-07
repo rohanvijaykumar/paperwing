@@ -15,6 +15,7 @@ import {
   type PDFPage,
 } from 'pdf-lib';
 import { encodeG4 } from './scan-g4';
+import { encodeGrayJpeg } from './scan-jpeg';
 import {
   processPage,
   type ProcessDeps,
@@ -180,7 +181,11 @@ export async function encodePage(
     };
   }
   const quality = Math.min(1, Math.max(0.05, opts.quality));
-  const bytes = await jpeg(rgbaOf(image), width, height, quality);
+  // Gray pages as gray JPEGs (the canvas only writes color ones)
+  const bytes =
+    image.channels === 1
+      ? encodeGrayJpeg(image.data, width, height, quality, dpi)
+      : await jpeg(rgbaOf(image), width, height, quality);
   return { kind: 'jpg', bytes, width, height, dpi };
 }
 
