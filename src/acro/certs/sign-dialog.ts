@@ -542,7 +542,7 @@ function addIdFile(ctx: SignContext): Promise<DigitalId | null> {
       el(
         'p',
         {},
-        'Choose the file with your Digital ID and enter its password. The private key stays in memory and isn’t saved anywhere.'
+        'Choose the file with your Digital ID (or its certificate and private key files together) and enter its password. The private key stays in memory and isn’t saved anywhere.'
       ),
       el('div', { class: 'idf-pick' }, browse, fileName),
       field('Password', password)
@@ -578,7 +578,13 @@ function addIdFile(ctx: SignContext): Promise<DigitalId | null> {
       f.status.textContent = 'Opening…';
       try {
         const id = await readIdFile(picked.name, picked.data, password.value);
-        done(await fileIdEntry(id, picked.name));
+        const entry = await fileIdEntry(id, picked.name);
+        // (added, it would be hidden or greyed out in the list: say why here)
+        if (!entry.status.usable) {
+          f.status.textContent = `This Digital ID can’t sign. ${entry.status.reason ?? ''}`;
+          return;
+        }
+        done(entry);
       } catch (e) {
         f.status.textContent =
           e instanceof PasswordError
