@@ -243,7 +243,6 @@ await L.openGroup(page, 'Clean-up');
 await L.tick(page, 'Remove blank pages', true);
 check((await L.shows(page, ['Blank page sensitivity']))['Blank page sensitivity'], 'Remove blank pages shows its sensitivity');
 await click(page, '.dlg-scan .pd-radio', 'Append to file');
-d = await dialog(page);
 const target = await page.evaluate(() => {
   const s = document.querySelector('.dlg-scan select[aria-label="File to append to"]');
   return s.options[s.selectedIndex]?.textContent;

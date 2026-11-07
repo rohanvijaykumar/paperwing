@@ -66,6 +66,9 @@ export interface ScanSettings {
   quality: number;
   /** Color and grayscale pages (black and white: always CCITT Group 4) */
   compression: 'jpeg' | 'zip';
+  /** Open Compress a PDF on the new document (Acrobat's adaptive
+   *  compression isn't here: this is the plan's way to smaller files) */
+  compressAfter: boolean;
   /* Output (kept for every preset) */
   output: Output;
   perFile: number;
@@ -164,6 +167,7 @@ export function defaultSettings(locale = 'en-US'): ScanSettings {
     rotate: 0,
     quality: 0.6,
     compression: 'jpeg',
+    compressAfter: false,
     output: 'new',
     perFile: 1,
     prefix: 'Scan',
@@ -248,6 +252,7 @@ export function cleanSettings(raw: unknown): Partial<ScanSettings> {
     'removeBlank',
     'edgeShadow',
     'autoRotate',
+    'compressAfter',
     'promptMore',
     'ocr',
     'pdfa',
@@ -284,7 +289,9 @@ export function cleanSettings(raw: unknown): Partial<ScanSettings> {
   set('prefix', typeof r.prefix === 'string' && r.prefix.length <= 100);
   set(
     'ocrLanguage',
-    typeof r.ocrLanguage === 'string' && /^[a-z_]+(\+[a-z_]+)*$/.test(r.ocrLanguage)
+    typeof r.ocrLanguage === 'string' &&
+      r.ocrLanguage.length <= 100 &&
+      r.ocrLanguage.split('+').every((code) => /^[a-z_]+$/.test(code))
   );
   return out;
 }
@@ -295,7 +302,8 @@ export function pick<K extends keyof ScanSettings>(
   keys: readonly K[]
 ): Partial<ScanSettings> {
   const out: Partial<ScanSettings> = {};
-  for (const k of keys) if (s[k] !== undefined) (out as any)[k] = s[k];
+  for (const k of keys)
+    if (s[k] !== undefined) Object.assign(out, { [k]: s[k] });
   return out;
 }
 

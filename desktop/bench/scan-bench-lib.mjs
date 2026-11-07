@@ -126,10 +126,20 @@ export const openGroup = (page, title) =>
 
 /** Create ▸ From scanner, with the mouse; waits until it can scan */
 export async function openDialog(page) {
-  await click(page, '#create-btn');
-  if (!(await until(page, () => document.querySelector('.menu .menu-item')))) return false;
-  if (!(await click(page, '.menu .menu-item', 'From scanner'))) return false;
-  return waitReady(page);
+  // (a document that just opened may still be settling: try again then)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await until(page, () => !document.querySelector('.dlg-backdrop'), undefined, 10000);
+    await click(page, '#create-btn');
+    if (
+      (await until(page, () => document.querySelector('.menu .menu-item'), undefined, 5000)) &&
+      (await click(page, '.menu .menu-item', 'From scanner')) &&
+      (await until(page, () => document.querySelector('.dlg-scan'), undefined, 10000))
+    )
+      return waitReady(page);
+    await page.keyboard.press('Escape');
+    await sleep(1000);
+  }
+  return false;
 }
 
 /** The dialog is there, its scanner ready */

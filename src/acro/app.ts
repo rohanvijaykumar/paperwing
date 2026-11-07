@@ -5230,10 +5230,16 @@ async function placeScan(result: ScanOutcome, into?: Tab) {
     target,
     `Scanned ${result.pages} ${pageWord} into ${name}. It isn't saved yet`
   );
-  if (result.metadata) {
-    const meta = getTool('edit-metadata');
-    if (meta) await openToolOnDoc(target, meta);
-  }
+  // One tool at a time: the metadata first (Acrobat asks for it right
+  // away), else Compress a PDF (text recognized already: it comes first)
+  const next = result.metadata
+    ? getTool('edit-metadata')
+    : result.compress
+      ? getTool('compress-pdf')
+      : undefined;
+  if (next) await openToolOnDoc(target, next);
+  if (result.metadata && result.compress)
+    toast('To make the file smaller afterwards: Compress a PDF');
 }
 
 /** All tools ▸ Scan & OCR: a start page like Acrobat's */
