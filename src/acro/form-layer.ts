@@ -1119,7 +1119,9 @@ export class FormLayer {
       (a) => a.annotationType === WIDGET
     );
     if (this.session !== s || !layer.div.isConnected) return;
-    const viewport = page.getViewport({ scale: 1 });
+    // The page as the viewer's box holds it, unrotated: the viewer turns
+    // the box itself for the page's /Rotate (and the view's rotation)
+    const viewport = page.getViewport({ scale: 1, rotation: 0 });
     layer.width = viewport.width;
     this.fit(layer);
     // Fields pdf.js leaves to the page's drawing: PDFium draws them
@@ -1355,7 +1357,7 @@ function contentOf(box: HTMLElement): HTMLElement | null {
   return content;
 }
 
-function findPages(
+export function findPages(
   root: ShadowRoot,
   layout: { scale: number; pages: Map<number, { x: number; y: number }> }
 ): { page: HTMLElement; index: number }[] {
@@ -1369,16 +1371,22 @@ function findPages(
     const r = outer.getBoundingClientRect();
     const x = (r.left - origin.left) / scale;
     const y = (r.top - origin.top) / scale;
+    // Pages narrower (or shorter) than others are centred across the
+    // document, away from their slot's corner (a portrait page among
+    // landscape ones, mixed page rotations): one side lines up with the
+    // layout, and the nearest such slot is the page
     let best = -1;
     let bestD = Infinity;
     for (const [index, p] of layout.pages) {
-      const d = Math.abs(p.y - y) + Math.abs(p.x - x);
-      if (d < bestD) {
-        bestD = d;
+      const dx = Math.abs(p.x - x);
+      const dy = Math.abs(p.y - y);
+      if (dx >= 4 && dy >= 4) continue;
+      if (dx + dy < bestD) {
+        bestD = dx + dy;
         best = index;
       }
     }
-    if (best >= 0 && bestD < 4) out.push({ page: box, index: best });
+    if (best >= 0) out.push({ page: box, index: best });
   }
   return out;
 }

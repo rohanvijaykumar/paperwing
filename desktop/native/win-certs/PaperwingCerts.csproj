@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- paperwing-certs.exe: .NET Framework 4.8 (built into Windows 10 and 11),
+       x64, no third-party code. The reference assemblies package only lets
+       the .NET SDK compile for .NET Framework; nothing of it ships. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyName>paperwing-certs</AssemblyName>
+    <RootNamespace>Paperwing.Certs</RootNamespace>
+    <Product>Paperwing</Product>
+    <AssemblyTitle>Paperwing certificate helper</AssemblyTitle>
+    <Company>Paperwing</Company>
+    <Copyright>Copyright © 2026 Rohan Vijaykumar</Copyright>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>none</DebugType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Core.cs" />
+    <Compile Include="Native.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>

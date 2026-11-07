@@ -53,6 +53,16 @@ contextBridge.exposeInMainWorld('paperwing', {
   printPages: (data, request) =>
     ipcRenderer.invoke('paperwing:print-pages', data, request),
   htmlToPdf: (html) => ipcRenderer.invoke('paperwing:html-to-pdf', html),
+  certs: {
+    list: () => ipcRenderer.invoke('paperwing:certs-list'),
+    sign: (id, hash, alg) =>
+      ipcRenderer.invoke('paperwing:certs-sign', id, hash, alg),
+    roots: () => ipcRenderer.invoke('paperwing:certs-roots'),
+    fetch: (url, init) =>
+      ipcRenderer.invoke('paperwing:certs-fetch', url, init),
+    saveId: (name, data) =>
+      ipcRenderer.invoke('paperwing:certs-save-id', name, data),
+  },
   confirmClose: () => ipcRenderer.invoke('paperwing:confirm-close'),
   requestClose: () => ipcRenderer.invoke('paperwing:request-close'),
   onCloseRequested: (callback) => {

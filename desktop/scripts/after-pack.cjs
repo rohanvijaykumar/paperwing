@@ -7,8 +7,19 @@
  * - Windows: adds the File Explorer thumbnail provider built by
  *   native/win-thumbnails/build.ps1 (registered by build/installer.nsh).
  *   Release builds set PAPERWING_REQUIRE_THUMBNAILS=1 so it can't be left out.
+ * - Windows and macOS: adds the certificate helper (signing with installed
+ *   Digital IDs) built by native/win-certs/build.ps1 or
+ *   native/mac-certs/build.sh, outside the app archive in resources/certs.
+ *   Release builds set PAPERWING_REQUIRE_CERTS=1 so it can't be left out.
  */
-const { cpSync, existsSync, mkdirSync, rmSync, statSync } = require('node:fs');
+const {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  statSync,
+} = require('node:fs');
 const { join } = require('node:path');
 
 const THUMBNAILS = join(__dirname, '..', 'native', 'win-thumbnails', 'out');
@@ -31,6 +42,32 @@ function addThumbnailProvider(appOutDir) {
   console.log('  • added the File Explorer thumbnail provider');
 }
 
+function addCertsHelper(appOutDir, platform, productName) {
+  const win = platform === 'win32';
+  const name = win ? 'paperwing-certs.exe' : 'paperwing-certs';
+  const helper = join(
+    __dirname,
+    '..',
+    'native',
+    win ? 'win-certs' : 'mac-certs',
+    'out',
+    name
+  );
+  if (!existsSync(helper)) {
+    const msg = `Certificate helper not built (run native/${win ? 'win-certs/build.ps1' : 'mac-certs/build.sh'})`;
+    if (process.env.PAPERWING_REQUIRE_CERTS) throw new Error(msg);
+    console.warn(`  • ${msg}; packaging without it`);
+    return;
+  }
+  const dest = win
+    ? join(appOutDir, 'resources', 'certs')
+    : join(appOutDir, `${productName}.app`, 'Contents', 'Resources', 'certs');
+  mkdirSync(dest, { recursive: true });
+  cpSync(helper, join(dest, name));
+  if (!win) chmodSync(join(dest, name), 0o755);
+  console.log('  • added the certificate helper');
+}
+
 const UNUSED = {
   win32: ['dxcompiler.dll', 'dxil.dll'],
 };
@@ -38,8 +75,15 @@ const UNUSED = {
 exports.default = async function afterPack({
   appOutDir,
   electronPlatformName,
+  packager,
 }) {
   if (electronPlatformName === 'win32') addThumbnailProvider(appOutDir);
+  if (electronPlatformName === 'win32' || electronPlatformName === 'darwin')
+    addCertsHelper(
+      appOutDir,
+      electronPlatformName,
+      packager.appInfo.productFilename
+    );
   let saved = 0;
   for (const name of UNUSED[electronPlatformName] ?? []) {
     const p = join(appOutDir, name);

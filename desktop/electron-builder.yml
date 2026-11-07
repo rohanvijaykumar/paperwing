@@ -11,6 +11,7 @@ files:
   - main.cjs
   - preload.cjs
   - print.cjs
+  - certs.cjs
   - engines.json
   - package.json
 

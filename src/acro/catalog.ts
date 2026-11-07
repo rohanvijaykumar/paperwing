@@ -4,8 +4,9 @@
  * built-in viewer (comment, redact...).
  */
 import { categories } from '../js/config/tools';
+import { desktop } from './desktop';
 
-export type ViewerAction = 'comment' | 'redact';
+export type ViewerAction = 'comment' | 'redact' | 'certificate';
 
 export interface AppTool {
   id: string;
@@ -122,6 +123,12 @@ const viewerTools: AppTool[] = [
 ];
 viewerTools.forEach((t) => byId.set(t.id, t));
 
+// In the desktop app, Use a certificate signs inside the document, the way
+// Acrobat does (src/acro/certs/), with the IDs installed on the computer;
+// in a browser it stays BentoPDF's page (a certificate file)
+const certificate = byId.get('digital-sign-pdf');
+if (certificate && desktop?.certs) certificate.action = 'certificate';
+
 export function getTool(id: string): AppTool | undefined {
   return byId.get(id);
 }
@@ -174,6 +181,16 @@ export const quickTools = (): AppTool[] => [
   ),
   alias('form-creator', 'Prepare a form', 'Create fillable form fields.'),
   alias('sign-pdf', 'Fill & Sign', 'Fill in forms and add your signature.'),
+  // (desktop app: signing with installed Digital IDs, as in Acrobat)
+  ...(desktop?.certs
+    ? [
+        alias(
+          'digital-sign-pdf',
+          'Use a certificate',
+          'Sign with a Digital ID from your computer, a smart card or a file.'
+        ),
+      ]
+    : []),
   alias(
     'compare-pdfs',
     'Compare files',

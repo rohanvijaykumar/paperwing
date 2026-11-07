@@ -71,6 +71,36 @@ node bench/check-results.mjs <a.pdf>   # tool results open unsaved, recovery aft
 `check-tools.mjs` takes optional name filters (`node bench/check-tools.mjs out Timestamp`) and
 writes `report.json` plus a screenshot of each tool, for reviewing toolbars and layout.
 
+### The certificate helpers
+
+Use a certificate signs with the Digital IDs installed on the computer through a small helper
+program (the private key never leaves the system; the helper only lists certificates and signs a
+digest). They're built separately and packaged by `desktop/scripts/after-pack.cjs` into
+`resources/certs` (release builds set `PAPERWING_REQUIRE_CERTS=1`, so they can't be left out):
+
+```bash
+pwsh desktop/native/win-certs/build.ps1 -Test   # Windows: paperwing-certs.exe (.NET SDK; runs on .NET Framework 4.8)
+bash desktop/native/mac-certs/build.sh --test   # macOS: paperwing-certs (Swift, universal, ad-hoc signed)
+node --test desktop/tests/certs.test.mjs        # the main process's side (desktop/certs.cjs)
+```
+
+`-Test` runs the helper's unit tests (`desktop/native/win-certs/tests`). To sign for real with test
+IDs (keys that can't be exported, as on a smart card), then check every PDF with pyHanko and
+OpenSSL:
+
+```bash
+pwsh desktop/native/win-certs/test-certs.ps1 -Create -Out certs.json   # macOS: native/mac-certs/test-keychain.sh create certs.json
+PW_CERTS_HELPER=desktop/native/win-certs/out/paperwing-certs.exe PW_TEST_CERTS=certs.json \
+  PW_SIGNED_OUT=signed npx vitest run src/tests/paperwing-cert-helper.test.ts src/tests/paperwing-pdf-sign.test.ts
+python desktop/tests/validate-signed.py signed        # pip install pyHanko
+node desktop/tests/openssl-verify.mjs signed
+cd desktop && PW_TEST_CERTS=../certs.json node bench/check-cert-sign.mjs   # the real app, real clicks
+cd desktop && PW_TEST_CERTS=../certs.json node bench/check-cert-results.mjs   # every result checked (pyHanko, OpenSSL, OCR); PW_QA_TSA=1: a real timestamp server
+pwsh desktop/native/win-certs/test-certs.ps1 -Remove -Out certs.json   # deletes only those IDs
+```
+
+CI does all of this on Windows (`windows-certs` in `tests.yml`) and macOS (`macos.yml`).
+
 ## Screenshots
 
 The README screenshots (`docs/screenshots/*.png`) are taken from the real interface, using the
