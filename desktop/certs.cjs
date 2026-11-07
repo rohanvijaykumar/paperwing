@@ -185,7 +185,48 @@ function windowHandleOf(win) {
   }
 }
 
+/**
+ * This computer or the cloud metadata address (an IP address as Node gives
+ * it): loopback (127.0.0.0/8, ::1, ::ffff:127.x), "any" (0.0.0.0, ::) and
+ * link-local (169.254.0.0/16, fe80::/10)
+ */
+function isLocalAddress(address) {
+  const a = String(address)
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
+  const v4 = a.startsWith('::ffff:') ? a.slice(7) : a;
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(v4))
+    return /^(127\.|0\.|169\.254\.)/.test(v4);
+  if (/^::ffff:[0-9a-f]{1,4}:[0-9a-f]{1,4}$/.test(a)) {
+    // (::ffff:7f00:1, the hex form of ::ffff:127.0.0.1)
+    const hi = parseInt(a.split(':')[3], 16);
+    return hi >> 8 === 127 || hi >> 8 === 0 || hi === 0xa9fe;
+  }
+  return a === '::1' || a === '::' || /^fe[89ab][0-9a-f]:/.test(a);
+}
+
+/**
+ * May the relay contact this host? Timestamp and certificate servers are
+ * on the internet (or a company's network), never this computer: names are
+ * resolved first, so "localhost.", a name that points at 127.0.0.1, or an
+ * IPv6 form of it don't get through. `lookup` is dns.promises.lookup.
+ */
+async function relayAllowed(hostname, lookup) {
+  const host = String(hostname).replace(/^\[|\]$/g, '');
+  if (!host) return false;
+  let addresses;
+  try {
+    addresses = await lookup(host, { all: true, verbatim: true });
+  } catch {
+    // (unknown names fail at the fetch, as they would anyway)
+    return true;
+  }
+  return !addresses.some((a) => isLocalAddress(a.address));
+}
+
 module.exports = {
+  isLocalAddress,
+  relayAllowed,
   createCerts,
   helperPath,
   runHelper,
