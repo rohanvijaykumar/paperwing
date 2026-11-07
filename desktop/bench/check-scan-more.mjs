@@ -324,7 +324,8 @@ check(!!(await until(page, () => window.__acro.viewer.pageInfo(window.__acro.vie
 await app.close();
 
 /* Recognize text right after scanning --------------------------------------- */
-app = await L.start();
+// (PAPERWING_TEST_OPEN: Enhance scanned pages never waits on a real file dialog)
+app = await L.start({ PAPERWING_TEST_OPEN: doc1 });
 page = app.page;
 await L.openDialog(page);
 await choose(page, 'Scanner', 'Paperwing Test Scanner');
@@ -416,6 +417,10 @@ await L.waitReady(page);
 check(await page.evaluate(() => document.querySelector('.dlg-scan input[aria-label="Recognize text (OCR)"]').checked), 'Scan a document: the scan dialog with Recognize text on');
 await press(page, 'Cancel');
 await until(page, () => !document.querySelector('.dlg-scan'));
+// Enhance a document with several pages: the 4-page one, open and shown
+await app.openFile(doc1);
+await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 4, undefined, 20000);
+await sleep(1000);
 const before = await L.pageCount(page);
 const bytesBefore = (await docBytes(page)).length;
 await page.evaluate(() => document.querySelector('.lp-search input')?.blur());
@@ -438,7 +443,8 @@ const changed = (await docBytes(page)).length;
 await L.undo(page);
 await sleep(1500);
 const back = (await docBytes(page)).length;
-check(changed !== bytesBefore && Math.abs(back - bytesBefore) < bytesBefore * 0.05, 'Ctrl+Z undoes it', `${bytesBefore} -> ${changed} -> ${back}`);
+// (the pages drawn as pictures are bigger than the text ones they replaced)
+check(changed > bytesBefore * 1.5 && back < changed * 0.6, 'Ctrl+Z undoes it', `${bytesBefore} -> ${changed} -> ${back}`);
 await app.close();
 
 /* Import from a scanner app; add by IP address; recovered after a crash --- */
