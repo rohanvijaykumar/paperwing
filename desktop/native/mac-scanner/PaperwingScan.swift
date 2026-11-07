@@ -23,7 +23,13 @@ func emit(_ obj: [String: Any]) {
   FileHandle.standardOutput.write(line.data(using: .utf8)!)
 }
 
+/// What happened, for the logs (scan.cjs keeps the helper's stderr)
+func debug(_ message: String) {
+  FileHandle.standardError.write(("paperwing-scan: " + message + "\n").data(using: .utf8)!)
+}
+
 func fail(_ code: String, _ message: String) -> Never {
+  debug("\(code): \(message)")
   emit(["type": "error", "code": code, "message": message])
   exit(2)
 }
@@ -121,6 +127,13 @@ func rangeJSON(_ r: ICScannerFeatureRange?) -> Any {
   ]
 }
 
+/// Where pages go (made if it isn't there yet)
+func outDir() -> URL {
+  let dir = URL(fileURLWithPath: named["-outdir"] ?? NSTemporaryDirectory())
+  try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+  return dir
+}
+
 /// Pixel size of an image file
 func imageSize(_ url: URL) -> (Int, Int) {
   guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -198,9 +211,23 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
       DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
         if self.target == nil { fail("no-scanner", "Scanner not found") }
       }
+      watch()
     default:
       fail("failed", "Unknown command: \(command)")
     }
+  }
+
+  /// A scanner that stops answering mustn't leave this waiting forever:
+  /// a minute for its settings, three minutes for each page
+  var watchdog: DispatchWorkItem?
+  func watch() {
+    watchdog?.cancel()
+    let item = DispatchWorkItem {
+      self.finish(
+        ["type": "error", "code": "failed", "message": "The scanner stopped responding"], code: 2)
+    }
+    watchdog = item
+    DispatchQueue.main.asyncAfter(deadline: .now() + (pages == 0 && command == "caps" ? 60 : 180), execute: item)
   }
 
   /// "cancel" on stdin. End of input (no parent listening) changes nothing.
@@ -280,24 +307,46 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
   func device(_ device: ICDevice, didOpenSessionWithError error: Error?) {
     if let error = error {
       let code = (error as NSError).code
-      fail(code == icTimedOut ? "offline" : "busy",
-        error.localizedDescription)
+      fail(code == icTimedOut ? "offline" : "busy", error.localizedDescription)
     }
-    guard let scanner = target else { return }
+    debug("session open; units \(target?.availableFunctionalUnitTypes ?? [])")
+    // A scanner describes its parts once it's ready (network scanners take a
+    // moment); some never say so, hence the fallback
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self.begin() }
+  }
+
+  func deviceDidBecomeReady(_ device: ICDevice) {
+    debug("ready")
+    begin()
+  }
+
+  var begun = false
+  var requested: ICScannerFunctionalUnitType?
+
+  func select(_ type: ICScannerFunctionalUnitType) {
+    requested = type
+    debug("selecting \(type.rawValue)")
+    target?.requestSelect(type)
+  }
+
+  func begin() {
+    guard !begun, let scanner = target, scanner.hasOpenSession else { return }
+    begun = true
     if cancelled { return finish(["type": "done", "pages": 0, "cancelled": true]) }
     let types = scanner.availableFunctionalUnitTypes.compactMap {
       ICScannerFunctionalUnitType(rawValue: $0.uintValue)
     }
+    debug("units \(types.map { $0.rawValue }), selected \(scanner.selectedFunctionalUnit.type.rawValue)")
     switch command {
     case "caps":
       pendingUnits = types.filter { $0 == .flatbed || $0 == .documentFeeder }
       if pendingUnits.isEmpty { pendingUnits = [scanner.selectedFunctionalUnit.type] }
-      scanner.requestSelect(pendingUnits.removeFirst())
+      select(pendingUnits.removeFirst())
     case "preview":
       if !types.contains(.flatbed) && !types.isEmpty {
         fail("unsupported", "This scanner has no flatbed to preview")
       }
-      scanner.requestSelect(.flatbed)
+      select(.flatbed)
     default:
       let want: ICScannerFunctionalUnitType =
         options.source == "feeder" ? .documentFeeder : .flatbed
@@ -305,7 +354,7 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
         fail("unsupported",
           "This scanner has no \(options.source == "feeder" ? "document feeder" : "flatbed")")
       }
-      scanner.requestSelect(want)
+      select(want)
     }
   }
 
@@ -318,7 +367,29 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
   func scannerDevice(
     _ scanner: ICScannerDevice, didSelect functionalUnit: ICScannerFunctionalUnit, error: Error?
   ) {
+    debug("selected \(functionalUnit.type.rawValue) \(error.map { "\($0)" } ?? "")")
+    // The scanner picking its own unit as the session opens isn't our answer
+    guard let want = requested, functionalUnit.type == want || error != nil else { return }
     if let error = error { fail("busy", error.localizedDescription) }
+    // Network scanners report the unit first and its details (sizes,
+    // resolutions) in a second call; wait a little for that
+    let described = !functionalUnit.supportedResolutions.isEmpty || functionalUnit.physicalSize.width > 0
+    if !described && !waitedForDetails {
+      waitedForDetails = true
+      DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+        if self.requested == want { self.selected(scanner, scanner.selectedFunctionalUnit) }
+      }
+      return
+    }
+    selected(scanner, functionalUnit)
+  }
+
+  var waitedForDetails = false
+
+  /// The unit asked for is selected and described: carry on with the command
+  func selected(_ scanner: ICScannerDevice, _ functionalUnit: ICScannerFunctionalUnit) {
+    requested = nil
+    waitedForDetails = false
     if cancelled { return finish(["type": "done", "pages": 0, "cancelled": true]) }
     switch command {
     case "caps":
@@ -327,7 +398,7 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
         finish(["type": "caps", "driver": "ica", "nativeUi": false, "sources": sources])
         return
       }
-      scanner.requestSelect(pendingUnits.removeFirst())
+      select(pendingUnits.removeFirst())
     case "preview":
       guard functionalUnit.canPerformOverviewScan else {
         fail("unsupported", "This scanner can't make a preview")
@@ -430,7 +501,7 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
         x: max(0, min(a.x, full.0 - w)), y: max(0, min(a.y, full.1 - h)), width: w, height: h)
     }
     scanner.transferMode = .fileBased
-    scanner.downloadsDirectory = URL(fileURLWithPath: named["-outdir"] ?? NSTemporaryDirectory())
+    scanner.downloadsDirectory = outDir()
     scanner.documentName = "page"
     scanner.documentUTI = "public.png"
   }
@@ -446,6 +517,7 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
       "side": duplex && pages % 2 == 1 ? "back" : "front",
     ])
     pages += 1
+    watch()
   }
 
   func scannerDevice(_ scanner: ICScannerDevice, didCompleteOverviewScanWithError error: Error?) {
@@ -460,7 +532,7 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
       return finish(
         ["type": "error", "code": "failed", "message": "The scanner sent no preview"], code: 2)
     }
-    let dir = URL(fileURLWithPath: named["-outdir"] ?? NSTemporaryDirectory())
+    let dir = outDir()
     let url = dir.appendingPathComponent("preview.png")
     guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil)
     else {

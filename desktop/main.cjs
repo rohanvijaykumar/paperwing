@@ -1237,10 +1237,40 @@ function scannerHelpers() {
   };
 }
 
+/** Network scanners added by IP address, searched for again every time */
+const networkScannersFile = () =>
+  path.join(app.getPath('userData'), 'network-scanners.json');
+
+function savedScannerAddresses() {
+  try {
+    const { addresses } = JSON.parse(
+      fs.readFileSync(networkScannersFile(), 'utf8')
+    );
+    return Array.isArray(addresses)
+      ? addresses.filter((a) => typeof a === 'string').slice(0, 50)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberScannerAddress(address) {
+  const addresses = [
+    ...new Set([...savedScannerAddresses(), address.trim()]),
+  ].slice(-50);
+  fsp
+    .writeFile(networkScannersFile(), JSON.stringify({ addresses }))
+    .catch(() => {
+      // (only a convenience: it can be added again)
+    });
+}
+
 /** Network (eSCL) scanners, when escl.cjs is there */
 function createNetworkScanners() {
   try {
-    return require('./escl.cjs').createEscl();
+    return require('./escl.cjs').createEscl({
+      manualHosts: savedScannerAddresses(),
+    });
   } catch {
     return null;
   }
@@ -1255,9 +1285,11 @@ ipcMain.handle('paperwing:scanners', (e) => {
   return getScanning().list();
 });
 
-ipcMain.handle('paperwing:scanner-add', (e, address) => {
+ipcMain.handle('paperwing:scanner-add', async (e, address) => {
   if (!senderIsApp(e)) return { ok: false, error: 'invalid' };
-  return getScanning().addByAddress(address);
+  const r = await getScanning().addByAddress(address);
+  if (r.ok && !getScanning().testMode) rememberScannerAddress(address);
+  return r;
 });
 
 ipcMain.handle('paperwing:scanner-caps', (e, id) => {

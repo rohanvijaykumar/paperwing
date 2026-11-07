@@ -453,6 +453,7 @@ export function showScanDialog(
     ]);
     const brightness = slider('Brightness', -100, 100, 1);
     const contrast = slider('Contrast', -100, 100, 1);
+    const sharpness = slider('Sharpness', -100, 100, 1);
 
     const deskew = check('Deskew (straighten crooked pages)');
     const autoCrop = check('Auto-crop to the page edges');
@@ -529,6 +530,7 @@ export function showScanDialog(
     const srcRow = row('Source', src);
     const sidesRow = row('Pages', sides);
     const thresholdRow = row('Threshold', threshold);
+    const sharpnessRow = row('Sharpness', sharpness);
     const customDpiRow = row('Custom resolution', customDpi);
     const sizeRow = el(
       'div',
@@ -575,7 +577,8 @@ export function showScanDialog(
       sizeRow,
       orientationRow,
       row('Brightness', brightness),
-      row('Contrast', contrast)
+      row('Contrast', contrast),
+      sharpnessRow
     );
     const cleanupGroup = group(
       'Clean-up',
@@ -750,6 +753,7 @@ export function showScanDialog(
       orientation.value = settings.orientation;
       brightness.value = String(settings.brightness);
       contrast.value = String(settings.contrast);
+      sharpness.value = String(settings.sharpness);
       deskew.input.checked = settings.deskew;
       autoCrop.input.checked = settings.autoCrop;
       background.value = settings.background;
@@ -797,6 +801,7 @@ export function showScanDialog(
       settings.orientation = orientation.value as ScanSettings['orientation'];
       settings.brightness = Number(brightness.value);
       settings.contrast = Number(contrast.value);
+      settings.sharpness = Number(sharpness.value);
       settings.deskew = deskew.input.checked;
       settings.autoCrop = autoCrop.input.checked;
       settings.background = background.value as ScanSettings['background'];
@@ -853,6 +858,7 @@ export function showScanDialog(
       );
       if (color.value && color.value !== settings.color) settings.color = color.value as ScanSettings['color'];
       thresholdRow.hidden = !v.threshold;
+      sharpnessRow.hidden = !v.sharpness;
       const offered = offeredResolutions(s);
       const custom = v.customDpi && (dpiCustom || !offered.includes(settings.dpi));
       fill(
@@ -943,6 +949,7 @@ export function showScanDialog(
         orientation,
         brightness,
         contrast,
+        sharpness,
         rotateAll,
         appendTo,
         saveFolderBtn,
@@ -1010,6 +1017,12 @@ export function showScanDialog(
           el('li', {}, 'A scanner that only works with its own app: choose Import from a scanner app.')
         )
       );
+      // (macOS asks once for Local Network access: once it's allowed)
+      if (r.error === 'blocked') {
+        const again = el('button', { type: 'button', class: 'pill-btn' }, 'Search again');
+        again.addEventListener('click', () => void loadScanners());
+        none.append(again);
+      }
     }
 
     function fillScanners(keep?: string) {
@@ -1750,6 +1763,7 @@ export function showScanDialog(
       orientation,
       brightness,
       contrast,
+      sharpness,
       deskew.input,
       autoCrop.input,
       background,

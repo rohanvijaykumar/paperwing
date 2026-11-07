@@ -54,6 +54,7 @@ const flatbed: ScanSource = {
   brightness: range(-1000, 1000, 1, 0),
   contrast: null,
   threshold: range(0, 100, 1, 50),
+  sharpen: null,
   feederLoaded: null,
 };
 const feeder: ScanSource = {
@@ -235,6 +236,14 @@ describe('the request, and what is done afterwards', () => {
     expect(
       buildRequest(settings({ paper: 'custom', customWidth: 20, customHeight: 4 }), null, flatbed, null).request.paper
     ).toEqual({ width: 8.5, height: 4 });
+  });
+
+  it("a network scanner's own sharpening: shown, and sent in its units", () => {
+    const net = { ...flatbed, sharpen: range(0, 10, 1, 5) };
+    expect(visibility(null, flatbed, settings(), []).sharpness).toBe(false);
+    expect(visibility(null, net, settings(), []).sharpness).toBe(true);
+    expect(buildRequest(settings({ sharpness: 100 }), caps('escl', net), net, null).request.sharpen).toBe(10);
+    expect(buildRequest(settings(), caps('escl', net), net, null).request.sharpen).toBeUndefined();
   });
 
   it('network scanners get their timeout; blank pages are looked for', () => {

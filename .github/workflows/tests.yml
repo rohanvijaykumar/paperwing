@@ -183,6 +183,12 @@ jobs:
       - name: Network scanner tests
         run: node --test desktop/tests/escl.test.mjs
 
+      # Found on the real multicast group, as on a home or office network
+      - name: Network scanner found over multicast DNS
+        env:
+          ESCL_MULTICAST: '1'
+        run: node --test --test-name-pattern="real multicast" desktop/tests/escl.test.mjs
+
   # The Windows scanner helpers (desktop/native/win-scanner): built with
   # their unit tests, then run for real on a runner with no scanner
   windows-scanner-helper:
