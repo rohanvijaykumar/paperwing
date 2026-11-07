@@ -47,8 +47,11 @@ export function createHandler(post: Post) {
 
   return async (msg: ScanWorkerRequest) => {
     if (msg.type === 'orientation') {
-      asks.get(msg.ask)?.(msg.result);
+      // (only an answer to a question this worker asked)
+      const answer = Number.isInteger(msg.ask) ? asks.get(msg.ask) : undefined;
+      if (typeof answer !== 'function') return;
       asks.delete(msg.ask);
+      answer(msg.result);
       return;
     }
     try {
@@ -93,5 +96,11 @@ if (
     onmessage: ((e: MessageEvent<ScanWorkerRequest>) => void) | null;
   };
   const handle = createHandler((m, t) => scope.postMessage(m, t));
-  scope.onmessage = (e) => void handle(e.data);
+  const own = (self as unknown as { location: { origin: string } }).location.origin;
+  scope.onmessage = (e) => {
+    // A dedicated worker only hears the page that started it (whose
+    // messages carry no origin); anything else is ignored
+    if (e.origin && e.origin !== own) return;
+    void handle(e.data);
+  };
 }
