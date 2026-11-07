@@ -4987,7 +4987,11 @@ function showScanOcrStart(): Promise<void> {
 async function enhanceScanned(): Promise<void> {
   if (document.querySelector('.dlg-backdrop')) return;
   let tab = activeDoc();
-  if (!tab || tab.loading || tab.fullTool) {
+  // A full-page tool open on it (Crop, Edit a PDF…) closes first, asking
+  // if it has changes, as for the viewer's own tools: Enhance works on the
+  // document, not on a file asked for instead
+  if (tab?.fullTool && !(await closeFullTool(tab))) return;
+  if (!tab || tab.loading) {
     const p = (await pickFiles()).find((x) => isPdf(x.file));
     if (!p) return;
     tab = await whenLoaded(
