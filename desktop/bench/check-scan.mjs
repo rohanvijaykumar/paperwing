@@ -121,14 +121,16 @@ check(d?.paper === 'Custom (from preview)', 'and the paper size follows it', d?.
 // The box sits where the stand-in's document lies: 1 in from the left of 8.5
 const left = Number(/left: ([\d.]+)%/.exec(d?.box ?? '')?.[1]);
 check(left > 8 && left < 16, 'the box found the document', d?.box);
-// Drag the bottom-right corner up and left, with the mouse
-const se = await page.evaluate(() => {
-  const r = document.querySelector('.dlg-scan .sp-se').getBoundingClientRect();
+// Drag the top-left corner down and right, with the mouse (the top
+// corners are in view on any screen)
+const nw = await page.evaluate(() => {
+  const r = document.querySelector('.dlg-scan .sp-nw').getBoundingClientRect();
   return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
 });
-await page.mouse.move(se.x, se.y);
+await page.mouse.move(nw.x, nw.y);
 await page.mouse.down();
-await page.mouse.move(se.x - 30, se.y - 40, { steps: 6 });
+await page.mouse.move(nw.x + 15, nw.y + 20, { steps: 4 });
+await page.mouse.move(nw.x + 30, nw.y + 40, { steps: 4 });
 await page.mouse.up();
 const dragged = (await dialog(page))?.box;
 check(dragged && dragged !== d.box, 'dragging a corner changes the box', dragged);

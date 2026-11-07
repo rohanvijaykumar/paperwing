@@ -844,6 +844,7 @@ function createScanning({
     let pages = 0;
     let ended = null;
     const delivering = [];
+    let lastDelivery = Promise.resolve();
     const deliver = async (m) => {
       // Only files the backend wrote into our folder
       // (by real path: a helper may give back the long form of an 8.3 name)
@@ -865,7 +866,10 @@ function createScanning({
     try {
       job.handle = r.backend.start(command, r.id, dir, opts, (m) => {
         if (m.type === 'page' && typeof m.file === 'string')
-          delivering.push(deliver(m).catch(() => {}));
+          // (one after another: the pages keep the order they came in)
+          delivering.push(
+            (lastDelivery = lastDelivery.then(() => deliver(m).catch(() => {})))
+          );
         else if (m.type === 'status' && typeof m.message === 'string')
           onStatus?.(m.message.slice(0, 300));
         else if (m.type === 'done' || m.type === 'error') ended = m;
