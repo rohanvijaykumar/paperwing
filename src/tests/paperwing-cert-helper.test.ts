@@ -130,7 +130,9 @@ describe.skipIf(!HELPER || !SPEC)('the certificate helper, for real', () => {
         signed.subarray(a, a + b),
         signed.subarray(cc, cc + d),
       ]);
-      const hex = text.slice(b + 1, cc - 1).replace(/(00)+$/, '');
+      // (zero padding included: asn1js reads just the CMS, which may itself
+      // end in a 00 byte)
+      const hex = text.slice(b + 1, cc - 1);
       const ci = new pkijs.ContentInfo({
         schema: asn1js.fromBER(Buffer.from(hex, 'hex')).result,
       });
