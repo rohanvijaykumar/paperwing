@@ -2756,21 +2756,26 @@ body.is-dragging-page * {
   margin: 10px 0 0;
 }
 
-/* The flatbed preview (scan-preview.ts) */
+/* The flatbed preview (scan-preview.ts): the glass is sized to fit the
+   pane whole (scan-preview.ts measures it) */
 .sp-glass {
-  display: grid;
+  display: flex;
+  position: relative;
   flex: 1 1 auto;
-  place-items: center;
+  align-items: center;
+  justify-content: center;
   min-height: 0;
   padding: 16px;
+  overflow: hidden;
 }
 .sp-glass.is-busy {
   opacity: 0.6;
 }
 .sp-stage {
   position: relative;
-  height: 100%;
-  max-width: 100%;
+  flex: none;
+  outline: 1px solid var(--border);
+  background: var(--surface);
   box-shadow: var(--card-shadow);
 }
 .sp-stage[hidden] {
@@ -2778,9 +2783,26 @@ body.is-dragging-page * {
 }
 .sp-image {
   display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: fill;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.sp-image[hidden] {
+  display: none;
+}
+.sp-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 24px;
+  color: var(--text-3);
+  text-align: center;
+}
+.sp-empty[hidden] {
+  display: none;
 }
 .sp-box {
   position: absolute;

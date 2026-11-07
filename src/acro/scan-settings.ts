@@ -392,7 +392,7 @@ export function nearestResolution(offered: number[], wanted: number): number {
 }
 
 /** Paper sizes that fit the glass (or feeder), then auto, the whole area,
- *  custom, and the box drawn on the preview when there is one */
+ *  custom, and the box drawn on the preview when there is one (a flatbed's) */
 export function paperChoices(
   source: ScanSource | undefined,
   hasPreviewBox: boolean
@@ -404,7 +404,7 @@ export function paperChoices(
     (w <= maxW + 0.05 && h <= maxH + 0.05) ||
     (h <= maxW + 0.05 && w <= maxH + 0.05);
   return [
-    ...(hasPreviewBox
+    ...(hasPreviewBox && source?.id !== 'feeder'
       ? ([['preview', 'Custom (from preview)']] as [string, string][])
       : []),
     ...(source?.autoSize
@@ -481,6 +481,10 @@ export interface Box {
  * the scanner didn't do itself.
  */
 export interface ProcessPlan {
+  /** The part of what the scanner sends to keep, inches from its top-left
+   *  corner (null: all of it): a flatbed's box or paper size, asked for
+   *  from the glass's corner (buildRequest says why) */
+  crop: Box | null;
   /** The page's final color: 'auto' decides from the page */
   color: ColorMode;
   /** Black and white: darker than this is black (the scanner may have
@@ -530,6 +534,72 @@ export function paperSize(s: ScanSettings): { width: number; height: number } {
     : { width: p.width, height: p.height };
 }
 
+/** (a little over is a rounding difference: A4 on an 8.5 × 11.69 glass) */
+const fitsIn = (w: number, h: number, maxW: number, maxH: number) =>
+  w <= maxW + 0.05 && h <= maxH + 0.05;
+
+/**
+ * Where a paper size lies on a flatbed's glass: at its corner (where paper
+ * is put), as wide and tall as it is. A landscape size too wide for the
+ * glass is put on it upright, and the page turned afterwards (`turn`).
+ * Never bigger than the glass.
+ */
+export function paperOnGlass(
+  s: ScanSettings,
+  glass: { width: number; height: number }
+): { box: Box; turn: boolean } {
+  const p = paperSize(s);
+  let { width, height } = p;
+  let turn = false;
+  if (
+    s.paper !== 'custom' &&
+    s.orientation === 'landscape' &&
+    !fitsIn(width, height, glass.width, glass.height) &&
+    fitsIn(height, width, glass.width, glass.height)
+  ) {
+    [width, height] = [height, width];
+    turn = true;
+  }
+  return {
+    box: {
+      x: 0,
+      y: 0,
+      width: round(Math.min(width, glass.width)),
+      height: round(Math.min(height, glass.height)),
+    },
+    turn,
+  };
+}
+
+/** The box on the glass a flatbed scan with these settings covers (null:
+ *  the scanner finds the paper, Auto-detect) */
+export function glassBox(
+  s: ScanSettings,
+  source: ScanSource | undefined,
+  previewBox: Box | null
+): Box | null {
+  const glass = {
+    width: source?.maxWidth ?? 8.5,
+    height: source?.maxHeight ?? 11.69,
+  };
+  if (s.paper === 'preview' && previewBox) return clampBox(previewBox, glass);
+  if (s.paper === 'auto' && source?.autoSize) return null;
+  if (s.paper === 'max' || s.paper === 'auto' || s.paper === 'preview')
+    return { x: 0, y: 0, ...glass };
+  return paperOnGlass(s, glass).box;
+}
+
+function clampBox(b: Box, glass: { width: number; height: number }): Box {
+  const x = Math.min(Math.max(0, b.x), glass.width - 0.1);
+  const y = Math.min(Math.max(0, b.y), glass.height - 0.1);
+  return {
+    x: round(x),
+    y: round(y),
+    width: round(Math.min(b.width, glass.width - x)),
+    height: round(Math.min(b.height, glass.height - y)),
+  };
+}
+
 export function buildRequest(
   s: ScanSettings,
   caps: ScanCaps | null,
@@ -537,37 +607,58 @@ export function buildRequest(
   box: Box | null
 ): { request: ScanRequest; plan: ProcessPlan } {
   const colors = source?.colors ?? ['color', 'gray', 'bw'];
-  // Autodetect scans in color and decides afterwards; black and white from
-  // a scanner without it comes from gray
+  // Autodetect scans in color and decides afterwards. Black and white is
+  // scanned in gray and made black and white here, with the threshold,
+  // brightness and contrast the live preview showed (each driver has its
+  // own idea of those); only a scanner without gray does it itself.
   const color: ScanRequest['color'] =
     s.color === 'auto'
       ? colors.includes('color')
         ? 'color'
         : 'gray'
-      : colors.includes(s.color)
-        ? s.color
-        : s.color === 'bw'
+      : s.color === 'bw'
+        ? colors.includes('gray')
           ? 'gray'
+          : colors.includes('color')
+            ? 'color'
+            : 'bw'
+        : colors.includes(s.color)
+          ? s.color
           : colors[0];
   const maxW = source?.maxWidth ?? 8.5;
   const maxH = source?.maxHeight ?? 11.69;
+  const flatbed = (source?.id ?? s.source) === 'flatbed';
   const request: ScanRequest = {
     source: source?.id ?? s.source,
     duplex: source?.id === 'feeder' && s.sides === 'both' && !!source.duplex,
     color,
     dpi: s.dpi,
   };
-  if (s.paper === 'preview' && box)
+  let crop: Box | null = null;
+  let turn = false;
+  if (flatbed && s.paper === 'preview' && box) {
+    // The box is asked for from the glass's corner and cut out here: some
+    // drivers ignore where an area starts (the TWAIN sample does), some
+    // ignore the area altogether, and neither can be told apart from one
+    // that's exact. Cut from the corner, every one of them gives the box.
+    crop = clampBox(box, { width: maxW, height: maxH });
     request.area = {
-      x: round(box.x),
-      y: round(box.y),
-      width: round(Math.min(box.width, maxW - box.x)),
-      height: round(Math.min(box.height, maxH - box.y)),
+      x: 0,
+      y: 0,
+      width: round(Math.min(crop.x + crop.width, maxW)),
+      height: round(Math.min(crop.y + crop.height, maxH)),
     };
-  else if (s.paper === 'auto' && source?.autoSize) request.paper = 'auto';
+  } else if (s.paper === 'auto' && source?.autoSize) request.paper = 'auto';
   else if (s.paper === 'max' || s.paper === 'auto' || s.paper === 'preview')
     request.paper = { width: maxW, height: maxH };
-  else {
+  else if (flatbed) {
+    // Paper lies at the glass's corner: what the scanner sends is cut to
+    // the paper (a driver that ignores the size sends the whole glass)
+    const placed = paperOnGlass(s, { width: maxW, height: maxH });
+    crop = placed.box;
+    turn = placed.turn;
+    request.paper = { width: crop.width, height: crop.height };
+  } else {
     const p = paperSize(s);
     request.paper = {
       width: round(Math.min(p.width, maxW)),
@@ -575,11 +666,12 @@ export function buildRequest(
     };
   }
   const plan: ProcessPlan = {
+    crop,
     color: s.color,
     threshold: s.color === 'bw' ? s.threshold : null,
-    brightness: 0,
-    contrast: 0,
-    invert: false,
+    brightness: s.brightness,
+    contrast: s.contrast,
+    invert: s.invert && s.color === 'bw',
     deskew: s.deskew,
     autoCrop: s.autoCrop || (s.paper === 'auto' && !source?.autoSize),
     background: s.background,
@@ -588,27 +680,15 @@ export function buildRequest(
     despeckle: s.despeckle,
     edgeShadow: s.edgeShadow,
     blankSensitivity: s.removeBlank ? s.blankSensitivity : null,
-    rotate: s.rotate,
+    // A landscape page put on the glass upright is turned to lie across
+    rotate: ((s.rotate + (turn ? 270 : 0)) % 360) as ProcessPlan['rotate'],
     autoRotate: s.autoRotate,
   };
-  // Each adjustment: by the scanner when it can, else afterwards
-  if (s.brightness) {
-    if (source?.brightness)
-      request.brightness = toRange(s.brightness, source.brightness);
-    else plan.brightness = s.brightness;
-  }
+  // The scanner's own sharpening (it has no counterpart here)
   if (s.sharpness && source?.sharpen)
     request.sharpen = toRange(s.sharpness, source.sharpen);
-  if (s.contrast) {
-    if (source?.contrast) request.contrast = toRange(s.contrast, source.contrast);
-    else plan.contrast = s.contrast;
-  }
-  if (s.color === 'bw' && color === 'bw' && source?.threshold)
+  if (color === 'bw' && source?.threshold)
     request.threshold = thresholdToRange(s.threshold, source.threshold);
-  if (s.invert && s.color === 'bw') {
-    if (color === 'bw' && source?.invert) request.invert = true;
-    else plan.invert = true;
-  }
   if (s.deskew && source?.autoDeskew) {
     request.autoDeskew = true;
     plan.deskew = false;
@@ -621,6 +701,34 @@ export function buildRequest(
     request.transfer = s.transfer;
   if (caps?.driver === 'escl') request.timeout = s.networkTimeout;
   return { request, plan };
+}
+
+/**
+ * The preview: the whole glass, in color, with nothing adjusted (the dialog
+ * shows color mode, brightness, contrast and threshold on it live)
+ */
+export function previewRequest(
+  s: ScanSettings,
+  caps: ScanCaps | null,
+  source: ScanSource
+): ScanRequest {
+  const neutral: ScanSettings = {
+    ...s,
+    source: 'flatbed',
+    paper: 'max',
+    color: 'color',
+    brightness: 0,
+    contrast: 0,
+    sharpness: 0,
+    invert: false,
+    nativeUi: false,
+  };
+  const { request } = buildRequest(neutral, caps, source, null);
+  return {
+    ...request,
+    color: source.colors.includes('color') ? 'color' : 'gray',
+    dpi: 75,
+  };
 }
 
 const round = (v: number) => Math.round(v * 1000) / 1000;

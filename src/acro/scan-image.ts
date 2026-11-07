@@ -64,6 +64,9 @@ export type FilterLevel = 'off' | 'low' | 'medium' | 'high';
 export type Rotation = 0 | 90 | 180 | 270;
 
 export interface ScanImageSettings {
+  /** keep only this part, in inches from the image's top-left corner (at
+   *  its dpi), before anything else; what lies off the image is dropped */
+  crop: Rect | null;
   colorMode: ColorMode;
   /** black and white: pixels darker than this (0-255, on the page with its
    *  background made white) turn black; null works it out (Otsu) */
@@ -93,6 +96,7 @@ export interface ScanImageSettings {
 
 /** Acrobat's defaults: deskew on, everything else off */
 export const DEFAULT_SCAN_IMAGE_SETTINGS: ScanImageSettings = {
+  crop: null,
   colorMode: 'auto',
   threshold: null,
   brightness: 0,
@@ -633,7 +637,13 @@ function otsu(hist: ArrayLike<number>): number {
 
 /** Only peaks this much above the median score count: text gives several
  *  times, photos and blank pages about 1 */
-const SKEW_MIN_CONFIDENCE = 1.5;
+/** Lines of text give a profile far sharper at their angle than at others
+ * (the best angle scores 25-60 times the median, 15-60 times the angles a
+ * degree away); a logo or a photo's edges give 2-4 times, and turning them
+ * by up to 15 degrees ruined them (the TWAIN sample's logo page was turned
+ * by 14) */
+const SKEW_MIN_CONFIDENCE = 6;
+const SKEW_MIN_PEAK = 2.5;
 const SKEW_MAX = 15;
 
 /** Skew of the text lines in degrees (positive: sloping down to the right),
@@ -691,6 +701,11 @@ function findSkew(A: Analysis, b: Bands, paper: number): number {
   const sorted = coarse.slice().sort((p, q) => p - q);
   const median = sorted[sorted.length >> 1];
   if (!median || coarse[bestI] / median < SKEW_MIN_CONFIDENCE) return 0;
+  const aside = Math.max(
+    coarse[Math.max(0, bestI - 4)],
+    coarse[Math.min(coarse.length - 1, bestI + 4)]
+  );
+  if (aside && coarse[bestI] / aside < SKEW_MIN_PEAK) return 0;
   const center = -SKEW_MAX + bestI * 0.25;
   every = 1;
   let bestDeg = center;
@@ -903,6 +918,18 @@ export function detectDocument(image: ScanImage): Rect {
     y,
     width: Math.min(image.width - x, r.width * f),
     height: Math.min(image.height - y, r.height * f),
+  };
+}
+
+/** A box in inches as whole pixels of a w × h image, kept on the image */
+export function inchesToPixels(box: Rect, dpi: number, w: number, h: number): Rect {
+  const x = Math.min(w - 1, Math.max(0, Math.round(box.x * dpi)));
+  const y = Math.min(h - 1, Math.max(0, Math.round(box.y * dpi)));
+  return {
+    x,
+    y,
+    width: Math.max(1, Math.min(w - x, Math.round(box.width * dpi))),
+    height: Math.max(1, Math.min(h - y, Math.round(box.height * dpi))),
   };
 }
 
@@ -1192,17 +1219,33 @@ const SHARPEN: Record<Exclude<FilterLevel, 'off'>, [number, number]> = {
   high: [1.2, 1.5],
 };
 
+/** A 1-2-1 blur across and down (sigma about 0.7 pixel) */
+function blur121(px: Uint8Array, w: number, h: number) {
+  const row = new Uint8Array(w);
+  for (let y = 0; y < h; y++) {
+    const o = y * w;
+    row.set(px.subarray(o, o + w));
+    for (let x = 0; x < w; x++)
+      px[o + x] = (row[Math.max(0, x - 1)] + 2 * row[x] + row[Math.min(w - 1, x + 1)] + 2) >> 2;
+  }
+  const col = new Uint8Array(h);
+  for (let x = 0; x < w; x++) {
+    for (let y = 0; y < h; y++) col[y] = px[y * w + x];
+    for (let y = 0; y < h; y++)
+      px[y * w + x] = (col[Math.max(0, y - 1)] + 2 * col[y] + col[Math.min(h - 1, y + 1)] + 2) >> 2;
+  }
+}
+
 function sharpen(work: Work, level: Exclude<FilterLevel, 'off'>, dpi: number) {
   const [sigma300, amount] = SHARPEN[level];
   const blurred = new Uint8Array(work.L);
-  gaussianBlur(
-    blurred,
-    work.w,
-    work.h,
-    1,
-    [0],
-    Math.max(0.5, (sigma300 * dpi) / 300)
-  );
+  const sigma = (sigma300 * dpi) / 300;
+  // Below about 0.85 pixel the box blur has nothing to do (no pass is a
+  // pixel wide), and sharpening did nothing at 100-150 dpi: the smallest
+  // real blur then
+  if (boxRadii(sigma).length && sigma >= 0.85)
+    gaussianBlur(blurred, work.w, work.h, 1, [0], sigma);
+  else blur121(blurred, work.w, work.h);
   const L = work.L;
   const px = work.rgba;
   for (let i = 0; i < L.length; i++) {
@@ -1469,6 +1512,10 @@ export async function processPage(
   const mayBeColor =
     image.channels !== 1 && (s.colorMode === 'color' || s.colorMode === 'auto');
   const work = toWork(image, mayBeColor);
+  if (s.crop) {
+    const r = inchesToPixels(s.crop, dpi, work.w, work.h);
+    if (r.width < work.w || r.height < work.h) cropWork(work, r);
+  }
 
   const lut = levelsLut(s);
   if (lut) applyLut(work, lut);
