@@ -738,8 +738,12 @@ function signAs(
   return new Promise((resolve) => {
     const f = frame(`Sign as “${id.info.name}”`, 'dlg-sign-as', 'sas-dialog');
     const { box } = ctx;
-    const aspect =
-      (box.box.width * box.pixels.width) / (box.box.height * box.pixels.height);
+    // The box as the page is shown (turned by its /Rotate)
+    const across = box.box.width * box.pixels.width;
+    const down = box.box.height * box.pixels.height;
+    const turned = (box.rotation ?? 0) % 180 !== 0;
+    const [shownW, shownH] = turned ? [down, across] : [across, down];
+    const aspect = shownW / shownH;
     const previewW = 300;
     const previewH = Math.max(40, Math.min(220, previewW / aspect));
     const canvas = el('canvas', {
@@ -936,8 +940,8 @@ function signAs(
         const png = await appearancePng(
           chosenAppearance(),
           values(),
-          box.box.width * box.pixels.width,
-          box.box.height * box.pixels.height
+          shownW,
+          shownH
         );
         const signed = await signPdf({
           pdf,

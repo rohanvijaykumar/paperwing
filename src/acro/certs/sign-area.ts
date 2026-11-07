@@ -11,11 +11,14 @@ import type { Viewer } from '../viewer';
 export interface DrawnBox {
   /** 0-based page */
   page: number;
-  /** Fractions of the page as shown, from its top left */
+  /** Fractions of the page, unrotated (the layer's own coordinates:
+   *  the viewer turns the page around it), from its top left */
   box: { x: number; y: number; width: number; height: number };
   /** The page's size on screen when drawn, in CSS pixels (for the
    *  appearance's proportions) */
   pixels: { width: number; height: number };
+  /** The page's /Rotate (the appearance is drawn upright for it) */
+  rotation?: number;
 }
 
 /** A click without a drag places a box this size (fractions of the page

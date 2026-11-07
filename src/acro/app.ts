@@ -1347,6 +1347,8 @@ async function startDigitalSign(tab: Tab): Promise<void> {
   drawingBox = null;
   renderCertBar();
   if (!box || !tabs.includes(tab)) return;
+  if (current)
+    box.rotation = await flow.pageRotation(new Uint8Array(current), box.page);
   await flow.digitallySign({
     bridge: certs,
     mac: isMac,

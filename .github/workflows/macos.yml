@@ -102,6 +102,15 @@ jobs:
           node bench/check-cert-sign.mjs
           "$RUNNER_TEMP/venv/bin/python" tests/validate-signed.py "$RUNNER_TEMP/app-signed/Contract (signed) (signed) (signed).pdf"
 
+      - name: Signing on rotated and cropped pages, and saving byte for byte
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        env:
+          PW_TEST_CERTS: ${{ runner.temp }}/certs.json
+        run: |
+          node bench/check-cert-placement.mjs
+          node bench/check-save-bytes.mjs
+
       - name: Certificate screenshots
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
