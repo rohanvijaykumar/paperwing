@@ -16,6 +16,8 @@ const require = createRequire(import.meta.url);
 const {
   createCerts,
   helperPath,
+  isLocalAddress,
+  relayAllowed,
   windowHandleOf,
   SIGN_TIMEOUT_MS,
 } = require('../certs.cjs');
@@ -270,5 +272,49 @@ describe('roots and the window handle', () => {
       windowHandleOf({ getNativeWindowHandle: () => Buffer.alloc(0) }),
       ''
     );
+  });
+});
+
+describe('the relay to timestamp and certificate servers', () => {
+  test('knows this computer’s addresses in every form', () => {
+    for (const a of [
+      '127.0.0.1',
+      '127.8.8.8',
+      '::1',
+      '[::1]',
+      '::ffff:127.0.0.1',
+      '::ffff:7f00:1',
+      '169.254.169.254',
+      '0.0.0.0',
+      '::',
+      'fe80::1',
+    ])
+      assert.equal(isLocalAddress(a), true, a);
+    for (const a of ['10.0.0.5', '192.168.1.2', '8.8.8.8', '2001:db8::1'])
+      assert.equal(isLocalAddress(a), false, a);
+  });
+
+  test('resolves names first: "localhost." or a name for 127.0.0.1 don’t get through', async () => {
+    const lookup = async (host) =>
+      ({
+        'localhost.': [{ address: '127.0.0.1', family: 4 }],
+        'sneaky.example': [
+          { address: '93.184.216.34', family: 4 },
+          { address: '::1', family: 6 },
+        ],
+        'tsa.example': [{ address: '93.184.216.34', family: 4 }],
+        '::ffff:7f00:1': [{ address: '::ffff:7f00:1', family: 6 }],
+        'ocsp.corp.example': [{ address: '10.1.2.3', family: 4 }],
+      })[host] ??
+      Promise.reject(
+        Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' })
+      );
+    assert.equal(await relayAllowed('localhost.', lookup), false);
+    assert.equal(await relayAllowed('sneaky.example', lookup), false);
+    assert.equal(await relayAllowed('[::ffff:7f00:1]', lookup), false);
+    assert.equal(await relayAllowed('tsa.example', lookup), true);
+    // (a company's own certificate server on its network is fine)
+    assert.equal(await relayAllowed('ocsp.corp.example', lookup), true);
+    assert.equal(await relayAllowed('unknown.example', lookup), true);
   });
 });

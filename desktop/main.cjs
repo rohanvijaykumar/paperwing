@@ -26,7 +26,13 @@ const { Readable, Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const crypto = require('node:crypto');
 const { createPrinting } = require('./print.cjs');
-const { createCerts, helperPath, windowHandleOf } = require('./certs.cjs');
+const {
+  createCerts,
+  helperPath,
+  relayAllowed,
+  windowHandleOf,
+} = require('./certs.cjs');
+const dns = require('node:dns/promises');
 
 /** PAPERWING_TRACE=1 prints startup timings (ms since the process started) */
 const trace = process.env.PAPERWING_TRACE
@@ -398,6 +404,8 @@ function resolveRequestPath(url) {
 const RELAY_PATH = '/__relay';
 const RELAY_MAX_BYTES = 4 * 1024 * 1024;
 const RELAY_TIMEOUT_MS = 30000;
+const relayLocalForTests =
+  !app.isPackaged && process.env.PAPERWING_TEST_RELAY_LOCAL === '1';
 
 function isRelayRequest(url) {
   try {
@@ -421,12 +429,9 @@ async function relayFetch(url, method, contentType, body) {
   if (!/^https?:$/.test(target.protocol))
     return { error: 'Bad URL', status: 400 };
   // Timestamp and certificate servers are on the internet: not this
-  // computer or the cloud metadata address
-  if (
-    /^(localhost|0\.0\.0\.0|127\.\d+\.\d+\.\d+|169\.254\.\d+\.\d+|\[::1?\])$/i.test(
-      target.hostname
-    )
-  )
+  // computer or the cloud metadata address (the tests' own servers can be,
+  // in a development build)
+  if (!relayLocalForTests && !(await relayAllowed(target.hostname, dns.lookup)))
     return { error: 'Not allowed', status: 403 };
   if (method !== 'GET' && method !== 'POST')
     return { error: 'Method not allowed', status: 405 };
