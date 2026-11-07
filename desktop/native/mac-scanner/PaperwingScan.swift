@@ -362,9 +362,27 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
   ) {
     debug("selected \(functionalUnit.type.rawValue) \(error.map { "\($0)" } ?? "")")
     // The scanner picking its own unit as the session opens isn't our answer
-    guard requested != nil, functionalUnit.type == requested || error != nil else { return }
-    requested = nil
+    guard let want = requested, functionalUnit.type == want || error != nil else { return }
     if let error = error { fail("busy", error.localizedDescription) }
+    // Network scanners report the unit first and its details (sizes,
+    // resolutions) in a second call; wait a little for that
+    let described = !functionalUnit.supportedResolutions.isEmpty || functionalUnit.physicalSize.width > 0
+    if !described && !waitedForDetails {
+      waitedForDetails = true
+      DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+        if self.requested == want { self.selected(scanner, scanner.selectedFunctionalUnit) }
+      }
+      return
+    }
+    selected(scanner, functionalUnit)
+  }
+
+  var waitedForDetails = false
+
+  /// The unit asked for is selected and described: carry on with the command
+  func selected(_ scanner: ICScannerDevice, _ functionalUnit: ICScannerFunctionalUnit) {
+    requested = nil
+    waitedForDetails = false
     if cancelled { return finish(["type": "done", "pages": 0, "cancelled": true]) }
     switch command {
     case "caps":
