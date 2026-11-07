@@ -132,15 +132,18 @@ func imageSize(_ url: URL) -> (Int, Int) {
   )
 }
 
+// ImageCaptureCore's return codes (ICReturnCode in ICCommonConstants.h,
+// which Swift doesn't import under that name)
+let icTimedOut = -9923
+let icInUseByLocalUser = -9925
+let icInUseByRemoteUser = -9926
+
 /// An ImageCaptureCore error as one of the contract's codes
 func errorCode(_ error: Error, feeder: ICScannerFunctionalUnitDocumentFeeder?) -> String {
   let ns = error as NSError
   switch ns.code {
-  case ICReturnCode.scannerInUseByLocalUser.rawValue,
-    ICReturnCode.scannerInUseByRemoteUser.rawValue:
-    return "busy"
-  case ICReturnCode.communicationTimedOut.rawValue:
-    return "offline"
+  case icInUseByLocalUser, icInUseByRemoteUser: return "busy"
+  case icTimedOut: return "offline"
   default: break
   }
   // Drivers say what happened in words; these are the ones worth telling apart
@@ -277,7 +280,7 @@ final class Helper: NSObject, ICDeviceBrowserDelegate, ICScannerDeviceDelegate {
   func device(_ device: ICDevice, didOpenSessionWithError error: Error?) {
     if let error = error {
       let code = (error as NSError).code
-      fail(code == ICReturnCode.communicationTimedOut.rawValue ? "offline" : "busy",
+      fail(code == icTimedOut ? "offline" : "busy",
         error.localizedDescription)
     }
     guard let scanner = target else { return }
