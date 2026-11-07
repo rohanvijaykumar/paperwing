@@ -67,20 +67,62 @@ async function pdfText(bytes) {
   return text;
 }
 
-/** The page thumbnail n (the viewer's sidebar), for a right-click */
+/** What's under a point, through the viewer's shadow roots (a short
+ *  description, for when a right-click doesn't open the page's menu) */
+const underPoint = (page, at) =>
+  page.evaluate(({ x, y }) => {
+    let e = document.elementFromPoint(x, y);
+    while (e?.shadowRoot) {
+      const d = e.shadowRoot.elementFromPoint(x, y);
+      if (!d || d === e) break;
+      e = d;
+    }
+    const path = [];
+    for (let n = e; n && path.length < 5; n = n.parentElement)
+      path.push(`${n.tagName.toLowerCase()}${n.id ? '#' + n.id : ''}${typeof n.className === 'string' && n.className ? '.' + n.className.split(' ')[0] : ''}`);
+    return `(${Math.round(x)}, ${Math.round(y)}) of ${innerWidth}×${innerHeight}: ${path.join(' < ')}`;
+  }, at);
+
+/** The page thumbnail n (the viewer's sidebar), for a right-click: scrolled
+ *  into view, and the one really under the pointer there (the thumbnails
+ *  are drawn again after a page is inserted, and the list scrolls to it) */
 async function thumb(page, n) {
+  await page.evaluate((n) => {
+    const walk = (root) => {
+      for (const el of root.querySelectorAll('div'))
+        if (el.style.position === 'absolute' && el.textContent.trim() === String(n) && el.querySelector('img')) {
+          el.querySelector('img').scrollIntoView({ block: 'nearest' });
+          return true;
+        }
+      for (const el of root.querySelectorAll('*')) if (el.shadowRoot && walk(el.shadowRoot)) return true;
+      return false;
+    };
+    walk(document);
+  }, n);
+  await sleep(500);
   return page.evaluate((n) => {
+    const deepAt = (x, y) => {
+      let e = document.elementFromPoint(x, y);
+      while (e?.shadowRoot) {
+        const d = e.shadowRoot.elementFromPoint(x, y);
+        if (!d || d === e) break;
+        e = d;
+      }
+      return e;
+    };
     const out = [];
     const walk = (root) => {
       for (const el of root.querySelectorAll('div'))
         if (el.style.position === 'absolute' && el.textContent.trim() === String(n) && el.querySelector('img')) {
           const r = el.querySelector('img').getBoundingClientRect();
-          out.push({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
+          if (!r.width || !r.height) continue;
+          const at = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+          out.push({ ...at, under: el.contains(deepAt(at.x, at.y)) });
         }
       for (const el of root.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot);
     };
     walk(document);
-    return out[0] ?? null;
+    return out.find((t) => t.under) ?? out[0] ?? null;
   }, n);
 }
 
@@ -95,6 +137,7 @@ async function fromPageMenu(at) {
       [...document.querySelectorAll('.popover .menu-item')].map((b) => b.textContent.trim())
     );
     if (await click(page, '.popover .menu-item', 'Insert pages from scanner')) return true;
+    if (!lastMenu.length) lastMenu = [`no menu; under the pointer ${await underPoint(page, at)}`];
     await page.keyboard.press('Escape');
     await sleep(1000);
   }
