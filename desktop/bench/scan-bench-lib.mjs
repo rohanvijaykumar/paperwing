@@ -30,7 +30,8 @@ export const until = async (page, fn, arg, timeout = 20000) => {
 
 export async function start(env = {}, args = []) {
   const app = await launch({
-    env: { PAPERWING_SCAN_TEST: '1', ...env },
+    // (pages up to 100 dpi, unless a bench asks for more: they stay quick)
+    env: { PAPERWING_SCAN_TEST: '1', PAPERWING_SCAN_TEST_MAX_DPI: '100', ...env },
     args,
   });
   await sleep(2500);
@@ -261,3 +262,102 @@ export async function undo(page) {
   for (const type of ['rawKeyDown', 'keyUp'])
     await cdp.send('Input.dispatchKeyEvent', { type, key: 'z', code: 'KeyZ', modifiers: MOD });
 }
+
+/* Shared by the benches that check what a scan made ---------------------- */
+
+/** Scan is complete: the new document's bytes once it has `pages` pages */
+export async function complete(page, pages, timeout = 90000) {
+  const tabs = await page.evaluate(() => document.querySelectorAll('#tabs .tab').length);
+  if (!(await press(page, 'Scan is complete'))) check(false, '(setting up) Scan is complete');
+  await until(page, () => !document.querySelector('.dlg-scan'), undefined, timeout);
+  const ok = await until(
+    page,
+    ({ n, t }) =>
+      document.querySelectorAll('#tabs .tab').length > t &&
+      window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === n,
+    { n: pages, t: tabs },
+    timeout
+  );
+  if (!ok) check(false, `a new document with ${pages} pages`, JSON.stringify(await docInfo(page)));
+  await sleep(800);
+  const b64 = await page.evaluate(async () => {
+    const v = window.__acro.viewer;
+    const bytes = new Uint8Array(await v.exportBytes(v.current));
+    let s = '';
+    for (let k = 0; k < bytes.length; k += 0x8000) s += String.fromCharCode(...bytes.subarray(k, k + 0x8000));
+    return btoa(s);
+  });
+  return Buffer.from(b64, 'base64');
+}
+
+/** The scan box drawn on the glass, in inches */
+export async function boxNow(page, glass) {
+  const style = (await dialog(page))?.box;
+  if (!style) return null;
+  const n = (k) => Number(new RegExp(`${k}: ([\\d.]+)%`).exec(style)?.[1]);
+  return {
+    x: (n('left') / 100) * glass.width,
+    y: (n('top') / 100) * glass.height,
+    width: (n('width') / 100) * glass.width,
+    height: (n('height') / 100) * glass.height,
+  };
+}
+
+/** Drags a corner of the box to (x, y) inches on the glass, with the mouse */
+export async function dragCorner(page, corner, x, y, glass) {
+  const at = await page.evaluate(
+    ({ corner, x, y, glass }) => {
+      const st = document.querySelector('.dlg-scan .sp-stage');
+      const h = document.querySelector(`.dlg-scan .sp-${corner}`);
+      if (!st || !h || h.hidden) return null;
+      const r = st.getBoundingClientRect();
+      const hr = h.getBoundingClientRect();
+      return {
+        from: { x: hr.x + hr.width / 2, y: hr.y + hr.height / 2 },
+        to: { x: r.left + (x / glass.width) * r.width, y: r.top + (y / glass.height) * r.height },
+      };
+    },
+    { corner, x, y, glass }
+  );
+  if (!at) return false;
+  await page.mouse.move(at.from.x, at.from.y);
+  await page.mouse.down();
+  await page.mouse.move((at.from.x + at.to.x) / 2, (at.from.y + at.to.y) / 2, { steps: 5 });
+  await page.mouse.move(at.to.x, at.to.y, { steps: 5 });
+  await page.mouse.up();
+  return true;
+}
+
+/** The preview as shown (after the live adjustments): RGBA, and its dpi
+ *  (its width over the glass's) */
+export async function previewPixels(page, glass) {
+  const r = await page.evaluate(() => {
+    const c = document.querySelector('.dlg-scan .sp-image');
+    if (!c || c.hidden || !c.width) return null;
+    const b = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let s = '';
+    for (let k = 0; k < b.length; k += 0x8000) s += String.fromCharCode(...b.subarray(k, k + 0x8000));
+    return { width: c.width, height: c.height, share: parseFloat(c.style.width) / 100, b64: btoa(s) };
+  });
+  if (!r) return null;
+  return {
+    width: r.width,
+    height: r.height,
+    data: new Uint8ClampedArray(Buffer.from(r.b64, 'base64')),
+    dpi: r.width / (glass.width * r.share),
+  };
+}
+
+/** Waits until the live preview shows these settings (scan.ts notes them) */
+export const lookShows = (page, want) =>
+  until(
+    page,
+    (want) => {
+      const look = document.querySelector('.dlg-scan .sp-glass')?.dataset.look;
+      if (!look) return false;
+      const l = JSON.parse(look);
+      return Object.entries(want).every(([k, v]) => l[k] === v);
+    },
+    want,
+    15000
+  );

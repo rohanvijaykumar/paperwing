@@ -25,6 +25,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import * as L from './scan-bench-lib.mjs';
+import * as P from './scan-pdf-check.mjs';
 import { launch } from './harness.mjs';
 
 const require = createRequire(import.meta.url);
@@ -163,7 +164,11 @@ check(d.sources === null, 'a feeder-only scanner: no Source');
 check(JSON.stringify(d.sides) === JSON.stringify(['Front sides', 'Both sides']), 'Pages: both sides (through Scan reverse sides)', JSON.stringify(d.sides));
 check(JSON.stringify(d.colors) === JSON.stringify(['Grayscale', 'Black and white']), 'only its color modes (no Autodetect without color)', JSON.stringify(d.colors));
 check(d.dpi.at(-1) === 'Custom…', 'a resolution range: Custom…', JSON.stringify(d.dpi));
-check(!d.previewTab && !d.buttons.includes('Preview'), 'no preview (hidden, not greyed out)');
+check(!d.buttons.includes('Preview'), 'no Preview button (hidden, not greyed out)');
+check(
+  /only a document feeder/.test(await page.evaluate(() => document.querySelector('.dlg-scan .sp-message')?.textContent ?? '')),
+  'and the preview pane says this scanner only has a feeder'
+);
 await choose(page, 'Resolution', 'Custom…');
 check((await L.shows(page, ['Custom resolution (dpi)']))['Custom resolution (dpi)'], 'Custom… asks for the resolution');
 await L.setValue(page, 'Custom resolution (dpi)', 350);
@@ -293,6 +298,21 @@ const files = readdirSync(outDir).sort();
 check(JSON.stringify(files) === JSON.stringify(['Batch 1.pdf', 'Batch 2.pdf', 'Batch 3.pdf']), '6 pages, 2 per file: Batch 1-3.pdf in the chosen folder', JSON.stringify(files));
 const counts = await Promise.all(files.map(async (f) => (await PDFDocument.load(readFileSync(join(outDir, f)))).getPageCount()));
 check(counts.join() === '2,2,2', 'two pages each', counts.join());
+// Which pages went where, by the stand-in's page labels (sheet and side;
+// sheet 2's back comes out blank)
+const inFiles = [];
+for (const f of files) {
+  const bytes = readFileSync(join(outDir, f));
+  const got = [];
+  for (let k = 0; k < 2; k++) got.push(P.labelText(P.readLabel(await P.renderPage(bytes, k, 50))).replace('↓', ''));
+  inFiles.push(got.join('+'));
+}
+const s = parseInt(inFiles[0], 10);
+check(
+  inFiles.join(' | ') === `${s}F+${s}B | ${s + 1}F+blank | ${s + 2}F+${s + 2}B`,
+  'each file has its two pages, in order',
+  inFiles.join(' | ')
+);
 check(/Saved 3 files/.test(await L.toasts(page)), 'and the notice says where');
 await app.close();
 
@@ -415,6 +435,29 @@ const pdfaBytes = (await docBytes(page)).toString('latin1');
 check(!!pdfaTab && /pdfaid:part/.test(pdfaBytes), 'Make PDF/A compliant: the new document says it is PDF/A', String(/pdfaid:part.{0,20}/.exec(pdfaBytes)?.[0] ?? (await L.toasts(page))));
 const compressOpen = await until(page, () => [...document.querySelectorAll('.lp-title, .fh-title')].some((t) => /Compress/.test(t.textContent)), undefined, 20000);
 check(!!compressOpen, 'Compress after scanning: Compress a PDF opens on it');
+// PDF/A's other parts: the output intent with its color profile, and the
+// XMP metadata (a full validation needs veraPDF, not here)
+check(
+  /\/OutputIntents/.test(pdfaBytes) && /GTS_PDFA/.test(pdfaBytes) && /\/DestOutputProfile/.test(pdfaBytes) && /\/Type\s*\/Metadata/.test(pdfaBytes),
+  'PDF/A: an output intent with its color profile, and XMP metadata'
+);
+await click(page, '[aria-label="Back to tools"]');
+await sleep(500);
+// Add metadata: Edit metadata opens on the new scan, like Acrobat
+await L.openDialog(page);
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Flatbed');
+await L.tick(page, 'Make PDF/A compliant', false);
+await L.openGroup(page, 'File size');
+await L.tick(page, 'Compress after scanning (Compress a PDF)', false);
+await L.tick(page, 'Add metadata (document properties)', true);
+await press(page, 'Scan');
+await L.waitIdle(page);
+await press(page, 'Scan is complete');
+await until(page, () => !document.querySelector('.dlg-scan'), undefined, 30000);
+const metaOpen = await until(page, () => [...document.querySelectorAll('.lp-title, .fh-title')].some((t) => /metadata/i.test(t.textContent)), undefined, 20000);
+check(!!metaOpen, 'Add metadata: Edit metadata opens on the new scan');
 await click(page, '[aria-label="Back to tools"]');
 await sleep(500);
 
