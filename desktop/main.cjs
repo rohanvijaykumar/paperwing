@@ -1206,7 +1206,16 @@ const getScanning = () =>
     helpers: scannerHelpers(),
     escl: createNetworkScanners(),
     tempDir: app.getPath('temp'),
+    windowHandle: scannerWindowHandle,
   }));
+
+/** The window the scanner's own window opens in front of (Windows: its
+ *  HWND as a number) */
+function scannerWindowHandle() {
+  if (!mainWindow || mainWindow.isDestroyed() || IS_MAC) return null;
+  const h = mainWindow.getNativeWindowHandle();
+  return h.length >= 8 ? h.readBigUInt64LE(0).toString() : h.readUInt32LE(0);
+}
 
 /** Where the scanner helpers are: packaged in resources/scanner, built in
  *  development by native/win-scanner and native/mac-scanner */

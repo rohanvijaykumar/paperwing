@@ -418,6 +418,20 @@ describe('scanning', () => {
     );
   });
 
+  test("the scanner's own window opens in front of the app's (-Window)", async () => {
+    const { s, calls } = windows(() => [{ type: 'done', pages: 0, cancelled: true }, { exit: 0 }], {
+      windowHandle: () => '8589934594',
+    });
+    // Closing the scanner's window is a cancel, not an error
+    assert.deepEqual(await s.scan('twain:x', { ...OPTS, nativeUi: true }, () => {}), {
+      ok: true,
+      pages: 0,
+      cancelled: true,
+    });
+    const args = calls[0].args;
+    assert.deepEqual(args.slice(-2), ['-Window', '8589934594']);
+  });
+
   test('only files in its own folder are read', async () => {
     const { s } = windows(() => [
       { type: 'page', file: '../../secret.png', dpi: 100 },
