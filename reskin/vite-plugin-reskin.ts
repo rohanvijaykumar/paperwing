@@ -20,6 +20,8 @@ import {
   desktopStrings,
   isDesktopBuild,
 } from './desktop-words.mjs';
+// zgapdfsigner's patches (shared with the unit tests)
+import { applyPatches, signerPatchesFor } from './signer-patches';
 
 const APP_ENTRY = 'app.html';
 
@@ -189,34 +191,8 @@ const VIEWER_PATCHES: ViewerPatch[] = [
   },
 ];
 
-/**
- * Fixes for other dependencies, applied the same way (checked, or skipped
- * with a warning).
- */
-const SIGNER_PATCHES: ViewerPatch[] = [
-  {
-    // zgapdfsigner (timestamps, digital signatures) decides whether it runs
-    // in a browser with `this === globalThis.self` inside a plain function,
-    // which is never true once bundled into a module (`this` is undefined).
-    // Thinking it's elsewhere, it doesn't use fetch and refuses timestamp
-    // servers whose address isn't http(s), as through the desktop app's
-    // relay. In a page, `self` with a fetch is the browser.
-    name: 'signer browser check',
-    edits: [
-      [
-        'z.isBrowser = function(){return this === globalThis.self;}();',
-        'z.isBrowser = typeof globalThis.self !== "undefined" && typeof globalThis.self.fetch === "function";',
-        1,
-      ],
-    ],
-  },
-];
-
-function patchViewer(
-  code: string,
-  id: string,
-  patches: ViewerPatch[] = VIEWER_PATCHES
-): string | null {
+function patchViewer(code: string, id: string): string | null {
+  const patches = VIEWER_PATCHES;
   // PAPERWING_VIEWER_PATCHES=0 builds the viewer exactly as upstream ships it
   if (process.env.PAPERWING_VIEWER_PATCHES === '0') return null;
   let out = code;
@@ -307,14 +283,20 @@ function pagesPlugin(): Plugin {
         if (isDesktopBuild()) out = desktopCode(out, file.split('?')[0]);
         return out === code ? undefined : { code: out, map: null };
       }
-      const patches = file.includes('/bentopdf-viewer/dist/')
-        ? VIEWER_PATCHES
-        : file.includes('/zgapdfsigner/lib/zgafetch.js')
-          ? SIGNER_PATCHES
-          : null;
-      if (!patches) return;
-      const patched = patchViewer(code, id, patches);
-      return patched ? { code: patched, map: null } : undefined;
+      if (file.includes('/bentopdf-viewer/dist/')) {
+        const patched = patchViewer(code, id);
+        return patched ? { code: patched, map: null } : undefined;
+      }
+      // zgapdfsigner: always (the desktop app's certificate signing needs
+      // them), each still checked
+      const signer = signerPatchesFor(file);
+      if (!signer) return;
+      const result = applyPatches(code, signer);
+      for (const name of result.missed)
+        console.warn(`[reskin] zgapdfsigner changed: "${name}" patch skipped`);
+      return result.applied.length
+        ? { code: result.code, map: null }
+        : undefined;
     },
 
     transformIndexHtml: {
