@@ -171,25 +171,31 @@ describe('encodePage', () => {
     for (let y = 0; y < 37; y++) expect([0, 1, 2, 4]).toContain(rows[y * 62]);
   });
 
-  it('JPEG goes through the encoder with RGBA pixels and the quality', async () => {
+  it('color JPEG goes through the encoder with RGBA pixels and the quality', async () => {
     const jpeg = vi.fn<JpegEncoder>(async () => JPEG);
-    const page: ProcessedPage = {
-      ...info,
-      kind: 'gray',
-      image: gradient,
-      width: 61,
-      height: 37,
-      dpi: 100,
+    const rgb = {
+      ...gradient,
+      channels: 3 as const,
+      data: Uint8Array.from({ length: 61 * 37 * 3 }, (_, i) => gradient.data[Math.floor(i / 3)]),
     };
-    const enc = await encodePage(
-      page,
-      { compression: 'jpeg', quality: 0.6 },
-      jpeg
-    );
+    const page: ProcessedPage = { ...info, kind: 'color', image: rgb, width: 61, height: 37, dpi: 100 };
+    const enc = await encodePage(page, { compression: 'jpeg', quality: 0.6 }, jpeg);
     expect(enc).toMatchObject({ kind: 'jpg', width: 61, height: 37, dpi: 100 });
     const [rgba, w, h, q] = jpeg.mock.calls[0];
     expect([rgba.length, w, h, q]).toEqual([61 * 37 * 4, 61, 37, 0.6]);
     expect([rgba[4], rgba[5], rgba[6], rgba[7]]).toEqual([4, 4, 4, 255]);
+  });
+
+  it('gray JPEG is a one-component (gray) JPEG, not a color one', async () => {
+    const jpeg = vi.fn<JpegEncoder>(async () => JPEG);
+    const page: ProcessedPage = { ...info, kind: 'gray', image: gradient, width: 61, height: 37, dpi: 100 };
+    const enc = await encodePage(page, { compression: 'jpeg', quality: 0.6 }, jpeg);
+    expect(jpeg).not.toHaveBeenCalled();
+    expect(enc.kind).toBe('jpg');
+    // SOF0: 8 bits, 37 high, 61 wide, 1 component
+    const b = enc.bytes;
+    const sof = b.findIndex((v, i) => v === 0xff && b[i + 1] === 0xc0);
+    expect([...b.subarray(sof + 4, sof + 10)]).toEqual([8, 0, 37, 0, 61, 1]);
   });
 
   it('black and white is always CCITT G4', async () => {
