@@ -16,6 +16,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -49,7 +50,12 @@ function checkScan(r, dir) {
   const pages = r.lines.filter((l) => l.type === 'page');
   const end = r.lines.at(-1);
   for (const p of pages) {
-    assert.equal(dirname(p.file), dir, 'pages are written in OutDir');
+    // (the helper keeps OutDir as given: 8.3 short names stay short)
+    assert.equal(
+      realpathSync.native(dirname(p.file)),
+      realpathSync.native(dir),
+      'pages are written in OutDir'
+    );
     assert.ok(existsSync(p.file), p.file);
     assert.deepEqual(pngSize(p.file), { width: p.width, height: p.height });
     assert.ok(p.dpi > 0);
