@@ -93,6 +93,8 @@ const env = {
   // recognised as such.
   VITE_CORS_PROXY_URL: 'app://tools/__relay',
   SIMPLE_MODE: 'true',
+  // Tool pages in the desktop app's words (reskin/desktop-words.mjs)
+  PAPERWING_DESKTOP: '1',
   VITE_BRAND_NAME: 'Paperwing',
   DISABLE_GITHUB_STARS: 'true',
   NODE_OPTIONS: [process.env.NODE_OPTIONS, '--max-old-space-size=6144']
@@ -160,6 +162,26 @@ const brandStrings = (dir) => {
 if (existsSync(resolve(dist, 'locales')))
   brandStrings(resolve(dist, 'locales'));
 console.log(`Paperwing's name in ${branded} interface string files`);
+
+// The desktop app's words in the English strings: nothing is uploaded or
+// downloaded, and it isn't a browser (reskin/desktop-words.mjs; its pages
+// and code are done during the build)
+const { desktopStrings } = await import(
+  pathToFileURL(resolve(root, 'reskin', 'desktop-words.mjs')).href
+);
+const english = resolve(dist, 'locales', 'en');
+let worded = 0;
+if (existsSync(english))
+  for (const name of readdirSync(english).filter((n) => n.endsWith('.json'))) {
+    const p = join(english, name);
+    const text = readFileSync(p, 'utf8');
+    const out = JSON.stringify(desktopStrings(JSON.parse(text)), null, 2);
+    if (out !== JSON.stringify(JSON.parse(text), null, 2)) {
+      writeFileSync(p, out);
+      worded++;
+    }
+  }
+console.log(`The desktop app's words in ${worded} English string files`);
 
 // The bundled engines
 for (const { url, copy } of Object.values(ENGINES)) {

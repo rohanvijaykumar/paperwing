@@ -11,6 +11,10 @@
  *   - BentoPDF's name, or its website's content (self-hosting, sponsors,
  *     Discord…), anywhere in what the tool shows: Paperwing's tools carry
  *     Paperwing's name (reskin/brand.mjs; check-branding.mjs checks the build)
+ *   - upload, download, browser or device in what it shows (and its
+ *     tooltips), before and after its main action: a desktop app has no
+ *     server (reskin/desktop-words.mjs). Listed as SAYS, for review: a few
+ *     are true ("never uploaded", the engine downloading on first use)
  *
  *   - messages: the app's own dialogs that came up, and any browser
  *     dialog (alert, confirm), which Paperwing never shows
@@ -43,6 +47,37 @@ const SAMPLE_NAME = decodeURIComponent(SAMPLE.pathname.split('/').pop());
 /** What a tool page shouldn't say: BentoPDF's website, not Paperwing */
 const OFF_BRAND =
   /\bBentoPDF\b|self-host|discord|sponsor|on GitHub|commercial licen[cs]e/i;
+
+/** What a desktop app's tool shouldn't say: there's no server, so nothing
+ *  is uploaded or downloaded, and it isn't a browser
+ *  (reskin/desktop-words.mjs) */
+const SERVER_WORDS =
+  /\bupload|\bdownload|\bbrowser\b|never leave|your device|\bservers?\b/i;
+
+/** The lines of what a tool frame shows, with its controls' tooltips */
+const shownLines = (frame) =>
+  frame
+    .evaluate(() => {
+      // A tool whose frame is hidden (its result went to the workspace)
+      // shows nothing; innerText would then be all of its text, scripts too
+      if (!document.body.getBoundingClientRect().height) return [];
+      const tips = [
+        ...document.querySelectorAll('[title], [placeholder], [aria-label]'),
+      ]
+        .filter((e) => e.getClientRects().length)
+        .flatMap((e) =>
+          ['title', 'placeholder', 'aria-label'].map((a) => e.getAttribute(a))
+        )
+        .filter(Boolean);
+      return [document.title, document.body.innerText, ...tips];
+    })
+    .then((shows) => shows.join('\n').split('\n'))
+    .catch(() => []);
+const noteServerWords = (lines) => {
+  for (const line of lines)
+    if (SERVER_WORDS.test(line))
+      current.serverWords.push(line.trim().slice(0, 200));
+};
 
 const app = await launch();
 const { page } = app;
@@ -247,6 +282,7 @@ for (const t of tools) {
     online: [],
     dialogs: [],
     offBrand: [],
+    serverWords: [],
   };
   report.push(current);
   try {
@@ -311,12 +347,11 @@ for (const t of tools) {
       continue;
     }
     // What it shows (the page's title is the window's when it's open)
-    const shows = await frame
-      .evaluate(() => [document.title, document.body.innerText])
-      .catch(() => []);
-    for (const line of shows.join('\n').split('\n'))
+    const shows = await shownLines(frame);
+    for (const line of shows)
       if (OFF_BRAND.test(line) && !/©|all rights reserved/i.test(line))
         current.offBrand.push(line.trim().slice(0, 200));
+    noteServerWords(shows);
     // Main action
     const action = await frame
       .evaluate(() => {
@@ -356,6 +391,8 @@ for (const t of tools) {
           .catch(() => []);
       }
       current.status = got ? 'result returned' : 'no result';
+      // (what it shows once it's done: its result's buttons)
+      noteServerWords(await shownLines(frame));
       // What the tool says (status and error lines) must be readable, not
       // under the sticky main button or anything else
       const covered = await frame
@@ -420,8 +457,9 @@ for (const t of tools) {
     for (const d of current.dialogs)
       if (OFF_BRAND.test(d)) current.offBrand.push(d.slice(0, 200));
     current.online = [...new Set(current.online)];
+    current.serverWords = [...new Set(current.serverWords)];
     console.log(
-      `${t.name.padEnd(28)} ${current.status}${current.shownMs ? ` (${current.shownMs} ms)` : ''}${current.errors.length ? ` errors:${current.errors.length}` : ''}${current.blocked.length ? ' BLOCKED' : ''}${current.online.length ? ` online:${current.online.length}` : ''}${current.offBrand.length ? ` OFF-BRAND: ${current.offBrand[0]}` : ''}${current.dialogs.length ? ` BROWSER DIALOG: ${current.dialogs[0].slice(0, 80)}` : ''}${current.messages.length ? ` messages:${current.messages.length}` : ''}`
+      `${t.name.padEnd(28)} ${current.status}${current.shownMs ? ` (${current.shownMs} ms)` : ''}${current.errors.length ? ` errors:${current.errors.length}` : ''}${current.blocked.length ? ' BLOCKED' : ''}${current.online.length ? ` online:${current.online.length}` : ''}${current.offBrand.length ? ` OFF-BRAND: ${current.offBrand[0]}` : ''}${current.serverWords.length ? ` SAYS: ${current.serverWords[0]}` : ''}${current.dialogs.length ? ` BROWSER DIALOG: ${current.dialogs[0].slice(0, 80)}` : ''}${current.messages.length ? ` messages:${current.messages.length}` : ''}`
     );
   }
 }

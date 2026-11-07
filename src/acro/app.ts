@@ -4079,6 +4079,9 @@ $('#download-btn').addEventListener('click', async () => {
   const blob = t && (await docBlob(t));
   if (t && blob) saveBlob(blob, t.name);
 });
+// In the desktop app the copy goes through a save dialog: nothing is
+// downloaded, and "Download" made people think files went to a server
+if (desktop) $('#download-btn').textContent = 'Save a copy';
 
 function searchTools(q: string): AppTool[] {
   const query = q.trim().toLowerCase();
@@ -4464,7 +4467,7 @@ $('#menu-btn').addEventListener('click', (e) => {
       onClick: () => doc && void saveDoc(doc, true),
     },
     {
-      label: 'Download a copy',
+      label: desktop ? 'Save a copy…' : 'Download a copy',
       icon: icon('download', 16),
       disabled: !doc,
       onClick: () => $('#download-btn').click(),
