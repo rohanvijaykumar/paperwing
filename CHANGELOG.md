@@ -6,6 +6,27 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+### Added
+
+- **Sign with a certificate installed on your computer**, as in Acrobat: All tools ▸ Use a
+  certificate ▸ **Digitally sign**, drag a box on the page, choose a Digital ID, choose how the
+  signature looks, and Sign. The list shows the certificates in the Windows certificate store and
+  the macOS Keychain, smart cards and USB tokens included, filtered the way Acrobat filters them
+  (Show all certificates lists the rest, with why they can't sign), with View details and Refresh.
+  Your private key never leaves Windows, the Keychain or the card: the system signs, and asks for
+  your PIN itself, in front of Paperwing. Wrong PIN, a locked card and a removed card are said in
+  plain words; cancelling the PIN prompt just takes you back. Configure New Digital ID uses a .pfx,
+  .p12 or PEM file (what Use a certificate took before) or creates a self-signed ID, saved as a
+  password-protected .pfx. Sign as has Acrobat's appearances (name, date, reason, location,
+  distinguished name, labels, an image), made and edited there, a reason and location, **Lock
+  document after signing**, and a timestamp server. Signatures are PAdES (ETSI.CAdES.detached),
+  RSA or ECDSA (P-256, P-384, P-521), with long-term validation information when the certificate
+  comes from a certificate authority; a document locked by a signature can't be signed again.
+  Asked for by a Reddit user.
+- **Validate signatures** reads ECDSA signatures, and in the desktop app can trust the root
+  certificates in the Windows certificate store or the Keychain (Acrobat's option, off by
+  default).
+
 ### Changed
 
 - **BentoPDF 2.8.11**: measuring distances, perimeters and areas in Edit a PDF (with scale,

@@ -6,7 +6,7 @@
  * builder (reskin/signer-patches.ts); the CMS builder has the key's owner
  * sign, adds the timestamp, and the result is a PAdES signature.
  */
-import { PDFDocument } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber } from 'pdf-lib';
 import {
   buildCms,
   certParts,
@@ -184,3 +184,48 @@ export async function signPdf(req: SignPdfRequest): Promise<Uint8Array> {
 const failingFetcher: Fetcher = async () => {
   throw new Error('offline');
 };
+
+/**
+ * Was the document locked by a signature (Lock document after signing, or
+ * a certification that allows no changes)? Then it can't be signed again:
+ * any change, a new signature too, would invalidate that signature.
+ */
+export async function lockedBySignature(pdf: Uint8Array): Promise<boolean> {
+  let doc: PDFDocument;
+  try {
+    doc = await PDFDocument.load(pdf, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+    });
+  } catch {
+    return false;
+  }
+  const p = (d: unknown) => {
+    const v = d instanceof PDFDict ? d.lookup(PDFName.of('P')) : undefined;
+    return v instanceof PDFNumber ? v.asNumber() : undefined;
+  };
+  // Certified with "no changes allowed" (DocMDP P 1)
+  const perms = doc.catalog.lookup(PDFName.of('Perms'));
+  const certification =
+    perms instanceof PDFDict ? perms.lookup(PDFName.of('DocMDP')) : undefined;
+  const refs =
+    certification instanceof PDFDict
+      ? certification.lookup(PDFName.of('Reference'))
+      : undefined;
+  if (refs instanceof PDFArray)
+    for (let i = 0; i < refs.size(); i++) {
+      const r = refs.lookup(i);
+      if (
+        r instanceof PDFDict &&
+        p(r.lookup(PDFName.of('TransformParams'))) === 1
+      )
+        return true;
+    }
+  // A signed field whose lock allows no changes (P 1)
+  for (const field of doc.getForm().getFields()) {
+    const dict = field.acroField.dict;
+    if (!(dict.lookup(PDFName.of('V')) instanceof PDFDict)) continue;
+    if (p(dict.lookup(PDFName.of('Lock'))) === 1) return true;
+  }
+  return false;
+}

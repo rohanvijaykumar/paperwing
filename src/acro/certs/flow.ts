@@ -4,6 +4,7 @@
  */
 export { drawSignatureBox } from './sign-area';
 export { digitallySign } from './sign-dialog';
+export { lockedBySignature } from './pdf-sign';
 
 /** Choose an ID file with the system's file dialog */
 export function pickIdFile(): Promise<{
