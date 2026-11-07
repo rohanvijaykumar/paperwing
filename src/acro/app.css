@@ -2560,6 +2560,7 @@ body.is-dragging-page * {
 }
 .sd-layout .sd-settings {
   flex: 0 0 340px;
+  overflow-x: hidden;
 }
 .dlg-scan .pref-row {
   align-items: center;
@@ -2596,7 +2597,6 @@ body.is-dragging-page * {
 }
 .sd-summary-row .sd-link {
   flex: none;
-  margin-right: -8px;
 }
 .quiet-btn.sd-link {
   height: 28px;

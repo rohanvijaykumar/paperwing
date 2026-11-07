@@ -163,6 +163,7 @@ function cleanCaps(msg, driver) {
           brightness: cleanRange(s.brightness),
           contrast: cleanRange(s.contrast),
           threshold: cleanRange(s.threshold),
+          sharpen: cleanRange(s.sharpen),
           feederLoaded:
             typeof s.feederLoaded === 'boolean' ? s.feederLoaded : null,
         };
@@ -219,7 +220,7 @@ function checkScanOptions(options) {
       throw new TypeError('Invalid paper size');
     out.paper = { width: p.width, height: p.height };
   }
-  for (const k of ['brightness', 'contrast', 'threshold']) {
+  for (const k of ['brightness', 'contrast', 'threshold', 'sharpen']) {
     if (o[k] === undefined) continue;
     if (!isNum(o[k]) || Math.abs(o[k]) > 100000)
       throw new TypeError(`Invalid ${k}`);
@@ -268,7 +269,9 @@ function mergeScanners(found, order) {
   for (const { driver, scanner: s } of found) {
     if (!s || typeof s.id !== 'string' || !s.id) continue;
     const id = `${driver}:${s.id}`;
-    const key = keyOf(s.deviceKey) ?? id;
+    // A network scanner's eSCL uuid is the deviceKey Image Capture gives it
+    const aliases = [keyOf(s.deviceKey), keyOf(s.uuid)].filter(Boolean);
+    const key = aliases[0] ?? id;
     const connection = ['usb', 'network'].includes(s.connection)
       ? s.connection
       : 'unknown';
@@ -278,7 +281,7 @@ function mergeScanners(found, order) {
       label: DRIVER_LABELS[driver] ?? driver,
       name: String(s.name || s.model || s.id).slice(0, 120),
     };
-    let entry = entries.get(key);
+    let entry = [key, ...aliases].map((a) => entries.get(a)).find(Boolean);
     if (!entry) {
       entry = {
         key,
@@ -288,8 +291,8 @@ function mergeScanners(found, order) {
         connection,
         devices: [],
       };
-      entries.set(key, entry);
     }
+    for (const a of [key, ...aliases]) entries.set(a, entry);
     if (entry.devices.some((d) => d.id === id)) continue;
     entry.devices.push(device);
     entry.devices.sort((a, b) => rank(a.driver) - rank(b.driver));
@@ -299,7 +302,7 @@ function mergeScanners(found, order) {
     if (!entry.make && typeof s.make === 'string') entry.make = s.make;
     if (!entry.model && typeof s.model === 'string') entry.model = s.model;
   }
-  return [...entries.values()].sort((a, b) =>
+  return [...new Set(entries.values())].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
   );
 }

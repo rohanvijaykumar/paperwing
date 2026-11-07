@@ -256,6 +256,7 @@ describe('the contract', () => {
             ],
             threshold: { min: 0, max: 255, step: 1, default: 128 },
             brightness: { min: 5, max: 5 },
+            sharpen: { min: 0, max: 10, step: 1, default: 5 },
           },
           { id: 'camera' },
         ],
@@ -279,6 +280,7 @@ describe('the contract', () => {
     assert.deepEqual(s.paperSizes, [{ name: 'A4', width: 8.27, height: 11.69 }]);
     assert.deepEqual(s.threshold, { min: 0, max: 255, step: 1, default: 128 });
     assert.equal(s.brightness, null); // an empty range is none
+    assert.deepEqual(s.sharpen, { min: 0, max: 10, step: 1, default: 5 });
     assert.equal(s.canPreview, true);
     assert.equal(s.feederLoaded, null);
   });
@@ -311,6 +313,18 @@ describe('one entry per scanner', () => {
       brother.devices.map((d) => d.label),
       ['TWAIN', 'WIA', 'Network (eSCL)']
     );
+  });
+
+  test("Mac: an AirScan scanner's eSCL uuid is Image Capture's deviceKey", () => {
+    const entries = mergeScanners(
+      [
+        { driver: 'escl', scanner: { id: 'escl:x', name: 'Epson ET-2850', deviceKey: 'epson:et-2850', uuid: 'cfe92100-67c4-11d4-a45f-f8d027761251', connection: 'network' } },
+        { driver: 'ica', scanner: { id: 'i', name: 'EPSON ET-2850 Series', deviceKey: 'CFE92100-67C4-11D4-A45F-F8D027761251' } },
+      ],
+      DRIVER_ORDER.darwin
+    );
+    assert.equal(entries.length, 1);
+    assert.deepEqual(entries[0].devices.map((d) => d.driver), ['escl', 'ica']);
   });
 
   test('Mac: eSCL > Image Capture', () => {

@@ -139,6 +139,8 @@ export interface ScanSource {
   brightness: ScanRange | null;
   contrast: ScanRange | null;
   threshold: ScanRange | null;
+  /** The scanner's own sharpening (network scanners) */
+  sharpen: ScanRange | null;
   feederLoaded: boolean | null;
 }
 
@@ -161,6 +163,7 @@ export interface ScanRequest {
   brightness?: number;
   contrast?: number;
   threshold?: number;
+  sharpen?: number;
   autoDeskew?: boolean;
   blankPageSkip?: boolean;
   doubleFeedStop?: boolean;
