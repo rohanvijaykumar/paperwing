@@ -261,9 +261,10 @@ await app.openFile(doc1);
 await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 4);
 await page.evaluate(() => document.querySelector('#right-rail [data-panel="sidebar-panel:thumbnails"]').click());
 await sleep(2500);
-const t2 = await thumb(page, 2);
-check(!!t2, 'page thumbnails shown');
-check(await fromPageMenu(t2), "the page's menu: Insert pages from scanner…", lastMenu.join(' | '));
+// (page 1's thumbnail: in view on any screen)
+const t1 = await thumb(page, 1);
+check(!!t1, 'page thumbnails shown');
+check(await fromPageMenu(t1), "the page's menu: Insert pages from scanner…", lastMenu.join(' | '));
 await L.waitReady(page);
 d = await dialog(page);
 check(d.title === 'Insert pages from scanner', 'the dialog says what it will do');
@@ -272,7 +273,7 @@ const insertAt = await page.evaluate(() => ({
   page: document.querySelector('.dlg-scan select[aria-label="Page"]').value,
   n: document.querySelector('.dlg-scan input[aria-label="Page number"]').value,
 }));
-check(insertAt.pos === 'after' && insertAt.page === 'number' && insertAt.n === '2', 'Insert Pages: after page 2 (the one clicked)', JSON.stringify(insertAt));
+check(insertAt.pos === 'after' && insertAt.page === 'number' && insertAt.n === '1', 'Insert Pages: after page 1 (the one clicked)', JSON.stringify(insertAt));
 await choose(page, 'Scanner', 'Paperwing Test Scanner');
 await L.waitReady(page);
 await choose(page, 'Source', 'Flatbed');
@@ -282,8 +283,8 @@ await L.waitIdle(page);
 await press(page, 'Scan is complete');
 await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 5, undefined, 30000);
 let sizes = await pageSizes(page);
-check(sizes.join() === '595,595,612,595,595', 'the scanned (Letter) page is page 3', sizes.join());
-await fromPageMenu(t2);
+check(sizes.join() === '595,612,595,595,595', 'the scanned (Letter) page is page 2', sizes.join());
+await fromPageMenu(t1);
 await L.waitReady(page);
 await choose(page, 'Location', 'Before');
 await choose(page, 'Page', 'First');
@@ -293,7 +294,7 @@ await L.waitIdle(page);
 await press(page, 'Scan is complete');
 await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 6, undefined, 30000);
 sizes = await pageSizes(page);
-check(sizes[0] === 612, 'before the first page', sizes.join());
+check(sizes.join() === '612,595,612,595,595,595', 'before the first page', sizes.join());
 // Close it (discarding) so Browse… opens it fresh
 await page.evaluate(() => window.__acro && null);
 await app.close();
