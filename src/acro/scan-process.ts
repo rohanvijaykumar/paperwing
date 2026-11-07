@@ -48,6 +48,7 @@ export function imageSettings(
   flip = false
 ): ScanImageSettings {
   return {
+    crop: plan.crop,
     colorMode: plan.color,
     threshold: plan.color === 'bw' ? plan.threshold : null,
     brightness: plan.brightness,
@@ -188,27 +189,42 @@ export function createPageProcessor(detectOrientation?: OrientationDetector) {
     };
   }
 
-  /** Where the document lies on a preview of the glass, in inches (null:
-   *  nothing stands out) */
-  async function findDocument(
-    preview: Blob,
-    glass: { width: number; height: number }
-  ): Promise<Rect | null> {
-    const image = await decode(preview, 50);
-    const r = await client.detectDocument(image, { transfer: true });
-    if (r.width >= image.width && r.height >= image.height) return null;
+  /** Where the document lies on a preview of the glass, in inches from
+   *  the glass's corner (null: nothing stands out) */
+  async function findDocument(preview: ScanImage): Promise<Rect | null> {
+    const r = await client.detectDocument(preview);
+    if (r.width >= preview.width && r.height >= preview.height) return null;
     const round = (v: number) => Math.round(v * 100) / 100;
+    const dpi = preview.dpi;
     return {
-      x: round((r.x / image.width) * glass.width),
-      y: round((r.y / image.height) * glass.height),
-      width: round((r.width / image.width) * glass.width),
-      height: round((r.height / image.height) * glass.height),
+      x: round(r.x / dpi),
+      y: round(r.y / dpi),
+      width: round(r.width / dpi),
+      height: round(r.height / dpi),
     };
+  }
+
+  /** The preview as the pages will come out: their color mode, threshold,
+   *  brightness, contrast and invert (Autodetect shows it as it is) */
+  async function look(
+    preview: ScanImage,
+    plan: Pick<ProcessPlan, 'color' | 'threshold' | 'brightness' | 'contrast' | 'invert'>
+  ): Promise<ImageData> {
+    const done = await client.processPage(preview, {
+      colorMode: plan.color === 'auto' ? 'color' : plan.color,
+      threshold: plan.color === 'bw' ? plan.threshold : null,
+      brightness: plan.brightness,
+      contrast: plan.contrast,
+      invert: plan.invert,
+      deskew: false,
+    });
+    return done.kind === 'bw' ? bitmapData(done.bitmap, 1) : imageData(done.image);
   }
 
   return {
     process,
     findDocument,
+    look,
     /** The worker, for Enhance scanned pages */
     client,
     dispose: () => client.dispose(),

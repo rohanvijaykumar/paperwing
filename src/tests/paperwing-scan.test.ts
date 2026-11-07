@@ -10,11 +10,13 @@ import {
   defaultPaper,
   defaultSettings,
   fileNames,
+  glassBox,
   insertAfter,
   interleave,
   nearestResolution,
   offeredResolutions,
   paperChoices,
+  previewRequest,
   scanName,
   settingsSummary,
   splitIntoFiles,
@@ -147,8 +149,9 @@ describe('which settings a scanner shows', () => {
     expect(fb).not.toContain('legal');
     expect(fb).not.toContain('tabloid');
     expect(fb.slice(-2)).toEqual(['max', 'custom']);
+    // (the preview box is on the glass: not for the feeder)
     const fd = paperChoices(feeder, true).map(([k]) => k);
-    expect(fd[0]).toBe('preview');
+    expect(fd).not.toContain('preview');
     expect(fd).toContain('legal');
     expect(fd).not.toContain('auto');
   });
@@ -169,29 +172,34 @@ describe('which settings a scanner shows', () => {
 });
 
 describe('the request, and what is done afterwards', () => {
-  it('the scanner does what it can; the rest is done after the scan', () => {
+  it('black and white, brightness and contrast are done here, as the preview shows them', () => {
     const { request, plan } = buildRequest(
       settings({ color: 'bw', threshold: 102, brightness: 50, contrast: 20, invert: true }),
       caps('twain', flatbed),
       flatbed,
       null
     );
+    // Gray from the scanner, nothing adjusted by it (each driver has its
+    // own scale: this one's brightness runs -1000 to 1000)
     expect(request).toMatchObject({
       source: 'flatbed',
       duplex: false,
-      color: 'bw',
+      color: 'gray',
       dpi: 300,
       paper: { width: 8.5, height: 11 },
-      brightness: 500, // 50% of the way to its maximum
-      threshold: 40, // 102 of 255 on its 0-100 scale
-      invert: true,
       transfer: 'native',
     });
-    expect(request.contrast).toBeUndefined();
-    expect(plan.contrast).toBe(20); // no contrast on this scanner
-    expect(plan.brightness).toBe(0);
-    expect(plan.threshold).toBe(102); // (again afterwards: no change)
+    for (const k of ['brightness', 'contrast', 'threshold', 'invert'] as const)
+      expect(request[k]).toBeUndefined();
+    expect(plan).toMatchObject({ color: 'bw', threshold: 102, brightness: 50, contrast: 20, invert: true });
     expect(plan.deskew).toBe(true);
+    // Only a scanner that can't scan gray makes black and white itself
+    const bwOnly = { ...flatbed, colors: ['bw'] as ScanSource['colors'] };
+    const r = buildRequest(settings({ color: 'bw', threshold: 102 }), caps('twain', bwOnly), bwOnly, null);
+    expect(r.request.color).toBe('bw');
+    expect(r.request.threshold).toBe(40); // 102 of 255 on its 0-100 scale
+    // Invert is for black and white only
+    expect(buildRequest(settings({ color: 'gray', invert: true }), null, flatbed, null).plan.invert).toBe(false);
   });
 
   it('black and white from a scanner without it: gray, then made so', () => {
@@ -217,11 +225,17 @@ describe('the request, and what is done afterwards', () => {
     expect(plan.color).toBe('auto');
   });
 
-  it('a box from the preview is the area; auto size if the scanner can', () => {
+  it('a box from the preview: asked for from the glass corner, cut out here', () => {
     const box = { x: 1, y: 1.2, width: 6.3, height: 8 };
-    expect(
-      buildRequest(settings({ paper: 'preview' }), null, flatbed, box).request.area
-    ).toEqual(box);
+    const { request, plan } = buildRequest(settings({ paper: 'preview' }), null, flatbed, box);
+    // (a driver that ignores where an area starts, or the area, still
+    // sends the corner of the glass: the box is cut from there)
+    expect(request.area).toEqual({ x: 0, y: 0, width: 7.3, height: 9.2 });
+    expect(plan.crop).toEqual(box);
+    // Kept on the glass
+    const off = buildRequest(settings({ paper: 'preview' }), null, flatbed, { x: 5, y: 9, width: 6, height: 6 });
+    expect(off.request.area).toEqual({ x: 0, y: 0, width: 8.5, height: 11.69 });
+    expect(off.plan.crop).toEqual({ x: 5, y: 9, width: 3.5, height: 2.69 });
     expect(buildRequest(settings({ paper: 'auto' }), null, flatbed, null).request.paper).toBe('auto');
     // A scanner that can't: the whole area, cropped afterwards
     const r = buildRequest(settings({ paper: 'auto' }), null, feeder, null);
@@ -229,13 +243,52 @@ describe('the request, and what is done afterwards', () => {
     expect(r.plan.autoCrop).toBe(true);
   });
 
+  it('a paper size on a flatbed is cut from the glass corner (whatever the driver sends)', () => {
+    const letter = buildRequest(settings({ paper: 'letter' }), null, flatbed, null);
+    expect(letter.request.paper).toEqual({ width: 8.5, height: 11 });
+    expect(letter.plan.crop).toEqual({ x: 0, y: 0, width: 8.5, height: 11 });
+    // A feeder's pages aren't cut (where the paper lies is the feeder's say)
+    expect(buildRequest(settings({ source: 'feeder', paper: 'letter' }), null, feeder, null).plan.crop).toBeNull();
+    // The whole glass isn't cut either
+    expect(buildRequest(settings({ paper: 'max' }), null, flatbed, null).plan.crop).toBeNull();
+  });
+
   it('landscape and custom sizes; never bigger than the glass', () => {
-    expect(
-      buildRequest(settings({ paper: 'a5', orientation: 'landscape' }), null, flatbed, null).request.paper
-    ).toEqual({ width: 8.27, height: 5.83 });
+    // A5 lies across the glass
+    const a5 = buildRequest(settings({ paper: 'a5', orientation: 'landscape' }), null, flatbed, null);
+    expect(a5.request.paper).toEqual({ width: 8.27, height: 5.83 });
+    expect(a5.plan.rotate).toBe(0);
+    // Letter doesn't fit across: it's scanned upright and the page turned
+    const letter = buildRequest(settings({ paper: 'letter', orientation: 'landscape', rotate: 90 }), null, flatbed, null);
+    expect(letter.request.paper).toEqual({ width: 8.5, height: 11 });
+    expect(letter.plan.rotate).toBe(0); // 90 + 270
     expect(
       buildRequest(settings({ paper: 'custom', customWidth: 20, customHeight: 4 }), null, flatbed, null).request.paper
     ).toEqual({ width: 8.5, height: 4 });
+  });
+
+  it('the box shown on the glass for each paper choice', () => {
+    expect(glassBox(settings({ paper: 'letter' }), flatbed, null)).toEqual({ x: 0, y: 0, width: 8.5, height: 11 });
+    expect(glassBox(settings({ paper: 'a5', orientation: 'landscape' }), flatbed, null)).toEqual({
+      x: 0,
+      y: 0,
+      width: 8.27,
+      height: 5.83,
+    });
+    expect(glassBox(settings({ paper: 'max' }), flatbed, null)).toEqual({ x: 0, y: 0, width: 8.5, height: 11.69 });
+    expect(glassBox(settings({ paper: 'auto' }), flatbed, null)).toBeNull();
+    const box = { x: 1, y: 2, width: 3, height: 4 };
+    expect(glassBox(settings({ paper: 'preview' }), flatbed, box)).toEqual(box);
+  });
+
+  it('the preview is the whole glass, in color, with nothing adjusted', () => {
+    const r = previewRequest(
+      settings({ color: 'bw', brightness: 80, contrast: -40, invert: true, paper: 'a5' }),
+      caps('twain', flatbed),
+      flatbed
+    );
+    expect(r).toMatchObject({ source: 'flatbed', color: 'color', dpi: 75, paper: { width: 8.5, height: 11.69 } });
+    expect(r.brightness ?? r.contrast ?? r.threshold ?? r.invert ?? r.area).toBeUndefined();
   });
 
   it("a network scanner's own sharpening: shown, and sent in its units", () => {
@@ -364,6 +417,7 @@ describe('pages', () => {
       null
     );
     expect(imageSettings(plan, true)).toEqual({
+      crop: { x: 0, y: 0, width: 8.5, height: 11 },
       colorMode: 'bw',
       threshold: 150,
       brightness: 0,
