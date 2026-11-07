@@ -387,6 +387,20 @@ try {
   });
   check(!!refused, 'a locked document can’t be signed again', refused ?? '');
 
+  // Save on the signed, unchanged document keeps it byte for byte (an
+  // export would rewrite it and break the signatures)
+  const signedFile = join(OUT, 'Contract (signed) (signed) (signed).pdf');
+  const before = existsSync(signedFile) ? readFileSync(signedFile) : null;
+  await page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
+  await page.keyboard.press('s');
+  await page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+  await until(async () => /Saved Contract/.test(await text('#toasts')));
+  const after = existsSync(signedFile) ? readFileSync(signedFile) : null;
+  check(
+    !!before && !!after && before.equals(after),
+    'Save keeps the signed document byte for byte'
+  );
+
   // Validate signatures on the signed document
   await clickText('#cert-bar button', 'Validate signatures');
   const frame = await until(async () =>

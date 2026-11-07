@@ -4110,8 +4110,8 @@ viewer.onPage((tabId, info) => {
 /* Save / print / download / find -------------------------------------- */
 
 async function docBlob(tab: Tab): Promise<Blob | null> {
-  await settleForms([tab]);
-  const bytes = await exportDoc(tab, 'save');
+  // Unchanged, it's saved byte for byte: its signatures stay valid
+  const bytes = await docBytesAsIs(tab, 'save');
   return bytes ? new Blob([bytes], { type: 'application/pdf' }) : null;
 }
 
