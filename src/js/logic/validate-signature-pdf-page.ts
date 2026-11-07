@@ -1,9 +1,21 @@
 import { createIcons, icons } from 'lucide';
 import { showAlert, showLoader, hideLoader } from '../ui.js';
 import { readFileAsArrayBuffer, formatBytes } from '../utils/helpers.js';
-import { validatePdfSignatures } from './validate-signature-pdf.js';
+import {
+  validateDocTimestamps,
+  validatePdfSignatures,
+} from './validate-signature-pdf.js';
+import {
+  signatureVerdict,
+  timestampVerdict,
+  type Verdict,
+} from './signature-verdict.js';
 import forge from 'node-forge';
-import { SignatureValidationResult, ValidateSignatureState } from '@/types';
+import {
+  DocTimestampResult,
+  SignatureValidationResult,
+  ValidateSignatureState,
+} from '@/types';
 
 import { trHtml, trText, onPageReady } from '../i18n/i18n.js';
 import {
@@ -15,6 +27,9 @@ import {
 /** Trust is being checked: a certificate chosen, or (desktop app) the
  *  system's root certificates */
 const trusting = () => !!state.trustedCert || systemTrustOn();
+
+/** Document timestamps in the file (Add a timestamp) */
+let timestamps: DocTimestampResult[] = [];
 
 const state: ValidateSignatureState = {
   pdfFile: null,
@@ -309,7 +324,10 @@ async function validateSignatures(): Promise<void> {
         : [];
       trust = [...roots, ...own];
     }
-    state.results = await validatePdfSignatures(state.pdfBytes, trust);
+    [state.results, timestamps] = await Promise.all([
+      validatePdfSignatures(state.pdfBytes, trust),
+      validateDocTimestamps(state.pdfBytes, trust),
+    ]);
     displayResults();
   } catch (error) {
     console.error('Validation error:', error);
@@ -331,7 +349,7 @@ function displayResults(): void {
   resultsContainer.innerHTML = '';
   resultsSection.classList.remove('hidden');
 
-  if (state.results.length === 0) {
+  if (state.results.length === 0 && timestamps.length === 0) {
     resultsContainer.innerHTML = `
             <div class="bg-gray-700 rounded-lg p-6 text-center border border-gray-600">
                 <i data-lucide="file-x" class="w-12 h-12 mx-auto mb-4 text-gray-400"></i>
@@ -348,7 +366,7 @@ function displayResults(): void {
     'mb-4 p-3 bg-gray-700 rounded-lg border border-gray-600';
 
   const validCount = state.results.filter(
-    (r) => r.isValid && !r.isExpired && r.isTrusted
+    (r) => signatureVerdict(r, trusting()).level === 'valid'
   ).length;
   const trustVerified = trusting()
     ? state.results.filter((r) => r.isTrusted).length
@@ -356,10 +374,20 @@ function displayResults(): void {
 
   let summaryHtml = `
         <p class="text-gray-300">
-            <span class="font-semibold text-white">${state.results.length}</span> 
-            ${state.results.length > 1 ? trHtml('signatures found') : trHtml('signature found')}
+            <span class="font-semibold text-white">${state.results.length}</span>
+            ${state.results.length === 1 ? trHtml('signature found') : trHtml('signatures found')}
             <span class="text-gray-500">•</span>
             <span class="${validCount === state.results.length ? 'text-green-400' : 'text-yellow-400'}">${trHtml('{{validCount}} valid', { validCount })}</span>
+            ${
+              timestamps.length
+                ? `<span class="text-gray-500">•</span> ${trHtml(
+                    timestamps.length === 1
+                      ? '{{n}} document timestamp'
+                      : '{{n}} document timestamps',
+                    { n: timestamps.length }
+                  )}`
+                : ''
+            }
         </p>
     `;
 
@@ -367,7 +395,7 @@ function displayResults(): void {
     summaryHtml += `
             <p class="text-xs text-gray-400 mt-1">
                 <i data-lucide="shield-check" class="inline w-3 h-3 mr-1"></i>
-                ${trHtml('Trust verification: {{trustVerified}}/{{length}} signatures verified against custom certificate', { trustVerified, length: state.results.length })}
+                ${trHtml('Trust: {{trustVerified}} of {{length}} signers lead to a certificate you trust', { trustVerified, length: state.results.length })}
             </p>
         `;
   }
@@ -378,6 +406,9 @@ function displayResults(): void {
   state.results.forEach((result, index) => {
     const card = createSignatureCard(result, index);
     resultsContainer.appendChild(card);
+  });
+  timestamps.forEach((result, index) => {
+    resultsContainer.appendChild(createTimestampCard(result, index));
   });
 
   createIcons({ icons });
@@ -390,45 +421,9 @@ function createSignatureCard(
   const card = document.createElement('div');
   card.className = 'bg-gray-700 rounded-lg p-4 border border-gray-600 mb-4';
 
-  let statusColor = 'text-green-400';
-  let statusIcon = 'check-circle';
-  let statusText = trText('Valid Signature');
-
-  if (!result.isValid) {
-    if (result.cryptoVerificationStatus === 'unsupported') {
-      statusColor = 'text-yellow-400';
-      statusIcon = 'alert-triangle';
-      statusText = trText('Unverified: Unsupported Signature Algorithm');
-    } else if (
-      result.cryptoVerified === true &&
-      result.coverageStatus === 'partial'
-    ) {
-      statusColor = 'text-yellow-400';
-      statusIcon = 'alert-triangle';
-      statusText = trText('Modified After Signing (signed part intact)');
-    } else {
-      statusColor = 'text-red-400';
-      statusIcon = 'x-circle';
-      statusText =
-        result.cryptoVerified === false
-          ? trText('Invalid: Cryptographic Verification Failed')
-          : trText('Invalid Signature');
-    }
-  } else if (result.usesInsecureDigest) {
-    statusColor = 'text-red-400';
-    statusIcon = 'x-circle';
-    statusText = trText('Insecure Digest (MD5 / SHA-1)');
-  } else if (result.isExpired) {
-    statusColor = 'text-yellow-400';
-    statusIcon = 'alert-triangle';
-    statusText = trText('Certificate Expired');
-  } else if (!result.isTrusted) {
-    statusColor = 'text-yellow-400';
-    statusIcon = 'alert-triangle';
-    statusText = result.isSelfSigned
-      ? trText('Self-Signed: Signer Identity Not Verified')
-      : trText('Signature Intact: Signer Identity Not Verified');
-  }
+  const verdict = signatureVerdict(result, trusting());
+  const { statusColor, statusIcon } = look(verdict);
+  const statusText = verdict.title;
 
   const formatDate = (date: Date) => {
     if (!date || date.getTime() === 0) return trText('Unknown');
@@ -456,7 +451,7 @@ function createSignatureCard(
                 <i data-lucide="${statusIcon}" class="w-6 h-6 ${statusColor}"></i>
                 <div>
                     <h3 class="font-semibold text-white">${trHtml('Signature {{n}}', { n: index + 1 })}</h3>
-                    <p class="text-sm ${statusColor}">${statusText}</p>
+                    <p class="text-sm ${statusColor}">${escapeHtml(statusText)}</p>
                 </div>
             </div>
             <div class="flex items-center">
@@ -464,13 +459,16 @@ function createSignatureCard(
                   result.coverageStatus === 'full'
                     ? `<span class="text-xs bg-green-900 text-green-300 px-2 py-1 rounded">${trHtml('Full Coverage')}</span>`
                     : result.coverageStatus === 'partial'
-                      ? `<span class="text-xs bg-yellow-900 text-yellow-300 px-2 py-1 rounded">${trHtml('Partial Coverage')}</span>`
+                      ? result.laterChanges === 'other'
+                        ? `<span class="text-xs bg-yellow-900 text-yellow-300 px-2 py-1 rounded">${trHtml('Partial Coverage')}</span>`
+                        : `<span class="text-xs bg-green-900 text-green-300 px-2 py-1 rounded">${trHtml('Covers its version')}</span>`
                       : ''
                 }${trustBadge}
             </div>
         </div>
 
         <div class="space-y-3 text-sm">
+            ${explanationHtml(verdict)}
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <p class="text-gray-400">${trHtml('Signed By')}</p>
@@ -544,6 +542,55 @@ function createSignatureCard(
         </div>
     `;
 
+  return card;
+}
+
+function look(verdict: Verdict): { statusColor: string; statusIcon: string } {
+  return verdict.level === 'valid'
+    ? { statusColor: 'text-green-400', statusIcon: 'check-circle' }
+    : verdict.level === 'warning'
+      ? { statusColor: 'text-yellow-400', statusIcon: 'alert-triangle' }
+      : { statusColor: 'text-red-400', statusIcon: 'x-circle' };
+}
+
+/** What the status means, in plain words, and other facts worth knowing */
+function explanationHtml(verdict: Verdict): string {
+  return `<div class="sig-explanation">
+      <p class="text-gray-200">${escapeHtml(verdict.explanation)}</p>
+      ${verdict.notes.map((n) => `<p class="text-gray-400 text-xs mt-1">${escapeHtml(n)}</p>`).join('')}
+    </div>`;
+}
+
+function createTimestampCard(
+  result: DocTimestampResult,
+  index: number
+): HTMLElement {
+  const verdict = timestampVerdict(result);
+  const { statusColor, statusIcon } = look(verdict);
+  const card = document.createElement('div');
+  card.className = 'bg-gray-700 rounded-lg p-4 border border-gray-600 mb-4';
+  card.innerHTML = `
+        <div class="flex items-start gap-3 mb-4">
+            <i data-lucide="${statusIcon}" class="w-6 h-6 ${statusColor}"></i>
+            <div>
+                <h3 class="font-semibold text-white">${trHtml('Document timestamp {{n}}', { n: index + 1 })}</h3>
+                <p class="text-sm ${statusColor}">${escapeHtml(verdict.title)}</p>
+            </div>
+        </div>
+        <div class="space-y-3 text-sm">
+            ${explanationHtml(verdict)}
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <p class="text-gray-400">${trHtml('Timestamp authority')}</p>
+                    <p class="text-white font-medium">${escapeHtml(result.authority)}</p>
+                </div>
+                <div>
+                    <p class="text-gray-400">${trHtml('Time')}</p>
+                    <p class="text-white">${result.time ? escapeHtml(result.time.toLocaleString()) : trHtml('Unknown')}</p>
+                </div>
+            </div>
+        </div>
+    `;
   return card;
 }
 
