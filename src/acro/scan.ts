@@ -35,6 +35,7 @@ import {
   defaultAfterPass,
   fileNames,
   fromInches,
+  glassBox,
   insertAfter,
   interleave,
   nearestResolution,
@@ -42,6 +43,7 @@ import {
   omit,
   paperChoices,
   pick,
+  previewRequest,
   settingsSummary,
   splitIntoFiles,
   startingSettings,
@@ -57,12 +59,13 @@ import {
 import {
   buildPdf,
   createPageProcessor,
+  decode,
   encodePage,
   type PdfPart,
   type ProcessedPage,
 } from './scan-process';
 import { createGlassPreview } from './scan-preview';
-import type { OrientationDetector } from './scan-image';
+import type { OrientationDetector, ScanImage } from './scan-image';
 import { createReview, type ReviewPage } from './scan-review';
 import { loadPdfjs } from './thumbnails';
 
@@ -390,6 +393,11 @@ export function showScanDialog(
     /** Cancel was selected once with pages scanned: again discards them */
     let confirmDiscard = false;
     let saveFolder: { path: string; name: string } | null = null;
+    /** The box found on the preview, or dragged: the scan area when the
+     *  paper size is Custom (from preview) */
+    let areaBox: Box | null = null;
+    /** The last preview of the glass, as it came */
+    let previewImage: ScanImage | null = null;
     const picked: PickedFile[] = [];
     const urls = new Set<string>();
     const thumb = (blob: Blob) => {
@@ -399,6 +407,9 @@ export function showScanDialog(
     };
     const source = (): ScanSource | undefined =>
       caps?.sources.find((s) => s.id === settings.source) ?? caps?.sources[0];
+    /** The flatbed, when it can preview */
+    const previewable = (): ScanSource | undefined =>
+      caps?.sources.find((s) => s.id === 'flatbed' && s.canPreview);
 
     /* Controls ------------------------------------------------------------ */
     const preset = select('Preset');
@@ -649,12 +660,13 @@ export function showScanDialog(
     );
 
     /* Right side ----------------------------------------------------------- */
+    // Dragging the box makes it the scan area
     const glass = createGlassPreview((box) => {
-      void box;
+      areaBox = box;
       if (settings.paper !== 'preview') {
         settings.paper = 'preview';
         refresh();
-      }
+      } else summary.textContent = settingsSummary(settings);
     });
     const review = createReview({
       rotate: (id, by) => {
@@ -713,6 +725,8 @@ export function showScanDialog(
     const scanBtn = btn('accent-btn', 'Scan', () => void scanPass('first'));
     const moreBtn = btn('pill-btn', 'Scan more pages', () => void after('more'));
     const reverseBtn = btn('pill-btn', 'Scan reverse sides', () => void after('reverse'));
+    reverseBtn.title =
+      'For pages printed on both sides: turn the scanned stack over and put it back in the feeder. The backs go in after their fronts.';
     const doneBtn = btn('pill-btn', 'Scan is complete', () => void after('done'));
     const actions = el('div', { class: 'dlg-actions' });
 
@@ -873,7 +887,7 @@ export function showScanDialog(
       );
       if (!custom) settings.dpi = Number(dpi.value) || settings.dpi;
       customDpiRow.hidden = dpi.value !== 'custom';
-      fill(paper, paperChoices(s, !!glass.box()), settings.paper);
+      fill(paper, paperChoices(s, !!areaBox), settings.paper);
       if (paper.value !== settings.paper) settings.paper = paper.value;
       sizeRow.hidden = !v.customSize;
       orientationRow.hidden = !v.orientation;
@@ -892,16 +906,87 @@ export function showScanDialog(
       if (options.mode === 'insert') {
         insertNumber.closest('label')!.hidden = insertPage.value !== 'number';
       }
-      // Preview: for a flatbed that can
-      tabPreview.hidden = !v.preview || watchMode;
-      previewBtn.hidden = !v.preview || watchMode || pages.length > 0;
+      // Preview: for a flatbed that can, between passes too; with the feeder
+      // chosen, the pane says how to preview
+      tabPreview.hidden = watchMode || !caps;
+      previewBtn.hidden = watchMode || !previewable();
+      // (the tooltip moves a title into data-tip once shown: both go)
+      previewBtn.removeAttribute('data-tip');
+      if (settings.source === 'feeder')
+        previewBtn.title = "A document feeder can't preview pages. Choose Flatbed to preview.";
+      else previewBtn.removeAttribute('title');
       if (tabPreview.hidden && shown === 'preview') showPane('pages');
+      syncGlass(s);
       summary.textContent = watchMode
         ? 'Import from a scanner app'
         : caps
           ? settingsSummary(settings)
           : '';
       enable();
+    }
+
+    /** The glass in the preview pane: the box the scan covers, or why
+     *  there's nothing to preview */
+    function syncGlass(s: ScanSource | undefined) {
+      const flat = previewable();
+      if (!caps || !s || scanner.value === WATCH) {
+        glass.setGlass(null, '');
+        return;
+      }
+      if (s.id === 'feeder') {
+        glass.setGlass(
+          null,
+          flat
+            ? "A document feeder can't preview pages. To preview, put the page on the glass and choose Flatbed."
+            : "This scanner has only a document feeder, which can't preview pages. They show under Pages as they're scanned."
+        );
+        return;
+      }
+      glass.setGlass(
+        { width: s.maxWidth, height: s.maxHeight },
+        s.canPreview
+          ? 'Select Preview for a quick look at what’s on the glass. The box shows what will be scanned.'
+          : "This scanner can't preview. The box shows the part of the glass that will be scanned."
+      );
+      const box = glassBox(settings, s, areaBox);
+      glass.setBox(box);
+      if (!box) glass.note('Auto-detect: the scanner finds the paper on the glass itself.');
+      updateLook();
+    }
+
+    /* The preview shows the pages' color mode, brightness, contrast and
+       threshold as they're changed (no new scan): worked out like the
+       pages, one at a time, the latest settings winning */
+    let lookShown = '';
+    let lookRunning = false;
+    function updateLook() {
+      const image = previewImage;
+      if (!image || lookRunning) return;
+      const want = {
+        color: settings.color,
+        threshold: settings.threshold,
+        brightness: settings.brightness,
+        contrast: settings.contrast,
+        invert: settings.invert && settings.color === 'bw',
+      };
+      const key = JSON.stringify(want);
+      if (key === lookShown) return;
+      lookRunning = true;
+      processor
+        .look(image, want)
+        .then((pixels) => {
+          if (closed || image !== previewImage) return;
+          glass.draw(pixels, image.dpi);
+          lookShown = key;
+          // (what's shown, for the benches)
+          glass.el.dataset.look = key;
+        })
+        .catch((err: unknown) => console.error(err))
+        .finally(() => {
+          lookRunning = false;
+          // (changed again meanwhile)
+          if (!closed && image === previewImage) updateLook();
+        });
     }
 
     function renderPages() {
@@ -968,7 +1053,7 @@ export function showScanDialog(
       if (pages.length) scanner.disabled = refreshBtn.disabled = addBtn.disabled = true;
       const ready = !!caps && !!device;
       scanBtn.disabled = working || !ready;
-      previewBtn.disabled = working || !ready;
+      previewBtn.disabled = working || !ready || settings.source === 'feeder';
       moreBtn.disabled = reverseBtn.disabled = working || !ready;
       doneBtn.disabled = working || !included().length;
       if (busy === 'scan' || busy === 'preview') cancelBtn.textContent = 'Stop';
@@ -995,7 +1080,7 @@ export function showScanDialog(
         [doneBtn, 'done'],
       ] as const)
         b.className = k === first ? 'accent-btn' : 'pill-btn';
-      actions.replaceChildren(cancelBtn, reverseBtn, moreBtn, doneBtn);
+      actions.replaceChildren(cancelBtn, ...(previewBtn.hidden ? [] : [previewBtn]), reverseBtn, moreBtn, doneBtn);
       enable();
       ({ more: moreBtn, reverse: reverseBtn, done: doneBtn })[first].focus();
     }
@@ -1121,7 +1206,9 @@ export function showScanDialog(
       caps = r.ok ? (r.caps ?? null) : null;
       status.textContent = r.ok ? '' : scanErrorMessage(r.error, r.message, options.isMac);
       // A new scanner: its glass preview no longer applies
-      glass.clear('Select Preview for a quick look at what’s on the glass.');
+      previewImage = null;
+      areaBox = null;
+      glass.setGlass(null, '');
       if (settings.paper === 'preview') settings.paper = 'max';
       refresh();
       renderPages();
@@ -1158,21 +1245,27 @@ export function showScanDialog(
       busy = 'preview';
       enable();
       status.textContent = 'Previewing…';
-      const { request } = buildRequest({ ...settings, source: 'flatbed', paper: 'max', color: 'color' }, caps, s, null);
       const r: ScanResult & { page?: ScanPageInfo & { data: Uint8Array } } = await bridge
-        .scanPreview(device.id, { ...request, dpi: 50, color: s.colors.includes('color') ? 'color' : 'gray' })
+        .scanPreview(device.id, previewRequest(settings, caps, s))
         .catch((err: unknown) => ({ ok: false, error: 'failed', message: String(err) }));
       if (closed) return;
       busy = '';
       if (r.ok && r.page) {
         const blob = new Blob([r.page.data as BlobPart], { type: r.page.mime });
-        const size = { width: s.maxWidth, height: s.maxHeight };
-        const box: Box | null = await processor.findDocument(blob, size).catch((): null => null);
-        glass.show(blob, size, box ?? { x: 0, y: 0, width: size.width, height: size.height });
-        if (box) settings.paper = 'preview';
-        status.textContent = box
-          ? 'The box shows what will be scanned. Drag its corners to change it.'
-          : 'Nothing stood out on the glass: drag the corners to choose what to scan.';
+        const image: ScanImage | null = await decode(blob, r.page.dpi).catch((): null => null);
+        const box: Box | null = image ? await processor.findDocument(image).catch((): null => null) : null;
+        if (closed) return;
+        previewImage = image;
+        lookShown = '';
+        if (box) {
+          areaBox = box;
+          settings.paper = 'preview';
+        }
+        status.textContent = !image
+          ? "The preview couldn't be shown."
+          : box
+            ? 'The box shows what will be scanned. Drag its corners to change it.'
+            : 'Nothing stood out on the glass: drag the corners to choose what to scan.';
       } else if (!r.cancelled) {
         status.textContent = scanErrorMessage(r.error, r.message, options.isMac);
       } else status.textContent = '';
@@ -1215,7 +1308,7 @@ export function showScanDialog(
       readControls();
       remember();
       const s = source();
-      const { request, plan } = buildRequest(settings, caps, s, glass.box());
+      const { request, plan } = buildRequest(settings, caps, s, areaBox);
       if (kind === 'reverse') {
         request.source = 'feeder';
         request.duplex = false;
@@ -1302,11 +1395,15 @@ export function showScanDialog(
         // Both sides from a one-sided feeder: now the backs
         const needBacks =
           kind !== 'reverse' && settings.sides === 'both' && request.source === 'feeder' && !request.duplex && got.length > 0;
+        const oneSided =
+          kind !== 'reverse' && request.source === 'feeder' && !request.duplex && got.length > 0;
         status.textContent = result.cancelled
           ? `Scanning stopped. ${count}`
           : needBacks
             ? `${count} Turn the stack over, put it back in the feeder, then select Scan reverse sides.`
-            : `${count} Scan more, or select Scan is complete.`;
+            : oneSided
+              ? `${count} Printed on both sides? Turn the stack over, put it back in the feeder, then select Scan reverse sides.`
+              : `${count} Scan more, or select Scan is complete.`;
         if (!result.cancelled && !settings.promptMore && !needBacks && pages.length) {
           await finish();
           return;
@@ -1813,6 +1910,13 @@ export function showScanDialog(
         readControls();
         confirmDiscard = false;
         refresh();
+      });
+
+    // Sliders change the preview while they're dragged
+    for (const c of [brightness, contrast, threshold])
+      c.addEventListener('input', () => {
+        readControls();
+        updateLook();
       });
 
     if (options.mode === 'insert' && options.insert) {

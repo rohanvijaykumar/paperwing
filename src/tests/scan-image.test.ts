@@ -92,6 +92,19 @@ describe('deskew', () => {
     expect((await processPage(photo, { colorMode: 'gray' })).skew).toBe(0);
   });
 
+  it('leaves a logo alone (curves and slanted edges are not lines of text)', async () => {
+    // A crescent and an arrowhead, like a logo boxed on the preview
+    const img = gray(360, 300, 120, 250);
+    for (let y = 0; y < 300; y++)
+      for (let x = 0; x < 360; x++) {
+        const inA = (x - 150) ** 2 + (y - 150) ** 2 < 110 ** 2;
+        const inB = (x - 190) ** 2 + (y - 120) ** 2 < 100 ** 2;
+        const head = x > 220 && x < 340 && Math.abs(y - 200) < (340 - x) * 0.6;
+        if ((inA && !inB) || head) set(img, x, y, 60);
+      }
+    expect((await processPage(img, { colorMode: 'gray', deskew: true })).skew).toBe(0);
+  });
+
   it('straightens color pages and keeps them in color', async () => {
     const img = rgba(W, H, DPI, [250, 250, 250]);
     drawText(img, textLayout(2550, 3300).inkAt, {
@@ -615,6 +628,20 @@ describe('text sharpening', () => {
     expect(low).toBeGreaterThan(base);
     expect(high).toBeGreaterThan(low);
   });
+
+  it.each([75, 100, 150])('does something at %s dpi too (every level)', async (dpi) => {
+    // (the blur it compares with used to round away below about 150 dpi)
+    const img = gray(120, 40, dpi, 240);
+    for (let y = 0; y < 40; y++)
+      for (let x = 60; x < 120; x++) set(img, x, y, Math.max(40, 240 - (x - 60) * 70));
+    const edge = (i: ScanImage) => at(i, 60, 20) - at(i, 63, 20);
+    for (const level of ['low', 'medium', 'high'] as const) {
+      const out = imageOf(
+        await processPage(img, { ...OFF, colorMode: 'gray', textSharpening: level })
+      );
+      expect(edge(out), level).toBeGreaterThan(edge(img));
+    }
+  });
 });
 
 describe('orientation', () => {
@@ -716,5 +743,36 @@ describe('input', () => {
     expect(a.kind === 'color' && b.kind === 'color' && a.image.data).toEqual(
       b.kind === 'color' && b.image.data
     );
+  });
+});
+
+describe('the scan area', () => {
+  // A 10 × 14 in glass at 20 dpi, a dark square at (3, 4) in, 1 in wide
+  const glass = () => {
+    const img = gray(200, 280, 20, 240);
+    rect(img, 60, 80, 20, 20, 10);
+    return img;
+  };
+
+  it('keeps just the box, measured from the corner of what came', async () => {
+    const p = await processPage(glass(), {
+      crop: { x: 2.5, y: 3.5, width: 2, height: 3 },
+      colorMode: 'gray',
+      deskew: false,
+    });
+    expect([p.width, p.height]).toEqual([40, 60]);
+    const img = imageOf(p);
+    // the square starts 0.5 in (10 px) into the box
+    expect(at(img, 12, 12)).toBeLessThan(50);
+    expect(at(img, 5, 5)).toBeGreaterThan(200);
+  });
+
+  it('a box partly off what came is cut to what there is', async () => {
+    const p = await processPage(glass(), {
+      crop: { x: 8, y: 12, width: 5, height: 5 },
+      colorMode: 'gray',
+      deskew: false,
+    });
+    expect([p.width, p.height]).toEqual([40, 40]);
   });
 });

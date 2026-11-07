@@ -1,7 +1,11 @@
 /**
- * The scan dialog's flatbed preview: a quick scan of the whole glass, with
- * a box around the document (scan-image.ts finds it) whose corners can be
- * dragged, or moved with the arrow keys. The real scan covers only the box.
+ * The scan dialog's flatbed preview: the glass, whole, fitted into the pane
+ * at any window size; a quick scan of it (Preview) shown with the chosen
+ * color mode, brightness, contrast and threshold applied live (scan.ts
+ * works them out); and the box the scan will cover (the paper size, or a
+ * box around the document scan-image.ts finds), whose corners can be
+ * dragged, or moved with the arrow keys. Dragging makes the box the scan
+ * area. Before a preview the glass is shown empty, with the box on it.
  */
 import type { Box } from './scan-settings';
 
@@ -18,10 +22,23 @@ function el<K extends keyof HTMLElementTagNameMap>(
 
 export interface GlassPreview {
   el: HTMLElement;
-  /** Shows a preview image of the glass (its size in inches) and a box */
-  show(image: Blob, glass: { width: number; height: number }, box: Box | null): void;
-  clear(message: string): void;
+  /**
+   * The glass (its size in inches), or null when there's no glass to show
+   * (a document feeder, no scanner) and `message` says why. A new glass
+   * drops the picture of the old one.
+   */
+  setGlass(glass: { width: number; height: number } | null, message: string): void;
+  /** Draws a preview (or the preview adjusted) scanned at `dpi`, placed by
+   *  its own size from the glass's corner, so a driver that sends less (or
+   *  more) than the whole glass still lines up with the box */
+  draw(pixels: ImageData, dpi: number): void;
+  /** Whether a preview is shown */
+  hasImage(): boolean;
+  /** The box the scan covers (null: none, the scanner finds the paper) */
+  setBox(box: Box | null): void;
   box(): Box | null;
+  /** A line shown on the empty glass (or over the picture, when busy) */
+  note(text: string): void;
   setBusy(busy: boolean): void;
 }
 
@@ -35,42 +52,57 @@ type Corner = (typeof CORNERS)[number][0];
 
 /** The smallest box, in inches */
 const MIN = 0.5;
+/** Room around the glass in the pane, px */
+const PAD = 16;
 
 export function createGlassPreview(onBoxChange: (box: Box) => void): GlassPreview {
-  const img = el('img', { class: 'sp-image', alt: '' });
+  const canvas = el('canvas', { class: 'sp-image', 'aria-hidden': 'true' });
   const frame = el('div', { class: 'sp-box', 'aria-hidden': 'true' });
-  const handles = CORNERS.map(([corner, label]) => {
-    const h = el('button', {
+  const handles = CORNERS.map(([corner, label]) =>
+    el('button', {
       type: 'button',
       class: `sp-handle sp-${corner}`,
       'aria-label': `${label} of the scan area`,
       title: 'Drag to change the scan area (arrow keys move it)',
       'data-corner': corner,
-    });
-    return h;
-  });
+    })
+  );
+  const empty = el('p', { class: 'sp-empty' });
+  const stage = el('div', { class: 'sp-stage' }, canvas, empty, frame, ...handles);
   const message = el('p', { class: 'sp-message' });
-  const stage = el('div', { class: 'sp-stage' }, img, frame, ...handles);
   const root = el(
     'div',
     { class: 'sp-glass', role: 'group', 'aria-label': 'Preview of the glass' },
     stage,
     message
   );
-  let glass = { width: 8.5, height: 11.69 };
+  let glass: { width: number; height: number } | null = null;
   let current: Box | null = null;
-  let url = '';
+  let image = false;
+
+  /** The glass as big as the pane allows, whole */
+  function fit() {
+    if (!glass) return;
+    const w = root.clientWidth - 2 * PAD;
+    const h = root.clientHeight - 2 * PAD;
+    if (w <= 0 || h <= 0) return;
+    const scale = Math.min(w / glass.width, h / glass.height);
+    stage.style.width = `${Math.floor(glass.width * scale)}px`;
+    stage.style.height = `${Math.floor(glass.height * scale)}px`;
+  }
+  new ResizeObserver(fit).observe(root);
 
   function layout() {
-    const visible = !!current && !stage.hidden;
+    const visible = !!current && !!glass;
     frame.hidden = !visible;
     handles.forEach((h) => (h.hidden = !visible));
-    if (!current || !visible) return;
+    if (!current || !glass) return;
+    const g = glass;
     const pct = (v: number, of: number) => `${(v / of) * 100}%`;
-    frame.style.left = pct(current.x, glass.width);
-    frame.style.top = pct(current.y, glass.height);
-    frame.style.width = pct(current.width, glass.width);
-    frame.style.height = pct(current.height, glass.height);
+    frame.style.left = pct(current.x, g.width);
+    frame.style.top = pct(current.y, g.height);
+    frame.style.width = pct(current.width, g.width);
+    frame.style.height = pct(current.height, g.height);
     const at: Record<Corner, [number, number]> = {
       nw: [current.x, current.y],
       ne: [current.x + current.width, current.y],
@@ -79,14 +111,14 @@ export function createGlassPreview(onBoxChange: (box: Box) => void): GlassPrevie
     };
     for (const h of handles) {
       const [x, y] = at[h.dataset.corner as Corner];
-      h.style.left = pct(x, glass.width);
-      h.style.top = pct(y, glass.height);
+      h.style.left = pct(x, g.width);
+      h.style.top = pct(y, g.height);
     }
   }
 
   /** Moves one corner to (x, y) inches, keeping the box on the glass */
   function moveCorner(corner: Corner, x: number, y: number) {
-    if (!current) return;
+    if (!current || !glass) return;
     let { x: left, y: top } = current;
     let right = left + current.width;
     let bottom = top + current.height;
@@ -113,6 +145,7 @@ export function createGlassPreview(onBoxChange: (box: Box) => void): GlassPrevie
       h.setPointerCapture(e.pointerId);
       h.focus();
       const move = (ev: PointerEvent) => {
+        if (!glass) return;
         const r = stage.getBoundingClientRect();
         moveCorner(
           corner,
@@ -150,25 +183,46 @@ export function createGlassPreview(onBoxChange: (box: Box) => void): GlassPrevie
 
   return {
     el: root,
-    show(image, size, box) {
-      if (url) URL.revokeObjectURL(url);
-      url = URL.createObjectURL(image);
-      img.src = url;
+    setGlass(size, text) {
+      const same = !!size && !!glass && size.width === glass.width && size.height === glass.height;
       glass = size;
-      stage.style.aspectRatio = `${size.width} / ${size.height}`;
-      stage.hidden = false;
-      message.hidden = true;
-      current = box;
+      stage.hidden = !size;
+      message.hidden = !!size;
+      message.textContent = size ? '' : text;
+      if (!same) {
+        image = false;
+        canvas.hidden = true;
+        empty.hidden = false;
+      }
+      if (size) {
+        // (its size, for the benches)
+        stage.dataset.glass = `${size.width}x${size.height}`;
+        empty.textContent = text;
+        fit();
+      } else current = null;
       layout();
     },
-    clear(text) {
-      stage.hidden = true;
-      message.hidden = false;
-      message.textContent = text;
-      current = null;
+    draw(pixels, dpi) {
+      if (!glass) return;
+      canvas.width = pixels.width;
+      canvas.height = pixels.height;
+      canvas.getContext('2d')!.putImageData(pixels, 0, 0);
+      // Its size on the glass, from its resolution
+      canvas.style.width = `${(Math.min(pixels.width / dpi, glass.width) / glass.width) * 100}%`;
+      canvas.style.height = `${(Math.min(pixels.height / dpi, glass.height) / glass.height) * 100}%`;
+      canvas.hidden = false;
+      empty.hidden = true;
+      image = true;
+    },
+    hasImage: () => image,
+    setBox(box) {
+      current = box && glass ? { ...box } : null;
       layout();
     },
     box: () => current,
+    note(text) {
+      empty.textContent = text;
+    },
     setBusy(busy) {
       root.classList.toggle('is-busy', busy);
       handles.forEach((h) => (h.disabled = busy));
