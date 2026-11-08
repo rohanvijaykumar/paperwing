@@ -244,6 +244,11 @@ jobs:
         working-directory: desktop
         run: node bench/check-scan-network.mjs
 
+      - name: 'Controls alike: dropdowns, links, focus rings, bars'
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-controls.mjs
+
       - name: 1.2 interface bench
         if: ${{ !cancelled() }}
         working-directory: desktop

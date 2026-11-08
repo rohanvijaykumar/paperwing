@@ -8,7 +8,8 @@
  *    menu's Create PDF from scanner ▸ a preset scans at once
  *  - Insert pages from scanner (page thumbnails' menu) at page N and
  *    before the first page
- *  - Append to a PDF that isn't open (Browse…, through PAPERWING_TEST_OPEN):
+ *  - Append to a PDF that isn't open, with nothing open (the Browse…
+ *    button, through PAPERWING_TEST_OPEN; the file dialog cancelled first):
  *    it opens with the pages added, unsaved; the file on disk is untouched
  *  - Save multiple files (PAPERWING_TEST_FOLDER): pages per file, prefix
  *  - Recognize text right after scanning: the text is in the PDF
@@ -365,19 +366,45 @@ check(sizes.join() === '612,595,612,595,595,595', 'before the first page', sizes
 await page.evaluate(() => window.__acro && null);
 await app.close();
 
-app = await L.start({ PAPERWING_TEST_OPEN: doc1 });
+// (the file dialog: cancelled the first time, then the PDF)
+app = await L.start({ PAPERWING_TEST_OPEN: `:cancel|${doc1}` });
 page = app.page;
 check(await L.openDialog(page), 'with no document open');
 await choose(page, 'Scanner', 'Paperwing Test Scanner');
 await L.waitReady(page);
 await choose(page, 'Source', 'Flatbed');
 await click(page, '.dlg-scan .pd-radio', 'Append to file');
-await choose(page, 'File to append to', 'Browse…');
+const appendRow = () =>
+  page.evaluate(() => {
+    const s = document.querySelector('.dlg-scan select[aria-label="File to append to"]');
+    const row = s.closest('.sd-sub');
+    const shown = (e) => !!e && e.getBoundingClientRect().width > 0 && !e.closest('[hidden]');
+    return {
+      list: shown(s) ? [...s.options].map((o) => o.textContent) : null,
+      chosen: shown(s) ? s.options[s.selectedIndex]?.textContent : null,
+      none: [...row.querySelectorAll('span')].find(shown)?.textContent ?? null,
+      browse: shown([...row.querySelectorAll('button')].find((b) => b.textContent === 'Browse…')),
+    };
+  });
+let row = await appendRow();
+// (Browse… was a choice in the list, already chosen when nothing else was
+// listed: choosing it again did nothing, and the file dialog never opened)
+check(row.list === null && row.none === 'No file chosen' && row.browse, 'Append to file with nothing open: No file chosen, and a Browse… button', JSON.stringify(row));
+await click(page, '.dlg-scan .sd-sub button', 'Browse…');
+await sleep(1500);
+row = await appendRow();
+check(row.list === null && row.none === 'No file chosen', 'the file dialog cancelled: still no file chosen', JSON.stringify(row));
+check(!(await dialog(page)).buttons.includes('Browse…') && !!(await L.waitReady(page, 2000)), 'and the dialog carries on (Scan still there)');
+await click(page, '.dlg-scan .sd-sub button', 'Browse…');
 const browsed = await until(page, () => {
   const s = document.querySelector('.dlg-scan select[aria-label="File to append to"]');
   return s.options[s.selectedIndex]?.textContent.includes('(not open)') && s.options[s.selectedIndex].textContent;
 });
 check(browsed === 'Four pages.pdf (not open)', 'Browse… picks a PDF that isn’t open', browsed);
+await click(page, '.dlg-scan .sd-sub button', 'Browse…');
+await sleep(1500);
+row = await appendRow();
+check(JSON.stringify(row.list) === JSON.stringify(['Four pages.pdf (not open)']), 'the same PDF picked again is listed once', JSON.stringify(row.list));
 await press(page, 'Scan');
 await L.waitIdle(page);
 await press(page, 'Scan is complete');
