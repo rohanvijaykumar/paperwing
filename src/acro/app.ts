@@ -4,6 +4,8 @@
  * pages, which do the PDF work.
  */
 import '@phosphor-icons/web/duotone';
+// (first: its Escape handler runs before the app's own)
+import './dropdowns';
 import { icon, toolIcon, type IconName } from './icons';
 import {
   allToolGroups,
@@ -1316,7 +1318,8 @@ function renderCertBar(): void {
         class: 'pill-btn',
         onClick: (): void => {
           const t = getTool(id);
-          if (t) void openToolOnDoc(tab, t);
+          // (titled as the button and E-Sign say, not BentoPDF's name)
+          if (t) void openToolOnDoc(tab, { ...t, name: label });
         },
       },
       label
@@ -5059,21 +5062,24 @@ function showAbout() {
 
 let scanningNow = false;
 
-/** File ▸ Create PDF from scanner ▸ a preset scans at once, as in Acrobat */
+/** File ▸ Create PDF from scanner ▸ a preset scans at once, as in Acrobat
+ *  (your own presets too) */
 function showScanPresetMenu(anchor: HTMLElement) {
-  void import('./scan-settings').then(({ BUILTIN_PRESETS }) =>
-    showMenu(anchor, [
-      {
-        label: 'Scan…',
-        icon: icon('scan', 16),
-        onClick: (): void => void scanToPdf(),
-      },
-      { divider: true },
-      ...BUILTIN_PRESETS.map((p) => ({
-        label: p.label,
-        onClick: (): void => void scanToPdf({ preset: p.id, autoStart: true }),
-      })),
-    ])
+  void Promise.all([import('./scan-settings'), import('./scan')]).then(
+    ([{ BUILTIN_PRESETS }, { customPresets }]) =>
+      showMenu(anchor, [
+        {
+          label: 'Scan…',
+          icon: icon('scan', 16),
+          onClick: (): void => void scanToPdf(),
+        },
+        { divider: true },
+        ...[...BUILTIN_PRESETS, ...customPresets()].map((p) => ({
+          label: p.label,
+          onClick: (): void =>
+            void scanToPdf({ preset: p.id, autoStart: true }),
+        })),
+      ])
   );
 }
 
@@ -6140,16 +6146,7 @@ function paletteCommands(): PaletteItem[] {
                 },
               ]
             : []),
-          {
-            label: 'Scan & OCR',
-            icon: icon('scan', 16),
-            run: (): void => void showScanOcrStart(),
-          },
-          {
-            label: 'Enhance scanned pages',
-            icon: icon('scan', 16),
-            run: (): void => void enhanceScanned(),
-          },
+          // (Scan & OCR and Enhance scanned pages are tools, listed with them)
         ]
       : []),
     { label: 'Keyboard shortcuts', icon: icon('help', 16), run: showShortcuts },
@@ -6459,7 +6456,8 @@ const isEditable = (el: HTMLElement | null) =>
   !!el &&
   (el.isContentEditable ||
     /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ||
-    !!el.closest?.('[contenteditable="true"]'));
+    // (an option in a dropdown's open list: typing picks an option)
+    !!el.closest?.('select, [contenteditable="true"]'));
 
 /** Shared by the shell and by keys forwarded from tool frames */
 function handleKey(e: KeyInput, editing: boolean, fromFrame = false): boolean {

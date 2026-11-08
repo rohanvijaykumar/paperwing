@@ -129,9 +129,11 @@ flatbed. `PAPERWING_SCAN_TEST_PAGES` sets the sheets in the feeder, `PAPERWING_S
 `PAPERWING_SCAN_TEST_SKEW` which pages come out blank or crooked, and
 `PAPERWING_SCAN_TEST_ERROR=paper-jam` (or `double-feed@2`: after two pages) makes it fail.
 `PAPERWING_TEST_OPEN=<file.pdf>` and `PAPERWING_TEST_FOLDER=<folder>` answer the open and folder
-dialogs in development builds, so benches can use Browse… and Save multiple files.
+dialogs in development builds, so benches can use Browse… and Save multiple files
+(`PAPERWING_TEST_OPEN=:cancel|<file.pdf>`: cancelled the first time, then that file).
 `npm run test:scan`, `bench/check-scan.mjs`, `bench/check-scan-more.mjs` and
-`bench/check-scan-network.mjs` (the pretend network scanner) use them. A real scanner is still the
+`bench/check-scan-network.mjs` (the pretend network scanner) use them; `bench/check-controls.mjs`
+checks the dropdowns, links and bars look and work alike. A real scanner is still the
 final test.
 
 ## Screenshots

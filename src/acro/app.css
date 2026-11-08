@@ -1045,13 +1045,17 @@ body.is-dragging .drop-inner {
   display: flex;
   align-items: center;
   gap: 12px;
+  /* (as wide as what's in it: centred from the middle, an absolutely placed
+     bar could only be half the page wide, and cut its words short) */
+  width: max-content;
   max-width: calc(100% - 140px);
   padding: 6px 6px 6px 16px;
   border-radius: 22px;
   background: var(--surface);
   box-shadow: var(--float-shadow);
   font-size: 14px;
-  transform: translateX(-50%);
+  /* (translate, not transform: the slide-in animates transform) */
+  translate: -50% 0;
   animation: toast-in 0.18s ease-out;
 }
 #disk-bar .db-text,
@@ -2000,6 +2004,91 @@ body.is-dragging.is-dropping-pages #drop-overlay {
   background: var(--surface);
   color: var(--text);
 }
+/* Dropdowns draw their own list (a customizable select), so it looks like
+   the app's menus in both themes: the system's list showed the highlighted
+   option in pale blue with grey text in the dark theme, and some dropdowns
+   didn't use the app's font */
+select.pref-select,
+select.pref-select::picker(select) {
+  appearance: base-select;
+}
+select.pref-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 120px;
+  padding: 0 6px 0 10px;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+select.pref-select:not(:disabled):hover {
+  border-color: var(--border-hover);
+}
+/* (the choice shown: dropdowns.ts adds it; a long one ends in "…") */
+select.pref-select > button {
+  display: contents;
+}
+select.pref-select selectedcontent {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+select.pref-select:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+select.pref-select::picker-icon {
+  content: '';
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  background: var(--text-2);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 16px no-repeat;
+  transition: rotate 0.15s;
+}
+select.pref-select:open::picker-icon {
+  rotate: 180deg;
+}
+select.pref-select::picker(select) {
+  max-height: min(360px, 60vh);
+  margin: 4px 0;
+  padding: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-pop);
+}
+select.pref-select option {
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 5px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+select.pref-select option:not(:disabled):hover {
+  background: var(--hover-soft);
+}
+select.pref-select option:focus-visible {
+  outline: none;
+  background: var(--hover-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+select.pref-select option:checked {
+  font-weight: 600;
+}
+select.pref-select option::checkmark {
+  color: var(--accent);
+}
+select.pref-select option:disabled {
+  color: var(--text-3);
+}
 .kbd-table td:last-child {
   white-space: nowrap;
 }
@@ -2335,13 +2424,17 @@ body.is-dragging-page * {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* (as wide as what's in it: centred from the middle, an absolutely placed
+     bar could only be half the page wide, and cut its words short) */
+  width: max-content;
   max-width: calc(100% - 140px);
   padding: 6px 6px 6px 16px;
   border-radius: 22px;
   background: var(--surface);
   box-shadow: var(--float-shadow);
   font-size: 14px;
-  transform: translateX(-50%);
+  /* (translate, not transform: the slide-in animates transform) */
+  translate: -50% 0;
   animation: toast-in 0.18s ease-out;
 }
 #cert-bar .db-text {
@@ -2603,8 +2696,12 @@ body.is-dragging-page * {
   align-items: stretch;
 }
 .sd-layout .sd-settings {
-  flex: 0 0 340px;
+  flex: 0 0 348px;
   overflow-x: hidden;
+  /* (room for the focus ring of what's at the left edge, the links reaching
+     out to line up their text: the scrolling would cut it off) */
+  margin-left: -8px;
+  padding-left: 8px;
 }
 .dlg-scan .pref-row {
   align-items: center;
@@ -2642,17 +2739,29 @@ body.is-dragging-page * {
 .sd-summary-row .sd-link {
   flex: none;
 }
+/* Links (Add by IP address…, Options…): coloured text, underlined on hover
+   like the app's other links, never a pill */
 .quiet-btn.sd-link {
   height: 28px;
-  padding: 0 8px;
+  padding: 0 4px;
+  border-radius: 4px;
   color: var(--accent);
   font-size: 13px;
+}
+.quiet-btn.sd-link:hover {
+  background: none;
+  color: var(--accent);
+}
+.quiet-btn.sd-link:not(:disabled):hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .sd-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
-  margin: 0 0 4px -8px;
+  gap: 12px;
+  margin: 0 0 4px -4px;
 }
 .sd-scanner {
   display: flex;
@@ -2734,6 +2843,22 @@ body.is-dragging-page * {
   max-width: 100%;
   width: 100%;
 }
+/* Append to file: the open documents (and files picked), and Browse… */
+.sd-append {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sd-append select.pref-select {
+  /* (it takes the room Browse… leaves, however long the file's name) */
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+}
+.sd-append .pill-btn {
+  flex: none;
+  height: 32px;
+}
 .sd-size-fields {
   display: flex !important;
   flex-direction: row !important;
@@ -2745,6 +2870,7 @@ body.is-dragging-page * {
 }
 .dlg-scan .sd-size-fields select.pref-select {
   width: 60px;
+  min-width: 0;
 }
 .sd-slider {
   width: 150px;
@@ -2786,7 +2912,7 @@ body.is-dragging-page * {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  height: min(540px, calc(100vh - 260px));
+  height: min(512px, calc(100vh - 288px));
   min-height: 240px;
   border-radius: 6px;
   background: var(--canvas);
@@ -2798,6 +2924,9 @@ body.is-dragging-page * {
 .sd-status {
   min-height: 1.4em;
   margin: 10px 0 0;
+}
+.sd-right .sd-status {
+  margin: 0;
 }
 
 /* The flatbed preview (scan-preview.ts): the glass is sized to fit the

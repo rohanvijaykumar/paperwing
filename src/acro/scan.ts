@@ -173,6 +173,10 @@ function scanPrefs(): ScanPrefs {
 
 const saveScanPrefs = (p: ScanPrefs) => setPrefs({ scan: p });
 
+/** The presets saved with Save as preset… (for the main menu's list) */
+export const customPresets = (): { id: string; label: string }[] =>
+  scanPrefs().custom.map((c) => ({ id: `custom:${c.id}`, label: c.name }));
+
 /** What a failed scan says: what happened and what to do */
 export function scanErrorMessage(
   error: ScanError | undefined,
@@ -329,7 +333,6 @@ async function pdfPageThumbs(bytes: Uint8Array): Promise<string[]> {
 }
 
 const WATCH = '__watch';
-const BROWSE = '__browse';
 
 /** Shows the scan dialog; resolves with what was made, or null */
 export function showScanDialog(
@@ -510,6 +513,11 @@ export function showScanDialog(
     const outAppend = outputChoice('append', 'Append to file');
     const outMultiple = outputChoice('multiple', 'Save multiple files');
     const appendTo = select('File to append to');
+    // (a button beside the list, not a choice in it: with nothing else
+    // listed, that choice was already chosen, choosing it again changed
+    // nothing, and the file picker never opened)
+    const appendNone = el('span', { class: 'sd-folder-name' }, 'No file chosen');
+    const appendBrowse = el('button', { type: 'button', class: 'pill-btn' }, 'Browse…');
     const perFile = number('Pages per file', 1, 9999);
     const prefix = el('input', {
       type: 'text',
@@ -553,7 +561,7 @@ export function showScanDialog(
     );
     const orientationRow = row('Orientation', orientation);
     const sensitivityRow = row('Sensitivity', sensitivity);
-    const appendRow = el('div', { class: 'sd-sub' }, appendTo);
+    const appendRow = el('div', { class: 'sd-sub sd-append' }, appendTo, appendNone, appendBrowse);
     const multipleRows = el(
       'div',
       { class: 'sd-sub' },
@@ -715,6 +723,9 @@ export function showScanDialog(
 
     /* Actions --------------------------------------------------------------- */
     const status = el('p', { class: 'muted pd-status sd-status', role: 'status' });
+    // (under the pages, like Print's sheet count: under the settings it ran
+    // into their scrolled-off edge)
+    right.append(status);
     const btn = (cls: string, text: string, onClick: () => void) => {
       const b = el('button', { type: 'button', class: cls }, text);
       b.addEventListener('click', onClick);
@@ -746,7 +757,6 @@ export function showScanDialog(
           'div',
           { class: 'dlg-body' },
           el('div', { class: 'pd-layout sd-layout' }, settingsPanel, right),
-          status,
           actions
         )
       )
@@ -896,10 +906,11 @@ export function showScanDialog(
       const docs: [string, string][] = [
         ...options.documents.map((d) => [`doc:${d.id}`, d.name] as [string, string]),
         ...picked.map((f, k) => [`file:${k}`, `${f.name} (not open)`] as [string, string]),
-        [BROWSE, 'Browse…'],
       ];
       const was = appendTo.value;
       fill(appendTo, docs, was || (options.activeDocument ? `doc:${options.activeDocument}` : undefined));
+      appendTo.hidden = !docs.length;
+      appendNone.hidden = docs.length > 0;
       appendRow.hidden = settings.output !== 'append';
       multipleRows.hidden = settings.output !== 'multiple';
       ocrLangRow.hidden = !settings.ocr;
@@ -1039,6 +1050,7 @@ export function showScanDialog(
         sharpness,
         rotateAll,
         appendTo,
+        appendBrowse,
         saveFolderBtn,
         previewBtn,
       ])
@@ -1168,6 +1180,11 @@ export function showScanDialog(
       if (scanner.value === WATCH) {
         entry = device = undefined;
         caps = null;
+        // (a scanner still getting ready no longer matters, nor what the
+        // status said about it)
+        capsRequest++;
+        if (busy === 'caps') busy = '';
+        status.textContent = '';
         refresh();
         renderPages();
         showActions();
@@ -1843,17 +1860,15 @@ export function showScanDialog(
         saveFolderName.textContent = dir.path;
       }
     });
-    appendTo.addEventListener('change', async () => {
-      if (appendTo.value !== BROWSE) return;
+    appendBrowse.addEventListener('click', async () => {
       const f = await options.browse();
-      if (f) {
-        picked.push(f);
-        refresh();
-        appendTo.value = `file:${picked.length - 1}`;
-      } else {
-        appendTo.value = options.activeDocument ? `doc:${options.activeDocument}` : '';
-        refresh();
-      }
+      // (cancelled: whatever was chosen before stays chosen)
+      if (!f || closed) return;
+      // (the same file picked again is listed once)
+      let k = picked.findIndex((p) => !!f.path && p.path === f.path);
+      if (k < 0) k = picked.push(f) - 1;
+      refresh();
+      appendTo.value = `file:${k}`;
     });
     units.addEventListener('change', () => {
       const was = settings.units;

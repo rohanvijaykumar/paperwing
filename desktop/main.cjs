@@ -1083,14 +1083,19 @@ ipcMain.handle('paperwing:save-as', async (e, suggestedName, data, near) => {
 });
 
 // Development: PAPERWING_TEST_OPEN picks that file without the dialog
-// (benches can't drive the system's file dialog)
-const testOpen = !app.isPackaged ? process.env.PAPERWING_TEST_OPEN : '';
+// (benches can't drive the system's file dialog). Several, separated by
+// "|", are picked in turn (the last one again after that); ":cancel" is the
+// dialog cancelled.
+const testOpen = (!app.isPackaged && process.env.PAPERWING_TEST_OPEN) || '';
+const testPicks = testOpen.split('|');
+let testPicked = 0;
 
 ipcMain.handle('paperwing:open-dialog', async (e) => {
   if (!senderIsApp(e)) return [];
   const start = await lastFolder();
+  const pick = testPicks[Math.min(testPicked++, testPicks.length - 1)];
   const { canceled, filePaths } = testOpen
-    ? { canceled: false, filePaths: [testOpen] }
+    ? { canceled: pick === ':cancel', filePaths: [pick] }
     : await dialog.showOpenDialog(mainWindow, {
         properties: ['openFile', 'multiSelections'],
         filters: [{ name: 'PDF', extensions: ['pdf'] }],
