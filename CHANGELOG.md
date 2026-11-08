@@ -6,6 +6,41 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-11-08
+
+### Fixed
+
+- **Scan dialog ▸ Output ▸ Append to file ▸ Browse…** didn't open the file picker with no document
+  open: the list held only "Browse…", already chosen, so choosing it again did nothing. Browse… is
+  now a button beside the list of open documents and picked files ("No file chosen" when empty);
+  cancelling the picker keeps the earlier choice, and a file picked twice is listed once.
+- **Dropdowns** in Paperwing's own dialogs and panels (scan, Scanner options, Enhance scanned
+  pages, Print, Preferences, Sign as, Create a new Digital ID, Form fields) draw their own list in
+  the app's menu style (`appearance: base-select`): no more pale-blue system highlight in the dark
+  theme, the app's font instead of the system one, long choices cut with "…", and Escape closes
+  just the list rather than the dialog (`src/acro/dropdowns.ts`). BentoPDF's tool pages keep the
+  system list for now.
+- **Scan dialog links** (Add by IP address…, Options…, Save as preset…) are styled as links (accent,
+  underline on hover) instead of getting a grey pill; focus rings at the settings' left edge are no
+  longer clipped.
+- **Scan dialog status** moved under the pages / preview, so it no longer runs into the settings'
+  scrolled-off edge.
+- **Use a certificate bar** (and the "changed on disk" and "scripts" bars) showed a truncated title
+  ("Use a cer…"): sized to their content and centred with `translate`, so the slide-in no longer
+  fights the centring.
+- The bar's **Validate signatures** and **Add a timestamp** open under those names (were "Validate
+  Signature" / "Timestamp PDF").
+- **Main menu ▸ Create PDF from scanner** lists your own presets after the built-in ones.
+- **Command palette** no longer lists Scan & OCR and Enhance scanned pages twice.
+- **Import from a scanner app** clears a stale status and drops a still-loading scanner's late
+  answer.
+
+### Tests
+
+- New `check-controls` bench (dropdowns, links, focus, status, bars, palette, menu; dark and light)
+  and `paperwing-dropdowns.test.ts`; `check-scan-more` clicks Browse… with nothing open, cancels the
+  picker, picks a file, then the same file again.
+
 ## [1.3.0] — 2026-11-07
 
 ### Added
@@ -431,7 +466,8 @@ First public release, built on BentoPDF 2.8.8.
 - Tool pages run on their own origin, isolated from the workspace and its file bridge (see [SECURITY.md](SECURITY.md))
 - Unit tests for the shell and an end-to-end UI test suite
 
-[Unreleased]: https://github.com/rohanvijaykumar/paperwing/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/rohanvijaykumar/paperwing/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.3.1
 [1.3.0]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.3.0
 [1.2.4]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.4
 [1.2.3]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.3

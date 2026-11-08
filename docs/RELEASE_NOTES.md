@@ -1,9 +1,26 @@
-## Paperwing 1.3.0
+## Paperwing 1.3.1
 
-Scan straight into a PDF, sign with the Digital IDs already on your computer, and a new look for
-Home and About.
+Polish for 1.3: the scan dialog, dropdowns and the signing bar work and look the way the rest of
+the app does. If you're coming from 1.2, everything new in 1.3 is listed below too.
 
-### New
+### Fixed in 1.3.1
+
+- **Append to file ▸ Browse… opens the file picker** even with no document open (before, choosing
+  it did nothing). It's now a button beside the list of open and picked PDFs.
+- **Dropdowns look like Paperwing's menus**, in the dark theme too (they had a pale-blue
+  highlight), use the app's font, cut long choices with "…", and Escape closes just the list
+  instead of the whole dialog.
+- **Links in the scan dialog** (Add by IP address…, Options…, Save as preset…) look like links,
+  not buttons, and their focus rings are no longer cut off.
+- **The scan status** sits under the pages and preview, where it can always be read.
+- **Use a certificate's bar** shows its whole title, and its Validate signatures and Add a
+  timestamp open under those names. The "changed on disk" and "scripts" bars were also cut short
+  and are fixed too.
+- **The main menu's Create PDF from scanner** lists your own presets as well.
+- The command palette no longer lists Scan & OCR and Enhance scanned pages twice, and switching to
+  Import from a scanner app clears an old status message.
+
+### New in 1.3
 
 - **Create a PDF from a scanner.** Create ▸ Scanner (also in All tools ▸ Scan & OCR, Insert pages ▸
   From scanner, and the main menu's presets) opens a dialog like the print dialog. Every scanner is
@@ -29,7 +46,7 @@ Home and About.
   timestamps, and in the desktop app can trust the root certificates in the Windows certificate
   store or the Keychain (off by default).
 
-### Better
+### Better in 1.3
 
 - **A new look for Home and About.** Home has a soft, pearly sheen in the light theme and a deep,
   iridescent glow in the dark one. About Paperwing shows a flowing ribbon of colour, with the
@@ -43,7 +60,7 @@ Home and About.
   very large documents, and Compress on a new engine, Hyper Compress.
 - **Electron 45.2.1**, the latest update of the framework Paperwing runs on.
 
-### Fixed
+### Fixed in 1.3
 
 - **Highlighted text can be copied.** With a highlight selected, Ctrl+C (⌘C on macOS) copies the
   text it marks, and its menu has Copy text; the same for underline, strikethrough and squiggly.
@@ -66,5 +83,5 @@ Home and About.
 <!-- end of the notes shown in the app -->
 
 On Windows, Paperwing 1.1 and later update themselves: open Paperwing and choose **Help ▸ Check
-for updates** if it hasn't offered 1.3.0 yet. On macOS and the portable build, download it below
+for updates** if it hasn't offered 1.3.1 yet. On macOS and the portable build, download it below
 and install it over the old version. Full list of changes: [CHANGELOG.md](https://github.com/rohanvijaykumar/paperwing/blob/main/CHANGELOG.md).
