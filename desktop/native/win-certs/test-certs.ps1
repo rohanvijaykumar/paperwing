@@ -1,7 +1,8 @@
 # Test certificates for the certificate helper (CI, and the local bench):
 # self-signed, in CurrentUser\My, with keys that can't be exported (as on a
 # smart card). Writes what it made to a JSON file; -Remove deletes exactly
-# those certificates (by thumbprint) and their keys, nothing else.
+# those certificates (by thumbprint) and their keys, and the copies Windows
+# puts in CurrentUser\CA, nothing else.
 #
 #   pwsh desktop/native/win-certs/test-certs.ps1 -Create -Out certs.json [-Only rsa]
 #   pwsh desktop/native/win-certs/test-certs.ps1 -Remove -Out certs.json
@@ -21,6 +22,10 @@ if ($Remove) {
       Remove-Item $path -DeleteKey -ErrorAction Continue
       Write-Host "removed $($c.label) ($($c.thumbprint))"
     }
+    # New-SelfSignedCertificate also puts a copy in the intermediate
+    # certificates store; remove that copy too (it has no key).
+    $copy = "Cert:\CurrentUser\CA\$($c.thumbprint)"
+    if (Test-Path $copy) { Remove-Item $copy -ErrorAction Continue }
   }
   Remove-Item $Out
   return
