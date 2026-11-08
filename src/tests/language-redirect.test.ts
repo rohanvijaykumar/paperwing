@@ -48,6 +48,7 @@ function visit({
     location: {
       pathname,
       origin: 'https://www.bentopdf.com',
+      href: `https://www.bentopdf.com${pathname}?q=1${hash}`,
       search: '?q=1',
       hash,
       replace: (url: string) => {
@@ -161,6 +162,27 @@ describe('language-redirect.js', () => {
     );
     expect(
       visit({ path: '/', browser: ['de'], withoutScript: true })
+    ).toBeNull();
+  });
+
+  // Paperwing: the redirect never leaves the site, however the path or the
+  // base is written
+  it('stays on the site with a crafted path or base', () => {
+    expect(visit({ path: '//evil.example', choice: 'de' })).toBe(
+      '/de//evil.example?q=1'
+    );
+    expect(visit({ path: '/\\evil.example', choice: 'de' })).toBe(
+      '/de//evil.example?q=1'
+    );
+    expect(
+      visit({ path: '//evil.example/', base: '//evil.example/', choice: 'de' })
+    ).toBeNull();
+    expect(
+      visit({
+        path: '/\\evil.example/',
+        base: '/\\evil.example/',
+        choice: 'de',
+      })
     ).toBeNull();
   });
 });
