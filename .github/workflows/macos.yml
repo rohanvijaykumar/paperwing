@@ -82,7 +82,6 @@ jobs:
         run: |
           node --test tests/escl.test.mjs
           bash tests/mac-network-scanner.sh
-
       # Signing with Digital IDs in the Keychain (desktop/native/mac-certs):
       # the Swift helper must build (universal) and pass its own test; then
       # test identities in a keychain of their own sign real PDFs through it,
