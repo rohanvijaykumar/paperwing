@@ -22,6 +22,9 @@ async function opensWith(
 }
 
 self.onmessage = async (e: MessageEvent<HyperCompressRequest>) => {
+  // A dedicated worker only hears the page that started it (whose messages
+  // carry no origin); anything else is ignored (Paperwing)
+  if (e.origin && e.origin !== self.location.origin) return;
   const request = e.data;
   const { id } = request;
   try {

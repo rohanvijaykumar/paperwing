@@ -51,11 +51,18 @@
   if (!target || target === 'en') return;
 
   var page = rest === 'index.html' ? '' : rest;
-  window.location.replace(
-    base +
+  // Only ever to a page on this site (Paperwing: however the path or the
+  // base is written, e.g. starting with // or /\). The address's own start
+  // stands for the base: they're the same (checked above), and the
+  // address isn't markup.
+  var url = new URL(
+    path.slice(0, base.length) +
       target +
       (page ? '/' + page : '') +
       window.location.search +
-      window.location.hash
+      window.location.hash,
+    window.location.href
   );
+  if (url.origin !== window.location.origin) return;
+  window.location.replace(url.pathname + url.search + url.hash);
 })();
