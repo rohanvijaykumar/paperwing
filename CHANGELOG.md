@@ -6,6 +6,8 @@ All notable changes to Paperwing are documented here. Paperwing follows
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-11-07
+
 ### Added
 
 - **Scanning**, as in Acrobat, in a dialog like the print dialog: Create ▸ Scanner, All tools ▸
@@ -59,10 +61,11 @@ All notable changes to Paperwing are documented here. Paperwing follows
   document after signing**, and a timestamp server. Signatures are PAdES (ETSI.CAdES.detached),
   RSA or ECDSA (P-256, P-384, P-521), with long-term validation information when the certificate
   comes from a certificate authority; a document locked by a signature can't be signed again.
-  Asked for by a Reddit user.
-- **Validate signatures** reads ECDSA signatures, and in the desktop app can trust the root
+  Asked for by u/dwbmb on Reddit.
+- **Validate signatures** reads ECDSA signatures, shows a signature's timestamp ("Timestamped by
+  …") and lists document timestamps (Add a timestamp), and in the desktop app can trust the root
   certificates in the Windows certificate store or the Keychain (Acrobat's option, off by
-  default).
+  default). Each result says what it means and what to do.
 
 ### Changed
 
@@ -81,12 +84,23 @@ All notable changes to Paperwing are documented here. Paperwing follows
   now say what happens: **Choose** a file, **Save** the result, on your computer. The Download
   button at the top (and File ▸ Download a copy) is now **Save a copy**. Reported by u/dwbmb on
   Reddit.
+- **Electron 45.2.1** (from 45.0.0), the framework the desktop app runs on.
 
 ### Fixed
 
 - Saving a document with no changes writes it exactly as it was, so the signatures in it stay
-  valid (Save, Save As and Download; Validate signatures and Add a timestamp get it as it is too).
-- Form fields on rotated pages show in the right place.
+  valid (Save, Save As and Save a copy; Validate signatures and Add a timestamp get it as it is too).
+- **A signed document you've changed asks before it's saved or signed**, as in Acrobat: writing it
+  anew leaves its signatures invalid, and Paperwing did that without a word. Save offers to save
+  the changes as a copy, keeping the signed original.
+- **Validate signatures is right about documents signed by several people** (each earlier
+  signature covers its version; before, all but the last showed "Modified after signing"),
+  **changed after signing** (it says what changed: pages, page content, comments or form values)
+  **or timestamped** (a certificate that has expired since doesn't make a timestamped signature
+  expired). A signing time stored in UTC no longer shows hours off.
+- Add a timestamp's result keeps its timestamp and signatures when it's validated or saved.
+- Form fields on rotated pages show in the right place, and a digital signature on a rotated or
+  cropped page lands where its box was drawn.
 - **Dialogs work with the keyboard and screen readers.** A dialog takes focus when it opens, Tab
   stays inside it, screen readers announce it, and closing it (or a menu) returns focus to where
   you were. By [@BronzeKnuckles](https://github.com/BronzeKnuckles)
@@ -98,6 +112,9 @@ All notable changes to Paperwing are documented here. Paperwing follows
   text it marks, and its menu has **Copy text**; the same for underline, strikethrough and
   squiggly. A highlight made in another app is read from the page. Reported by u/WildAd9195 on
   Reddit ([#38](https://github.com/rohanvijaykumar/paperwing/issues/38)).
+- Two hardening fixes in code from BentoPDF, found by code scanning: Compress's worker ignores
+  messages from anywhere but the app, and the website's language redirect only leads to pages on
+  the same site.
 
 ## [1.2.4] — 2026-10-31
 
@@ -414,7 +431,8 @@ First public release, built on BentoPDF 2.8.8.
 - Tool pages run on their own origin, isolated from the workspace and its file bridge (see [SECURITY.md](SECURITY.md))
 - Unit tests for the shell and an end-to-end UI test suite
 
-[Unreleased]: https://github.com/rohanvijaykumar/paperwing/compare/v1.2.4...HEAD
+[Unreleased]: https://github.com/rohanvijaykumar/paperwing/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.3.0
 [1.2.4]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.4
 [1.2.3]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.3
 [1.2.2]: https://github.com/rohanvijaykumar/paperwing/releases/tag/v1.2.2
