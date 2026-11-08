@@ -332,16 +332,18 @@ describe('one entry per scanner', () => {
         ? [{ type: 'error', code: 'failed', message: 'no 32-bit drivers' }, { exit: 1 }]
         : [
             listed([
-              { id: 'w', name: 'Canon LiDE', driver: 'wia', deviceKey: 'canon' },
-              { id: 't', name: 'Canon LiDE', driver: 'twain', deviceKey: 'canon' },
+              { id: 'w', name: 'Canon LiDE', driver: 'wia', api: 'wia2', deviceKey: 'canon' },
+              { id: 't', name: 'Canon LiDE', driver: 'twain', api: 'twain64', deviceKey: 'canon' },
+              { id: 'old', name: 'Old Scanner', driver: 'wia', api: 'wia1', deviceKey: 'old' },
             ]),
             { exit: 0 },
           ]
     );
     const r = await s.list();
     assert.equal(r.ok, true);
-    assert.equal(r.scanners.length, 1);
+    assert.equal(r.scanners.length, 2);
     assert.deepEqual(r.scanners[0].devices.map((d) => d.id), ['twain:t', 'wia:w']);
+    assert.deepEqual(r.scanners[1].devices.map((d) => d.id), ['wia1:old']);
     assert.equal(calls.length, 2);
     assert.deepEqual(calls[0].args, ['list']);
   });
@@ -752,3 +754,81 @@ describe('the stand-in scanners (development builds)', () => {
     assert.deepEqual(cleanCaps(caps.msg, 'twain32').sources[0].colors, ['gray', 'bw']);
   });
 });
+
+/**
+ * scan.cjs over the real Windows helpers and the TWAIN Working Group's
+ * sample scanner (installed on GitHub's Windows runner only; CI sets
+ * PAPERWING_TWAIN_SAMPLE): one entry for the 64- and 32-bit drivers, its
+ * settings, a feeder scan streamed page by page, and cancel.
+ */
+describe(
+  'the real helpers with the TWAIN sample scanner',
+  {
+    skip:
+      process.platform !== 'win32' || !process.env.PAPERWING_TWAIN_SAMPLE
+        ? 'CI only (PAPERWING_TWAIN_SAMPLE)'
+        : false,
+  },
+  () => {
+    const dir = join(import.meta.dirname, '..', 'native', 'win-scanner', 'out');
+    const real = () =>
+      createScanning({
+        platform: 'win32',
+        helpers: {
+          scan: join(dir, 'paperwing-scan.exe'),
+          twain32: join(dir, 'paperwing-twain32.exe'),
+        },
+        env: {},
+        tempDir: temp('twain'),
+      });
+
+    test('listed once, TWAIN first, its 32-bit driver as the alternative', async () => {
+      const r = await real().list();
+      console.log(JSON.stringify(r));
+      const sample = r.scanners.find((e) => /^twainworkinggroup:/.test(e.key));
+      assert.ok(sample, 'the sample scanner is listed');
+      assert.deepEqual(
+        sample.devices.map((d) => d.driver).filter((d) => d.startsWith('twain')),
+        ['twain', 'twain32']
+      );
+    });
+
+    test('its settings, and a feeder scan page by page', async () => {
+      const s = real();
+      const sample = (await s.list()).scanners.find((e) => /^twainworkinggroup:/.test(e.key));
+      for (const device of sample.devices.filter((d) => d.driver.startsWith('twain'))) {
+        const c = await s.capabilities(device.id);
+        assert.equal(c.ok, true, JSON.stringify(c));
+        assert.equal(c.caps.nativeUi, true);
+        assert.deepEqual(c.caps.sources.map((x) => x.id), ['flatbed', 'feeder']);
+        const pages = [];
+        const r = await s.scan(
+          device.id,
+          { source: 'feeder', color: 'gray', dpi: 100, paper: { width: 8.5, height: 11 } },
+          (data, info) => pages.push(info)
+        );
+        assert.equal(r.ok, true, `${device.driver}: ${JSON.stringify(r)}`);
+        assert.ok(pages.length >= 1);
+        assert.equal(pages.length, r.pages);
+        assert.ok(pages.every((p) => p.mime === 'image/png' && p.dpi > 0));
+        const p = await s.preview(device.id, { source: 'flatbed', color: 'color' });
+        assert.equal(p.ok, true, JSON.stringify(p));
+      }
+    });
+
+    test('cancel stops a feeder run and lets the scanner go', async () => {
+      const s = real();
+      const sample = (await s.list()).scanners.find((e) => /^twainworkinggroup:/.test(e.key));
+      const id = sample.devices[0].id;
+      let n = 0;
+      const r = await s.scan(id, { source: 'feeder', color: 'gray', dpi: 100 }, () => {
+        if (++n === 1) s.cancel();
+      });
+      assert.equal(r.ok, true, JSON.stringify(r));
+      assert.equal(r.cancelled, true);
+      // free again at once
+      const again = await s.scan(id, { source: 'flatbed', color: 'gray', dpi: 75 }, () => {});
+      assert.equal(again.ok, true, JSON.stringify(again));
+    });
+  }
+);
