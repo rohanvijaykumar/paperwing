@@ -164,8 +164,8 @@ jobs:
         shell: powershell
         run: desktop/native/win-certs/test-certs.ps1 -Remove -Out "$env:RUNNER_TEMP\certs.json"
 
-  # Scanning in the desktop shell (desktop/scan.cjs), and its Windows helper
-  # (desktop/scanner/wia.ps1) run for real: with no scanner, it lists none
+  # Scanning in the desktop shell (desktop/scan.cjs) and network scanners
+  # (desktop/escl.cjs, against a pretend eSCL scanner), on Windows
   windows-scanner:
     runs-on: windows-latest
     steps:
@@ -179,6 +179,9 @@ jobs:
 
       - name: Scanning tests
         run: node --test desktop/tests/scan.test.mjs
+
+      - name: Network scanner tests
+        run: node --test desktop/tests/escl.test.mjs
 
   # The Windows scanner helpers (desktop/native/win-scanner): built with
   # their unit tests, then run for real on a runner with no scanner
@@ -263,3 +266,9 @@ jobs:
         env:
           PAPERWING_TWAIN_SAMPLE: '1'
         run: node --test --test-concurrency=1 desktop/tests/win-scanner-twain.test.mjs
+
+      - name: Scan with it through scan.cjs
+        if: ${{ !cancelled() }}
+        env:
+          PAPERWING_TWAIN_SAMPLE: '1'
+        run: node --test --test-name-pattern="TWAIN sample" desktop/tests/scan.test.mjs
