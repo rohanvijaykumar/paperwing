@@ -195,14 +195,17 @@ for (const theme of ['dark', 'light']) {
     `${theme}: Escape closes just the list (the dialog stays, focus on the dropdown)`,
     JSON.stringify(afterEscape)
   );
-  // Keyboard only: open, next option, Enter
-  const was = await page.evaluate(
-    () =>
-      document.querySelector('.dlg-scan select[aria-label="Color mode"]').value
-  );
-  await page.keyboard.press('Enter');
+  // Keyboard only: open (Space: Enter doesn't open one on macOS), the next
+  // option, Enter
+  const { was, last } = await page.evaluate(() => {
+    const s = document.querySelector(
+      '.dlg-scan select[aria-label="Color mode"]'
+    );
+    return { was: s.value, last: s.selectedIndex === s.options.length - 1 };
+  });
+  await page.keyboard.press('Space');
   await sleep(200);
-  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press(last ? 'ArrowUp' : 'ArrowDown');
   await page.keyboard.press('Enter');
   await sleep(300);
   const now = await page.evaluate(() => ({
@@ -215,7 +218,7 @@ for (const theme of ['dark', 'light']) {
   }));
   check(
     now.value !== was && now.summary.startsWith(now.shown ?? '?'),
-    `${theme}: chosen with the keyboard (Enter, arrow, Enter), shown and used`,
+    `${theme}: chosen with the keyboard (Space, arrow, Enter), shown and used`,
     `${was} → ${JSON.stringify(now)}`
   );
 
