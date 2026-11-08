@@ -43,6 +43,10 @@ const RAW_DIR = process.env.SHOTS_RAW_DIR;
 const THEME = process.env.SHOTS_THEME;
 if (RAW_DIR) mkdirSync(RAW_DIR, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// The version the build shows: noted as seen, so no "Paperwing was updated" notice
+const VERSION = JSON.parse(
+  readFileSync(resolve(here, '..', 'package.json'), 'utf8')
+).version;
 
 function findChrome() {
   const found = [
@@ -70,7 +74,7 @@ async function newApp(theme = 'light') {
   const context = await browser.createBrowserContext();
   const p = await context.newPage();
   await p.setViewport({ width: W, height: H, deviceScaleFactor: SCALE });
-  await p.evaluateOnNewDocument(() => {
+  await p.evaluateOnNewDocument((version) => {
     const at = new Date();
     at.setHours(10, 42, 0, 0);
     const offset = at.getTime() - Date.now();
@@ -85,9 +89,13 @@ async function newApp(theme = 'light') {
     };
     localStorage.setItem(
       'paperwing:prefs',
-      JSON.stringify({ checkUpdates: false, restoreSession: false })
+      JSON.stringify({
+        checkUpdates: false,
+        restoreSession: false,
+        seenVersion: version,
+      })
     );
-  });
+  }, VERSION);
   await p.emulateMediaFeatures([
     { name: 'prefers-color-scheme', value: theme },
   ]);
