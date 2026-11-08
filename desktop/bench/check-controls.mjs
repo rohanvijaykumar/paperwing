@@ -14,6 +14,7 @@
  *  - Use a certificate's bar shows its whole title (it was cut to "Use a
  *    cer…": half the page wide at most), and its tools open titled as its
  *    buttons say
+ *  - switching to Import from a scanner app leaves no stale status
  *  - the main menu's Create PDF from scanner lists your own presets; the
  *    command palette lists Scan & OCR and Enhance scanned pages once
  *   node bench/check-controls.mjs
@@ -314,6 +315,15 @@ check(
     long.oneLine,
   'a long choice is cut short with "…", on one line, inside its row',
   JSON.stringify(long)
+);
+// (the status said "Saved the preset…"; it stayed after switching to
+// Import from a scanner app)
+await choose(page, 'Scanner', 'Import from a scanner app…');
+await sleep(400);
+check(
+  (await dialog(page)).status === '',
+  'Import from a scanner app: no stale status from before',
+  (await dialog(page)).status
 );
 await press(page, 'Cancel');
 await until(page, () => !document.querySelector('.dlg-scan'));
