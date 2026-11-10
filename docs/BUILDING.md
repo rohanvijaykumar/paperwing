@@ -147,7 +147,7 @@ cd .. && npx vite preview --port 4173      # leave it running
 cd desktop && PAPERWING_URL=http://localhost:4173 npm run docs:screenshots   # or only some: hero home
 ```
 
-`hero` also makes `social-preview.png`, the image GitHub shows when the repository is shared. GitHub
+`hero-dark` (in `npm run docs:screenshots:desktop`) also makes `social-preview.png`, the image GitHub shows when the repository is shared. GitHub
 uses it only once it's uploaded in the repository's **Settings ▸ General ▸ Social preview**.
 
 `forms`, `print` and `full-screen` show what only the desktop app has (the print dialog is the

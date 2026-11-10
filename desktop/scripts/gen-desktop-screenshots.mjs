@@ -2,7 +2,7 @@
  * The README screenshots from the real desktop app (bench/harness.mjs), in
  * its own words (Save a copy, not Download), framed like gen-screenshots.mjs's
  * (2400×1590 PNGs in docs/screenshots/):
- *  - the workspace: hero (and the social image), hero-dark, dark, all-tools,
+ *  - the workspace: hero, hero-dark (and the social image), dark, all-tools,
  *    tool-panel, edit-text, shortcuts. gen-screenshots.mjs draws these from
  *    the web build too; run this after it so the README shows the desktop
  *    app's words (Home, home and home-dark, come from gen-screenshots.mjs)
@@ -33,8 +33,8 @@ import {
   goToPage,
   menu,
   sleep,
-  socialPreviewBody,
   waitThumbs,
+  socialPreviewBody,
   windowHtml,
   zoom,
 } from './shots-kit.mjs';
@@ -263,7 +263,7 @@ async function digitalIdDialog(
 
 const scenes = {
   // The annual report: tabs, All tools, quick toolbar, annotations,
-  // thumbnails. Also the repository's social image.
+  // thumbnails.
   async hero() {
     await heroScene('light');
   },
@@ -604,8 +604,8 @@ for (const [name, { png, theme }] of Object.entries(shots)) {
     `<div style="position: absolute; inset: 0; background: ${FRAME[theme]}"></div>
     ${windowHtml(b64, { x: 120, y: 120, theme })}`
   );
-  if (name === 'hero')
-    await render('social-preview', 1280, 640, socialPreviewBody(b64));
+  if (name === 'hero-dark')
+    await render('social-preview', 1280, 640, socialPreviewBody());
 }
 await browser.close();
 process.exit(failed ? 1 : 0);

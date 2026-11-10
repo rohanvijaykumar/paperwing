@@ -184,37 +184,61 @@ export function windowHtml(png, { x, y, s = 1, theme = 'light' }) {
   </div>`;
 }
 
-/** The repository's social image (1280×640) as a page body: name and
- *  tagline beside the window (`png`: the hero's workspace, base64) */
-export function socialPreviewBody(png) {
-  const data = (file) => readFileSync(file).toString('base64');
-  const font = (
-    weight
-  ) => `@font-face { font-family: 'Source Sans 3'; font-weight: ${weight};
-    src: url(data:font/woff2;base64,${data(
-      resolve(
-        here,
-        '..',
-        '..',
-        'src',
-        'reskin',
-        'fonts',
-        `source-sans-3-latin-${weight}-normal.woff2`
-      )
+/** The repository's social image (1280×640) as a page body: the icon, name,
+ *  tagline and features over the 1.3 edition's dark ribbon art, beside the
+ *  dark hero (docs/screenshots/hero-dark.png, so run that scene first) */
+export function socialPreviewBody() {
+  const root = resolve(here, '..', '..');
+  const data = (...path) =>
+    readFileSync(resolve(root, ...path)).toString('base64');
+  const font = (weight) => `@font-face { font-family: 'Source Sans 3';
+    font-weight: ${weight}; src: url(data:font/woff2;base64,${data(
+      'src',
+      'reskin',
+      'fonts',
+      `source-sans-3-latin-${weight}-normal.woff2`
     )}) format('woff2'); }`;
-  return `<style>${font(400)}${font(700)}
-      .text { position: absolute; left: 64px; font-family: 'Source Sans 3'; }
+  const chips = [
+    'Scan',
+    'Sign with Digital IDs',
+    'Edit',
+    'Convert',
+    'Fill forms',
+    'OCR',
+  ]
+    .map((c) => `<span class="chip"><i></i>${c}</span>`)
+    .join('');
+  // hero-dark.png is the window (2160×1350) at (120, 120) in a 2400×1590 frame
+  const k = 800 / 2160;
+  return `<style>${font(400)}${font(600)}${font(700)}
+      body { background: #0b0a12; font-family: 'Source Sans 3'; color: #fff; }
+      .chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px;
+        border-radius: 999px; font-weight: 600; font-size: 19px;
+        background: rgb(255 255 255 / 0.09); border: 1px solid rgb(255 255 255 / 0.16); }
+      .chip i { width: 8px; height: 8px; border-radius: 50%; background: #ff5a74; }
     </style>
-    <div style="position: absolute; inset: 0; background:
-      radial-gradient(560px 420px at 0 0, #ffe3df, rgb(255 227 223 / 0)),
-      radial-gradient(640px 420px at 100% 100%, #e7e9ff, rgb(231 233 255 / 0)), #f7f5f6"></div>
-    <img src="data:image/png;base64,${data(resolve(here, '..', 'build', 'icon.png'))}"
-      style="position: absolute; left: 64px; top: 165px; width: 84px; height: 84px">
-    <div class="text" style="top: 280px; font-size: 63px; font-weight: 700; line-height: 1.2;
-      color: #1d1d1f; letter-spacing: -1px">Paperwing</div>
-    <div class="text" style="top: 365px; font-size: 26.5px; line-height: 35px; color: #3a3a3c">
-      The free, open-source alternative<br>to Adobe Acrobat.</div>
-    <div class="text" style="top: 453px; font-size: 18.4px; line-height: 1.4; color: #6e6e73">
-      Windows · macOS · Offline · No account</div>
-    ${windowHtml(png, { x: 544, y: 85, s: 878 / 2160 })}`;
+    <div style="position: absolute; right: -200px; top: -180px; width: 1100px; height: 700px;
+      opacity: 0.9; background: url(data:image/webp;base64,${data('src', 'acro', 'edition', 'about-dark.webp')})
+        center / cover;
+      -webkit-mask-image: radial-gradient(closest-side at 60% 45%, #000 50%, transparent 100%)"></div>
+    <div style="position: absolute; left: -200px; bottom: -260px; width: 700px; height: 600px;
+      background: radial-gradient(closest-side, rgb(215 25 58 / 0.35), transparent)"></div>
+    <div style="position: absolute; left: 640px; top: 110px; width: 800px; height: 500px;
+      border-radius: 14px; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.12), 0 30px 80px rgb(0 0 0 / 0.6);
+      transform: perspective(1800px) rotateY(-16deg) rotateX(5deg); transform-origin: left center;
+      background: url(data:image/png;base64,${data('docs', 'screenshots', 'hero-dark.png')})
+        ${-120 * k}px ${-120 * k}px / ${2400 * k}px ${1590 * k}px no-repeat"></div>
+    <div style="position: absolute; left: 72px; top: 92px; width: 540px">
+      <div style="display: flex; align-items: center; gap: 18px">
+        <img src="data:image/png;base64,${data('desktop', 'build', 'icon.png')}"
+          style="width: 76px; height: 76px; filter: drop-shadow(0 8px 24px rgb(215 25 58 / 0.5))">
+        <div style="font-size: 84px; line-height: 1; font-weight: 700; letter-spacing: -1.5px">Paperwing</div>
+      </div>
+      <div style="font-size: 31px; line-height: 1.25; margin: 28px 0 26px; color: #e9e6f2">The
+        <b>free, open-source</b> alternative to Adobe Acrobat.</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 10px; width: 480px">${chips}</div>
+    </div>
+    <div style="position: absolute; left: 72px; bottom: 50px; color: #a9a3bd; font-size: 21px;
+      line-height: 1.5">Windows · macOS · Offline · No account<br>
+      <span style="color: #fff; font-weight: 600">paperwingapp.com</span></div>`;
 }
