@@ -44,6 +44,11 @@
  * PAPERWING_SCAN_TEST_ERROR   an error code, failing at the start, or after
  *                             n pages with code@n (double-feed@2);
  *                             no-scanner and blocked fail the listing
+ * PAPERWING_SCAN_TEST_GLASS   a PNG of a page to lay on the glass instead of
+ *                             the chart, 6 in wide at the chart paper's corner
+ *                             (the README's screenshots; see GLASS_PICTURE)
+ * PAPERWING_SCAN_TEST_NAME    another name for Paperwing Test Scanner
+ *                             (the README's screenshots)
  */
 const path = require('node:path');
 const fsp = require('node:fs/promises');
@@ -191,7 +196,8 @@ function pageContent(n, { sheet, side, blank, width }) {
     }
     if (v >= CODE.y && v < CODE.y + CODE.cell && u >= CODE.x) {
       const k = Math.floor((u - CODE.x) / CODE.pitch);
-      if (k < CODE.cells && (u - CODE.x) % CODE.pitch < CODE.cell && bits[k]) return [15, 15, 15];
+      if (k < CODE.cells && (u - CODE.x) % CODE.pitch < CODE.cell && bits[k])
+        return [15, 15, 15];
     }
     return onText(lines, u, v) ? [25, 25, 25] : [252, 251, 248];
   };
@@ -247,7 +253,14 @@ const MARKERS = [
   { name: 'blue', x: 6.3, y: 12.6, rgb: [30, 60, 220] },
 ];
 /** A printed photo's dot screen (for Descreen): dots 0.05 in apart */
-const HALFTONE = { x: 4.6, y: 6.0, width: 2, height: 1, pitch: 0.05, radius: 0.016 };
+const HALFTONE = {
+  x: 4.6,
+  y: 6.0,
+  width: 2,
+  height: 1,
+  pitch: 0.05,
+  radius: 0.016,
+};
 /** Dust (for Despeckle): 40 specks 0.15-0.25 mm across, and 6 dots the
  *  size of a full stop (0.4 mm), which must stay */
 const DUST = { x: 1.5, y: 6.0, width: 2.5, height: 1 };
@@ -262,20 +275,82 @@ const wedgeLevel = (k) => Math.round(255 * (1 - k / (WEDGE.steps - 1)));
 
 const CHART_TEXT = [
   textLine('PAPERWING TEST CHART', 1.5, 1.45, 0.04),
-  ...['THE QUICK BROWN FOX', 'JUMPS OVER THE LAZY DOG', 'SCANNED WITHOUT A SCANNER'].map((t, k) =>
-    textLine(t, 1.5, 3.2 + k * 0.45, 0.035)
-  ),
+  ...[
+    'THE QUICK BROWN FOX',
+    'JUMPS OVER THE LAZY DOG',
+    'SCANNED WITHOUT A SCANNER',
+  ].map((t, k) => textLine(t, 1.5, 3.2 + k * 0.45, 0.035)),
 ];
 /** The grid's numbers (glass inches), along the paper's top and left */
 const GRID_TEXT = [
   ...[2, 3, 4, 5, 6].map((k) => textLine(String(k), k + 0.03, 1.25, 0.015)),
-  ...[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map((k) => textLine(String(k), 1.04, k + 0.03, 0.015)),
+  ...[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map((k) =>
+    textLine(String(k), 1.04, k + 0.03, 0.015)
+  ),
 ];
 
-const glassAngle = (env) => Number(env.PAPERWING_SCAN_TEST_GLASS_SKEW) || DOC_ON_GLASS.angle;
+/**
+ * A picture on the glass instead of the chart (PAPERWING_SCAN_TEST_GLASS):
+ * a page as an image, laid straight at DOC_ON_GLASS's corner, as wide as its
+ * paper, on the lid's grey. Read once (pngjs: development builds only).
+ */
+let glassPicture = null;
+function pictureOnGlass(env) {
+  const file = env.PAPERWING_SCAN_TEST_GLASS;
+  if (!file) return null;
+  if (glassPicture?.file !== file) {
+    const { PNG } = require('pngjs');
+    const png = PNG.sync.read(require('node:fs').readFileSync(file));
+    const width = DOC_ON_GLASS.width;
+    glassPicture = {
+      file,
+      png,
+      x: DOC_ON_GLASS.x,
+      y: DOC_ON_GLASS.y,
+      width,
+      height: (width * png.height) / png.width,
+      dpi: png.width / width,
+    };
+  }
+  return glassPicture;
+}
 
-/** What the glass shows at (u, v) inches */
-function glassContent(env = {}) {
+/** What the glass shows at (u, v) inches with the picture on it: the
+ *  picture's pixels under a scan pixel of 1/dpi in, averaged */
+function pictureContent(pic, dpi) {
+  const { png } = pic;
+  const k = Math.max(1, Math.round(pic.dpi / (dpi || pic.dpi)));
+  return (u, v) => {
+    const x0 = Math.floor((u - pic.x) * pic.dpi - k / 2);
+    const y0 = Math.floor((v - pic.y) * pic.dpi - k / 2);
+    if (x0 + k <= 0 || y0 + k <= 0 || x0 >= png.width || y0 >= png.height)
+      return LID;
+    const sum = [0, 0, 0];
+    for (let y = y0; y < y0 + k; y++)
+      for (let x = x0; x < x0 + k; x++) {
+        // (the edge of the paper: the lid around it)
+        if (x < 0 || y < 0 || x >= png.width || y >= png.height) {
+          sum[0] += LID[0];
+          sum[1] += LID[1];
+          sum[2] += LID[2];
+          continue;
+        }
+        const o = (y * png.width + x) * 4;
+        const a = png.data[o + 3] / 255;
+        for (let c = 0; c < 3; c++)
+          sum[c] += png.data[o + c] * a + 255 * (1 - a);
+      }
+    return sum.map((c) => Math.round(c / (k * k)));
+  };
+}
+
+const glassAngle = (env) =>
+  Number(env.PAPERWING_SCAN_TEST_GLASS_SKEW) || DOC_ON_GLASS.angle;
+
+/** What the glass shows at (u, v) inches (scanned at `dpi`) */
+function glassContent(env = {}, dpi) {
+  const pic = pictureOnGlass(env);
+  if (pic) return pictureContent(pic, dpi);
   const d = DOC_ON_GLASS;
   const a = (glassAngle(env) * Math.PI) / 180;
   const cos = Math.cos(a);
@@ -285,7 +360,13 @@ function glassContent(env = {}) {
   // A point of the paper, in glass inches as if it lay straight
   const paper = (u, v) => {
     for (const m of MARKERS)
-      if (u >= m.x && u < m.x + MARKER_SIZE && v >= m.y && v < m.y + MARKER_SIZE) return m.rgb;
+      if (
+        u >= m.x &&
+        u < m.x + MARKER_SIZE &&
+        v >= m.y &&
+        v < m.y + MARKER_SIZE
+      )
+        return m.rgb;
     if (
       v >= WEDGE.y &&
       v < WEDGE.y + WEDGE.height &&
@@ -303,9 +384,18 @@ function glassContent(env = {}) {
       const dv = ((v - H.y) % H.pitch) - H.pitch / 2;
       return Math.hypot(du, dv) < H.radius ? [30, 30, 30] : PAPER;
     }
-    if (u >= DUST.x && u < DUST.x + DUST.width && v >= DUST.y && v < DUST.y + DUST.height)
-      for (const s of SPECKS) if (Math.hypot(u - s.x, v - s.y) < s.r) return [20, 20, 20];
-    if (Math.abs(u - Math.round(u)) < 0.006 || Math.abs(v - Math.round(v)) < 0.006)
+    if (
+      u >= DUST.x &&
+      u < DUST.x + DUST.width &&
+      v >= DUST.y &&
+      v < DUST.y + DUST.height
+    )
+      for (const s of SPECKS)
+        if (Math.hypot(u - s.x, v - s.y) < s.r) return [20, 20, 20];
+    if (
+      Math.abs(u - Math.round(u)) < 0.006 ||
+      Math.abs(v - Math.round(v)) < 0.006
+    )
       return [205, 215, 235];
     return PAPER;
   };
@@ -314,12 +404,15 @@ function glassContent(env = {}) {
     const pv = v - d.y;
     const x = cos * (pu - cx) + sin * (pv - cy) + cx;
     const y = -sin * (pu - cx) + cos * (pv - cy) + cy;
-    if (x >= 0 && y >= 0 && x <= d.width && y <= d.height) return paper(x + d.x, y + d.y);
+    if (x >= 0 && y >= 0 && x <= d.width && y <= d.height)
+      return paper(x + d.x, y + d.y);
     return LID;
   };
 }
 /** The paper's box on the glass (what auto-size scans) */
 function docBounds(env = {}) {
+  const pic = pictureOnGlass(env);
+  if (pic) return { x: pic.x, y: pic.y, width: pic.width, height: pic.height };
   const d = DOC_ON_GLASS;
   const a = Math.abs((glassAngle(env) * Math.PI) / 180);
   const w = d.width * Math.cos(a) + d.height * Math.sin(a);
@@ -363,7 +456,7 @@ function render(content, region, dpi, opts) {
         const lum = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
         px[o] =
           opts.color === 'bw'
-            ? (lum > threshold) !== !!opts.invert
+            ? lum > threshold !== !!opts.invert
               ? 255
               : 0
             : lum;
@@ -546,7 +639,12 @@ function flatbedRegion(opts, env) {
   const clamp = (r) => {
     const x = Math.min(Math.max(0, r.x), GLASS.width - 0.1);
     const y = Math.min(Math.max(0, r.y), GLASS.height - 0.1);
-    return { x, y, width: Math.min(r.width, GLASS.width - x), height: Math.min(r.height, GLASS.height - y) };
+    return {
+      x,
+      y,
+      width: Math.min(r.width, GLASS.width - x),
+      height: Math.min(r.height, GLASS.height - y),
+    };
   };
   if (opts.area)
     return clamp(
@@ -559,9 +657,14 @@ function flatbedRegion(opts, env) {
   return glass;
 }
 
-function createTestBackends({ platform = process.platform, env = process.env } = {}) {
+function createTestBackends({
+  platform = process.platform,
+  env = process.env,
+} = {}) {
   const plat = platform === 'darwin' ? 'darwin' : 'win32';
-  const [failCode, failAfterText] = String(env.PAPERWING_SCAN_TEST_ERROR ?? '').split('@');
+  const [failCode, failAfterText] = String(
+    env.PAPERWING_SCAN_TEST_ERROR ?? ''
+  ).split('@');
   const failAfter = Number(failAfterText) || 0;
   const maxDpi = Number(env.PAPERWING_SCAN_TEST_MAX_DPI) || 300;
   const added = [];
@@ -572,18 +675,27 @@ function createTestBackends({ platform = process.platform, env = process.env } =
 
   const scannersFor = (drivers) =>
     [...SCANNERS, ...added].flatMap((s) =>
-      (s.drivers[plat] ?? []).filter((d) => drivers.includes(d)).map((d) => ({ s, d }))
+      (s.drivers[plat] ?? [])
+        .filter((d) => drivers.includes(d))
+        .map((d) => ({ s, d }))
     );
 
   /** The sheets and sides a feeder pass brings, in the order they come */
   function feederPass(duplex) {
     const count = Number(env.PAPERWING_SCAN_TEST_PAGES) || 3;
-    if (!duplex && env.PAPERWING_SCAN_TEST_STACK === 'turn' && feederState.lastFronts) {
+    if (
+      !duplex &&
+      env.PAPERWING_SCAN_TEST_STACK === 'turn' &&
+      feederState.lastFronts
+    ) {
       const sheets = [...feederState.lastFronts].reverse();
       feederState.lastFronts = null;
       return sheets.map((sheet) => ({ sheet, side: 'back' }));
     }
-    const sheets = Array.from({ length: count }, (_, k) => feederState.nextSheet + k);
+    const sheets = Array.from(
+      { length: count },
+      (_, k) => feederState.nextSheet + k
+    );
     feederState.nextSheet += count;
     feederState.lastFronts = duplex ? null : sheets;
     return sheets.flatMap((sheet) =>
@@ -602,7 +714,9 @@ function createTestBackends({ platform = process.platform, env = process.env } =
     // one through TWAIN; a bare id is the first driver
     const find = (id) => {
       const [sid, drv] = String(id).split('@');
-      return scannersFor(drivers).find(({ s, d }) => s.id === sid && (!drv || d === drv));
+      return scannersFor(drivers).find(
+        ({ s, d }) => s.id === sid && (!drv || d === drv)
+      );
     };
     return {
       async list() {
@@ -619,7 +733,8 @@ function createTestBackends({ platform = process.platform, env = process.env } =
             driver: d,
             scanner: {
               id: `${s.id}@${d}`,
-              name: s.name,
+              name:
+                (s.id === 'test-1' && env.PAPERWING_SCAN_TEST_NAME) || s.name,
               driver: d.replace(/32$|1$/, ''),
               deviceKey: s.deviceKey,
               make: s.make,
@@ -632,7 +747,10 @@ function createTestBackends({ platform = process.platform, env = process.env } =
       async caps(id) {
         const hit = find(id);
         if (!hit) return { ok: false, error: 'no-scanner' };
-        if (env.PAPERWING_SCAN_TEST_SLOW && env.PAPERWING_SCAN_TEST_SLOW === hit.s.name)
+        if (
+          env.PAPERWING_SCAN_TEST_SLOW &&
+          env.PAPERWING_SCAN_TEST_SLOW === hit.s.name
+        )
           await new Promise((r) => setTimeout(r, 30000));
         return { ok: true, msg: hit.s.caps(hit.d) };
       },
@@ -646,22 +764,39 @@ function createTestBackends({ platform = process.platform, env = process.env } =
           }
           await new Promise((r) => setTimeout(r, 120));
           if (opts.nativeUi)
-            onEvent({ type: 'status', message: "Using the scanner's own window" });
-          const source = hit.s.caps(hit.d).sources.find((s) => s.id === opts.source);
+            onEvent({
+              type: 'status',
+              message: "Using the scanner's own window",
+            });
+          const source = hit.s
+            .caps(hit.d)
+            .sources.find((s) => s.id === opts.source);
           if (env.PAPERWING_SCAN_TEST_LOG)
             await fsp.appendFile(
               env.PAPERWING_SCAN_TEST_LOG,
-              JSON.stringify({ command, scanner: hit.s.name, driver: hit.d, options: opts }) + '\n'
+              JSON.stringify({
+                command,
+                scanner: hit.s.name,
+                driver: hit.d,
+                options: opts,
+              }) + '\n'
             );
           const dpi = Math.min(opts.dpi, maxDpi);
           if (command === 'preview') {
             const region = flatbedRegion(opts, env);
-            const img = render(glassContent(env), region, dpi, {
+            const img = render(glassContent(env, dpi), region, dpi, {
               color: opts.color === 'bw' ? 'gray' : opts.color,
             });
             const file = path.join(outDir, 'preview.png');
             await fsp.writeFile(file, img.png);
-            onEvent({ type: 'page', file, dpi, width: img.width, height: img.height, side: 'front' });
+            onEvent({
+              type: 'page',
+              file,
+              dpi,
+              width: img.width,
+              height: img.height,
+              side: 'front',
+            });
             onEvent({ type: 'done', pages: 1 });
             return { exitCode: 0 };
           }
@@ -671,16 +806,31 @@ function createTestBackends({ platform = process.platform, env = process.env } =
             !['no-scanner', 'blocked'].includes(failCode) &&
             pages === failAfter &&
             !(failCode === 'feeder-empty' && !feeder) &&
-            !(failCode === 'double-feed' && (!feeder || opts.doubleFeedStop === false));
+            !(
+              failCode === 'double-feed' &&
+              (!feeder || opts.doubleFeedStop === false)
+            );
           const duplex = feeder && opts.duplex && !!source?.duplex;
-          const pass = feeder ? feederPass(duplex) : [{ sheet: 1, side: 'front' }];
-          const blank = pageSet(env.PAPERWING_SCAN_TEST_BLANK, new Set(duplex ? [4] : []));
+          const pass = feeder
+            ? feederPass(duplex)
+            : [{ sheet: 1, side: 'front' }];
+          const blank = pageSet(
+            env.PAPERWING_SCAN_TEST_BLANK,
+            new Set(duplex ? [4] : [])
+          );
           const skew = pageSet(env.PAPERWING_SCAN_TEST_SKEW, new Set([2]));
-          const flipped = pageSet(env.PAPERWING_SCAN_TEST_UPSIDE_DOWN, new Set());
+          const flipped = pageSet(
+            env.PAPERWING_SCAN_TEST_UPSIDE_DOWN,
+            new Set()
+          );
           let n = 0;
           for (const { sheet, side } of pass) {
             if (failNow(n)) {
-              onEvent({ type: 'error', code: failCode, message: `Test scanner: ${failCode}` });
+              onEvent({
+                type: 'error',
+                code: failCode,
+                message: `Test scanner: ${failCode}`,
+              });
               return { exitCode: 1 };
             }
             if (cancelled) {
@@ -700,31 +850,53 @@ function createTestBackends({ platform = process.platform, env = process.env } =
                     : { width: 8.5, height: 11 };
               region = { x: 0, y: 0, ...paper };
               const isBlank = blank.has(n);
-              content = pageContent(n, { sheet, side, blank: isBlank, width: paper.width });
+              content = pageContent(n, {
+                sheet,
+                side,
+                blank: isBlank,
+                width: paper.width,
+              });
               if (side === 'back' && env.PAPERWING_SCAN_TEST_TOP_BOUND)
                 content = upsideDown(content, paper.width, paper.height);
-              if (flipped.has(n)) content = upsideDown(content, paper.width, paper.height);
+              if (flipped.has(n))
+                content = upsideDown(content, paper.width, paper.height);
               if (skew.has(n) && !opts.autoDeskew && !isBlank)
                 content = skewed(content, 3, paper.width, paper.height);
               if (env.PAPERWING_SCAN_TEST_EDGE_SHADOW) {
                 const inner = content;
-                content = (u, v) => (u < 0.2 || v < 0.2 ? [55, 55, 55] : inner(u, v));
+                content = (u, v) =>
+                  u < 0.2 || v < 0.2 ? [55, 55, 55] : inner(u, v);
               }
             } else {
               region = flatbedRegion(opts, env);
-              content = glassContent(env);
+              content = glassContent(env, dpi);
             }
             const img = render(content, region, dpi, opts);
             const file = path.join(outDir, `page-${n}.png`);
             await fsp.writeFile(file, img.png);
-            onEvent({ type: 'page', file, dpi, width: img.width, height: img.height, side });
+            onEvent({
+              type: 'page',
+              file,
+              dpi,
+              width: img.width,
+              height: img.height,
+              side,
+            });
             await new Promise((r) => setTimeout(r, 150));
           }
           if (failNow(n) && failAfter) {
-            onEvent({ type: 'error', code: failCode, message: `Test scanner: ${failCode}` });
+            onEvent({
+              type: 'error',
+              code: failCode,
+              message: `Test scanner: ${failCode}`,
+            });
             return { exitCode: 1 };
           }
-          onEvent({ type: 'done', pages: n, ...(cancelled ? { cancelled: true } : {}) });
+          onEvent({
+            type: 'done',
+            pages: n,
+            ...(cancelled ? { cancelled: true } : {}),
+          });
           return { exitCode: 0 };
         })();
         return {
@@ -746,7 +918,11 @@ function createTestBackends({ platform = process.platform, env = process.env } =
   // Add by IP address: the documentation addresses (192.0.2.x) answer
   net.add = async (host) => {
     if (!/^192\.0\.2\.\d{1,3}(:\d+)?$/.test(host))
-      return { ok: false, error: 'offline', message: `Nothing answered at ${host}` };
+      return {
+        ok: false,
+        error: 'offline',
+        message: `Nothing answered at ${host}`,
+      };
     const id = `added-${host}`;
     if (!added.some((s) => s.id === id))
       added.push({
@@ -762,7 +938,13 @@ function createTestBackends({ platform = process.platform, env = process.env } =
     const s = added.find((x) => x.id === id);
     return {
       ok: true,
-      scanner: { id, name: s.name, driver: 'escl', deviceKey: s.deviceKey, connection: 'network' },
+      scanner: {
+        id,
+        name: s.name,
+        driver: 'escl',
+        deviceKey: s.deviceKey,
+        connection: 'network',
+      },
     };
   };
   map.escl = net;

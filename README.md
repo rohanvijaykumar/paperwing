@@ -1,36 +1,257 @@
-<div align="center">
+<p align="center">
+  <img src="desktop/build/icon.png" alt="Paperwing" width="128" height="128" />
+</p>
 
-<img src="desktop/build/icon.png" alt="Paperwing" width="112" height="112" />
+<h1 align="center">Paperwing</h1>
 
-# Paperwing
+<p align="center">
+  <b>The free, open-source desktop alternative to Adobe Acrobat.</b><br />
+  Edit, sign, scan, convert, organize and protect PDFs in a workspace you already know.<br />
+  No account. No subscription. No upsells. Your files never leave your computer.<br />
+  <sub>Windows · macOS</sub>
+</p>
 
-**The free, open-source desktop alternative to Adobe Acrobat for Windows and macOS.**
+<p align="center">
+  <a href="https://paperwingapp.com/#download"><img alt="Download for Windows" src="https://img.shields.io/badge/Download_for-Windows-D7193A?style=for-the-badge&logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTIgMy41bDguNS0xLjJ2OC4ySDJ6TTExLjUgMi4yTDIyIC44djkuN0gxMS41ek0yIDExLjVoOC41djguMkwyIDE4LjV6TTExLjUgMTEuNUgyMnY5LjdsLTEwLjUtMS40eiIvPjwvc3ZnPg==" height="40" /></a>
+  &nbsp;
+  <a href="https://paperwingapp.com/#download"><img alt="Download for macOS" src="https://img.shields.io/badge/Download_for-macOS-1d1d1f?style=for-the-badge&logo=apple&logoColor=white" height="40" /></a>
+</p>
 
-Edit, sign, convert, organize, compress and protect PDFs in a familiar desktop workspace,
-offline, with no account, no subscription and no upsells.
+<p align="center">
+  <a href="https://github.com/rohanvijaykumar/paperwing/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/rohanvijaykumar/paperwing?style=flat-square&label=latest&color=D7193A" /></a>
+  <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" /></a>
+  <img alt="Free forever" src="https://img.shields.io/badge/price-free_forever-2ea44f?style=flat-square" />
+  <img alt="No account, no telemetry" src="https://img.shields.io/badge/no_account-no_telemetry-555?style=flat-square" />
+  <img alt="Works offline" src="https://img.shields.io/badge/works-offline-555?style=flat-square" />
+  <a href="https://github.com/alam00000/bentopdf"><img alt="Built on BentoPDF" src="https://img.shields.io/badge/built_on-BentoPDF-6b5bed?style=flat-square" /></a>
+</p>
 
-**[Download at paperwingapp.com](https://paperwingapp.com)** · Built by [Rohan Vijaykumar](https://rohanvijaykumar.cv)
+<p align="center">
+  <a href="https://www.producthunt.com/products/paperwing-2?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-paperwing-2" target="_blank" rel="noopener noreferrer"><img alt="Paperwing - The free, open-source alternative to Adobe Acrobat | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1279376&amp;theme=light&amp;t=1791915874874"></a> <a href="https://alternativeto.net/software/paperwing-pdf/about/?utm_source=badge&amp;utm_medium=referral" target="_blank" rel="noopener noreferrer"><img alt="Paperwing PDF | AlternativeTo" width="300" height="54" src="https://alternativeto.net/static/badges/badge-wide-color.svg"></a> <a href="https://www.saashub.com/paperwing-app?utm_source=badge&amp;utm_campaign=badge&amp;utm_content=paperwing-app&amp;badge_variant=color&amp;badge_kind=approved" target="_blank" rel="noopener noreferrer"><img alt="Paperwing App | SaaSHub" width="150" height="50" src="https://cdn-b.saashub.com/img/badges/approved-color.png?v=1"></a>
+</p>
 
-[![Website](https://img.shields.io/badge/website-paperwingapp.com-D7193A)](https://paperwingapp.com)
-[![Latest release](https://img.shields.io/github/v/release/rohanvijaykumar/paperwing?label=download&color=D7193A)](https://github.com/rohanvijaykumar/paperwing/releases/latest)
-[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-555)](#download)
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
-[![Built on BentoPDF](https://img.shields.io/badge/built%20on-BentoPDF-6b5bed)](https://github.com/alam00000/bentopdf)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/hero-dark.png" />
+    <img src="docs/screenshots/hero.png" alt="Paperwing with an annual report open: document tabs, the All tools panel, a highlight and a circle on the page, and page thumbnails" width="100%" />
+  </picture>
+  <br />
+  <sub>Tabs, the All tools panel, a floating toolbar and Acrobat's shortcuts. In light and dark.</sub>
+</p>
 
-<a href="https://www.producthunt.com/products/paperwing-2?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-paperwing-2" target="_blank" rel="noopener noreferrer"><img alt="Paperwing - The free, open-source alternative to Adobe Acrobat | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1279376&amp;theme=light&amp;t=1791915874874"></a> <a href="https://alternativeto.net/software/paperwing-pdf/about/?utm_source=badge&amp;utm_medium=referral" target="_blank" rel="noopener noreferrer"><img alt="Paperwing PDF | AlternativeTo" width="300" height="54" src="https://alternativeto.net/static/badges/badge-wide-color.svg"></a> <a href="https://www.saashub.com/paperwing-app?utm_source=badge&amp;utm_campaign=badge&amp;utm_content=paperwing-app&amp;badge_variant=color&amp;badge_kind=approved" target="_blank" rel="noopener noreferrer"><img alt="Paperwing App | SaaSHub" width="150" height="50" src="https://cdn-b.saashub.com/img/badges/approved-color.png?v=1"></a>
+<p align="center">
+  <a href="#scan-straight-into-a-pdf">Scan</a> ·
+  <a href="#sign-with-the-digital-id-you-already-have">Sign</a> ·
+  <a href="#edit-and-annotate">Edit</a> ·
+  <a href="#fill-in-forms-and-print">Forms &amp; print</a> ·
+  <a href="#100-tools-beside-your-document">Tools</a> ·
+  <a href="#paperwing-vs-acrobat">vs Acrobat</a> ·
+  <a href="#download">Download</a> ·
+  <a href="#faq">FAQ</a> ·
+  <a href="#privacy">Privacy</a> ·
+  <a href="#build-from-source">Build</a>
+</p>
 
-<br />
+---
 
-<img src="docs/screenshots/hero.png" alt="Paperwing showing a document with the tools panel, floating annotation toolbar and page thumbnails" width="100%" />
+<table>
+<tr>
+<td width="33%" valign="top">
 
-</div>
+### 💸 Free, for real
 
-## Why Paperwing?
+Every feature, for everyone, forever. No trial, no "Pro" tier, no sign-in, no ads, no AI pop-ups.
 
-If you've used Acrobat, you already know Paperwing: the same tabbed workspace, **All tools** panel,
-**Edit / Convert / E-Sign** tabs, floating toolbar and keyboard shortcuts. Without the sign-in
-prompts, trial pop-ups, AI overlays or monthly bill. Every feature is free, and your files never
-leave your computer.
+</td>
+<td width="33%" valign="top">
+
+### 🔒 Private by design
+
+Everything runs on your computer, even offline. No account, no analytics, no uploads.
+
+</td>
+<td width="33%" valign="top">
+
+### ⌨️ Feels familiar
+
+If you've used Acrobat, you already know it: All tools, Edit / Convert / E-Sign, the same shortcuts.
+
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
+
+### 🖨️ Scans from any scanner
+
+USB, Wi-Fi and network scanners, even ones with no driver installed. Preview, crop, clean up, OCR.
+
+</td>
+<td width="33%" valign="top">
+
+### ✍️ Signs like the pros
+
+Digital IDs from Windows' certificate store, smart cards, USB tokens or the Mac Keychain. Valid in Acrobat.
+
+</td>
+<td width="33%" valign="top">
+
+### ⚡ Fast and light
+
+Opens in about a second, scrolls at 60 fps, never loses your work, and updates itself.
+
+</td>
+</tr>
+</table>
+
+> [!TIP]
+> **New in 1.3:** scanning, signing with the certificates on your computer, copying highlighted text,
+> and a fresh look for Home and About. 1.3.1 polishes the scan dialog and dropdowns.
+> [All release notes →](https://github.com/rohanvijaykumar/paperwing/releases)
+
+---
+
+## Scan straight into a PDF
+
+**Create ▸ From scanner** opens a dialog like the print dialog, and every scanner shows up once:
+WIA and TWAIN on Windows, Image Capture on the Mac, and network scanners that need no driver
+(AirScan, eSCL, Mopria).
+
+- **Preview the glass and drag a box** around just the part you want.
+- **Both sides**, even on a one-sided feeder. Presets for documents and photos, or save your own.
+- **Clean-up built in**: straighten pages, crop to the paper, remove blank pages and backgrounds.
+- **Searchable scans** with text recognition (OCR), in a new PDF or added to any PDF you have.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/scan-dark.png" />
+    <img src="docs/screenshots/scan.png" alt="The Create PDF from scanner dialog: settings on the left, an invoice on the scanner glass with the crop box around it on the right" width="100%" />
+  </picture>
+  <br />
+  <sub>Preview on a flatbed, with the document found and boxed. Drag the corners to change it.</sub>
+</p>
+
+## Sign with the Digital ID you already have
+
+**Use a certificate ▸ Digitally sign**, drag a box, and pick your Digital ID, just like in Acrobat.
+Your private key never leaves Windows, the Keychain or the card: the system signs and asks for your
+PIN itself. Signatures validate in Acrobat too.
+
+- Windows certificate store, **smart cards and USB tokens**, the macOS Keychain, or a .pfx file
+- Choose how the signature looks, lock the document after signing, add a trusted timestamp
+- **Validate signatures** tells you who signed, whether anything changed since, and what it means
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/sign.png" alt="Sign with a Digital ID dialog listing a Windows, smart card and USB token Digital ID" /></td>
+    <td width="50%"><img src="docs/screenshots/validate.png" alt="Validate signatures showing a signature that is intact, with who signed and when" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Sign</b> with an ID from Windows, a smart card or a token</sub></td>
+    <td align="center"><sub><b>Validate</b> any signed PDF</sub></td>
+  </tr>
+</table>
+
+## Edit and annotate
+
+Change text and images right on the page, then mark it up with highlights, comments, shapes,
+drawings, stamps and measurements. Redaction really deletes what's under it.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/edit-text.png" alt="Edit text and images mode on an invoice, in dark mode" /></td>
+    <td width="50%"><img src="docs/screenshots/dark.png" alt="An annual report in dark mode with a highlight and the Edit panel open" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Edit text and images</b> in the page</sub></td>
+    <td align="center"><sub><b>Annotate</b>, with single-key tools: H, V, S, U, D, X</sub></td>
+  </tr>
+</table>
+
+## Fill in forms and print
+
+Click a field and type, with a Form fields panel beside it; form scripts run (totals add up, dates
+format), sandboxed. Print with a dialog that previews exactly what comes out.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/forms.png" alt="A client intake form filled in on the page, with the Form fields panel" /></td>
+    <td width="50%"><img src="docs/screenshots/print.png" alt="The print dialog with a preview of the annual report" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Forms</b>: fill in right on the page</sub></td>
+    <td align="center"><sub><b>Print</b>: see exactly what prints</sub></td>
+  </tr>
+</table>
+
+## 100+ tools beside your document
+
+Convert, compress, OCR, merge, split, reorder, protect, redact, watermark, compare… Every tool opens
+in a panel beside your document, works on the file you have open, and never changes your original:
+results open in a new tab until you save.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/all-tools.png" alt="The searchable All tools sidebar, filtered by 'pdf to'" /></td>
+    <td width="50%"><img src="docs/screenshots/tool-panel.png" alt="The Compress tool running in the side panel next to a contract" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>All tools</b>: search or browse, grouped like Acrobat's</sub></td>
+    <td align="center"><sub><b>Tools beside the document</b>, results in a new tab</sub></td>
+  </tr>
+</table>
+
+<details>
+<summary><b>Every tool</b></summary>
+
+- **Edit**: edit text and images, annotate, measure, redact, watermarks, headers and footers, page numbers, Bates numbering, bookmarks, stamps, crop
+- **Convert**: PDF to Word, Excel, images, text, Markdown, JSON; Word, Excel, PowerPoint, images, ebooks, email, Markdown and 30+ formats to PDF
+- **Scan**: create a PDF from a scanner, insert scanned pages, enhance scanned pages, OCR
+- **Organize**: combine, split, reorder, rotate, insert, delete and extract pages; N-up, booklets, attachments, layers
+- **E-Sign and forms**: fill in and sign, sign with a Digital ID, validate signatures, timestamps, create forms
+- **Optimize and protect**: compress, repair, PDF/A, encrypt, remove restrictions, sanitize, flatten, compare
+
+</details>
+
+## A workspace you'll enjoy
+
+A Home with your recent and starred files, tabs that reopen where you left off, a command palette
+(<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>), read mode and full screen, and light and dark themes
+that follow your system.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/home.png" alt="Home in the light theme, with recommended tools and recent files" /></td>
+    <td width="50%"><img src="docs/screenshots/home-dark.png" alt="Home in the dark theme, with recommended tools and recent files" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/about.png" alt="About Paperwing with a flowing ribbon of colour and the details on frosted glass" /></td>
+    <td width="50%"><img src="docs/screenshots/full-screen.png" alt="Full screen: one page of the annual report on black" /></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><sub><b>Home</b> in light and dark, <b>About</b>, and <b>full screen</b> (<kbd>Ctrl</kbd>+<kbd>L</kbd>)</sub></td>
+  </tr>
+</table>
+
+<details>
+<summary><b>More of the workspace</b></summary>
+
+- Tabbed documents and a Home view with recent and starred files, each with a preview of its first page
+- A searchable **All tools** sidebar with pinned and recently used tools on top
+- Right rail with comments, bookmarks, thumbnails, find, page navigation, rotate and zoom to any percentage
+- Read mode (<kbd>Ctrl</kbd>+<kbd>H</kbd>) and full screen (<kbd>Ctrl</kbd>+<kbd>L</kbd>)
+- Documents reopen at the page and zoom you left them at; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> reopens a closed tab
+- Unsaved-change markers, session restore and recovery after a crash
+- Batch tools run Compress, Flatten, PDF to Word and more on many files at once
+- Native file dialogs and a real Save back to the original file
+- PDF thumbnails in File Explorer (Windows), filled-in forms included
+- Updates itself on Windows (installer), when you choose **Update**
+- Portable mode on Windows: run it from a USB stick, settings stored beside it
+
+</details>
+
+---
+
+## Paperwing vs Acrobat
 
 |                                       | Paperwing          | Acrobat Pro  |
 | ------------------------------------- | ------------------ | ------------ |
@@ -38,90 +259,14 @@ leave your computer.
 | Account required                      | **No**             | Yes          |
 | Works offline                         | **Yes**¹           | Partly       |
 | Upsell / AI pop-ups                   | **None**           | Frequent     |
+| Scan to PDF, with OCR                 | **Yes**            | Yes          |
+| Sign with smart cards and Digital IDs | **Yes**            | Yes          |
 | Open source                           | **Yes (AGPL-3.0)** | No           |
 | Portable (no install) on Windows      | **Yes**            | No           |
 | Acrobat-style workspace and shortcuts | **Yes**            | —            |
 
 <sub>¹ A few tools fetch their engine once on first use; see [Privacy](#privacy). Paperwing isn't
 affiliated with Adobe ([Trademarks](#trademarks)) or with PaperWingPDF, a separate set of browser tools.</sub>
-
-## New in 1.2.4
-
-- **Fill in forms right on the page**: click a field and type, with a Form fields panel beside it
-- **Form scripts run**, sandboxed: totals add up, dates format, entries are checked
-- **A print dialog like Acrobat's**, with a preview of exactly what will print
-- **Full screen**: one page at a time on black (<kbd>Ctrl</kbd>+<kbd>L</kbd>)
-- Shortcuts follow your keyboard layout, and dragging PDFs in from File Explorer works
-
-[All release notes →](https://github.com/rohanvijaykumar/paperwing/releases)
-
-## Features
-
-- 🧰 **100+ tools from [BentoPDF](https://github.com/alam00000/bentopdf)**, each opening right beside your document
-- 🔒 **Private by default**: everything runs locally, with no account, telemetry or uploads
-- ⌨️ **Acrobat's shortcuts**, including single-key tools (H, V, S, U, D, X), plus a command palette (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>)
-- 📝 **Forms and printing** that work like Acrobat's: fill in on the page, print with a preview
-- 🖨️ **Scanning** like Acrobat's: any scanner (WIA, TWAIN, Image Capture, network), preview, clean-up and OCR
-- ⚡ **Fast and light**: opens in about a second and scrolls at a steady 60 fps
-- 💾 **Never lose work**: unsaved-change markers, session restore and recovery after a crash
-- 🌗 **Light and dark themes** that follow your system
-- 🖼️ **PDF thumbnails in File Explorer** (Windows), filled-in forms included
-
-<details>
-<summary><b>Every tool</b></summary>
-
-- **Edit**: edit text and images, annotate, redact, watermarks, headers and footers, page numbers, Bates numbering, bookmarks, stamps, crop
-- **Convert**: PDF to Word, Excel, images, text, Markdown, JSON; Word, Excel, PowerPoint, images, ebooks, email, Markdown and 30+ formats to PDF
-- **Organize**: combine, split, reorder, rotate, insert, delete and extract pages; N-up, booklets, attachments, layers
-- **E-Sign and forms**: fill in and sign, digital certificates, signature validation, timestamps, create forms
-- **Optimize and protect**: compress, OCR, repair, PDF/A, encrypt, remove restrictions, sanitize, flatten, compare
-
-</details>
-
-<details>
-<summary><b>More of the workspace</b></summary>
-
-- Tabbed documents and a Home view with recent and starred files, each with a preview of its first page
-- A searchable **All tools** sidebar, grouped like Acrobat's, with pinned and recently used tools on top
-- Right rail with comments, bookmarks, thumbnails, find, page navigation, rotate and zoom to any percentage
-- Read mode (<kbd>Ctrl</kbd>+<kbd>H</kbd>) and full screen (<kbd>Ctrl</kbd>+<kbd>L</kbd>)
-- Documents reopen at the page and zoom you left them at; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> reopens a closed tab
-- Batch tools run Compress, Flatten, PDF to Word and more on many files at once
-- Tools never change your original: results open in a new tab until you save
-- Native file dialogs and a real Save back to the original file
-- Updates itself on Windows (installer), when you choose **Update**
-- Portable mode on Windows: run it from a USB stick, settings stored beside it
-
-</details>
-
-## Screenshots
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/screenshots/forms.png" alt="A client intake form filled in on the page, with the Form fields panel" /><br /><sub><b>Forms</b>: fill in right on the page</sub></td>
-    <td width="50%"><img src="docs/screenshots/print.png" alt="The print dialog with a preview of the annual report" /><br /><sub><b>Print</b>: with a preview of exactly what prints</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/home.png" alt="Home view with recommended tools and page previews of recent files" /><br /><sub><b>Home</b>: recent and starred files with page previews</sub></td>
-    <td><img src="docs/screenshots/dark.png" alt="Document view in dark mode with the Edit panel" /><br /><sub><b>Dark mode</b>: follows your system</sub></td>
-  </tr>
-</table>
-
-<details>
-<summary><b>More screenshots</b></summary>
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/screenshots/all-tools.png" alt="Searchable All tools sidebar" /><br /><sub><b>All tools</b>: search and browse every tool</sub></td>
-    <td width="50%"><img src="docs/screenshots/tool-panel.png" alt="Compress tool running in the side panel next to the document" /><br /><sub><b>Tools beside the document</b>: results open in a new tab</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/edit-text.png" alt="Edit text and images mode" /><br /><sub><b>Edit text and images</b>: right in the page</sub></td>
-    <td><img src="docs/screenshots/full-screen.png" alt="Full screen: one page of the annual report on black" /><br /><sub><b>Full screen</b>: one page at a time</sub></td>
-  </tr>
-</table>
-
-</details>
 
 ## Download
 
@@ -147,6 +292,25 @@ No. Paperwing is this desktop app for Windows and macOS. PaperWingPDF (paperwing
 separate set of browser-based PDF tools by a different developer; the two projects aren't connected.
 Paperwing is distributed only through [paperwingapp.com](https://paperwingapp.com) and this
 repository's [Releases](https://github.com/rohanvijaykumar/paperwing/releases).
+
+</details>
+
+<details>
+<summary><b>Which scanners work?</b></summary>
+
+Almost all: anything with a WIA or TWAIN driver on Windows (64- and 32-bit), anything Image Capture
+sees on the Mac, and network scanners that speak AirScan / eSCL / Mopria, which need no driver at all
+(found automatically or added by IP address). For scanners that only work with their own app, such
+as ScanSnap, **Import from a scanner app** picks up what that app saves.
+
+</details>
+
+<details>
+<summary><b>Can I sign with my smart card, USB token or company certificate?</b></summary>
+
+Yes. Paperwing lists the Digital IDs in the Windows certificate store or the macOS Keychain,
+including the ones on smart cards and USB tokens, and the system signs with them, so the private key
+never leaves the card or store. You can also use a .pfx / .p12 file or create a self-signed ID.
 
 </details>
 
@@ -221,6 +385,9 @@ goes online only for updates and a few one-time engine downloads.
   repository's Releases, checked against a SHA-256 hash.
 - **Timestamps** (and digital signatures with one) contact the timestamp server you pick, sending only
   a hash of the document.
+- **Signing with a certificate** and **Validate signatures** may fetch a certificate's issuers and
+  revocation status from the addresses written in the certificate.
+- **Scanning** talks only to your scanner: over USB, or on your local network for network scanners.
 - **OCR** in English works offline. Other languages download their Tesseract data (a few MB each) from
   jsDelivr on first use; for non-Latin scripts, the font for the text layer comes from a CDN.
 - **Fallback fonts** for text in fonts a document doesn't embed: the Latin one ships with Paperwing;
@@ -241,9 +408,9 @@ app around it.
 | Layer           | What it does                                                                                                                                  | Code                            |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
 | **BentoPDF**    | All PDF work: the 100+ tools, plus the document viewer (EmbedPDF on PDFium), pdf-lib, PDF.js, qpdf, Tesseract OCR, LibreOffice and more       | `src/js`, `src/pages`, `public` |
-| **Workspace**   | The Acrobat-style interface: tabs, Home, the searchable tools sidebar, the viewer workspace, forms, printing, shortcuts, preferences          | `app.html`, `src/acro/`         |
+| **Workspace**   | The Acrobat-style interface: tabs, Home, the searchable tools sidebar, the viewer workspace, forms, printing, scanning, signing, shortcuts    | `app.html`, `src/acro/`         |
 | **Integration** | Restyles every BentoPDF tool page (light/dark, Acrobat look) and connects it to the workspace: passes the open file in and catches the result | `src/reskin/`, `reskin/`        |
-| **Desktop app** | Electron: serves the built app from disk, native open/save dialogs, printing, file associations, launch screen, portable mode                 | `desktop/`                      |
+| **Desktop app** | Electron: serves the built app from disk, native dialogs, printing, scanners and certificate stores (native helpers), portable mode           | `desktop/`                      |
 
 When you pick a tool, Paperwing loads that BentoPDF tool page beside the document and hands it your
 file; the result opens in a new tab or saves where you choose. Apart from two lines in
@@ -279,7 +446,8 @@ Third-party notices are in [NOTICE.md](NOTICE.md); BentoPDF's original README is
 
 ## Contributing
 
-Bug reports, ideas and pull requests are welcome: see **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+Bug reports, ideas and pull requests are welcome: see **[CONTRIBUTING.md](CONTRIBUTING.md)**. If
+Paperwing saves you an Acrobat subscription, a ⭐ helps other people find it.
 
 ## License
 
@@ -292,3 +460,10 @@ same license.
 Adobe and Acrobat are registered trademarks of Adobe Inc. Paperwing is not affiliated with, endorsed
 by or sponsored by Adobe; the names are used only to describe what Paperwing is an alternative to.
 Paperwing contains no Adobe code, logos, icons or fonts.
+
+---
+
+<p align="center">
+  <img src="desktop/build/icon.png" alt="" width="28" height="28" /><br />
+  <sub>Made by <a href="https://rohanvijaykumar.cv">Rohan Vijaykumar</a> and contributors · <a href="https://paperwingapp.com">paperwingapp.com</a></sub>
+</p>
