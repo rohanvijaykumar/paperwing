@@ -10,7 +10,7 @@
  *
  * Set CHROME_PATH if Chrome isn't found.
  *
- * Scenes: hero (and social-preview), hero-dark, home, home-dark, dark,
+ * Scenes: hero, hero-dark, home, home-dark, dark,
  * all-tools, tool-panel, edit-text, shortcuts. The web build says Download
  * where the desktop app says Save a copy, so for the README run
  * gen-desktop-screenshots.mjs afterwards: it redraws the workspace scenes
@@ -35,7 +35,6 @@ import {
   goToPage,
   menu,
   sleep,
-  socialPreviewBody,
   waitThumbs,
   windowHtml,
   zoom,
@@ -197,10 +196,6 @@ async function shot(p, name, theme = 'light') {
   return png;
 }
 
-/** The repository's social image (1280×640): name and tagline beside the window */
-async function socialPreview(png) {
-  if (png) await render('social-preview', 1280, 640, socialPreviewBody(png));
-}
 /** The hero scene in a theme: saves hero.png or hero-dark.png */
 async function heroScene(theme) {
   const p = await newApp(theme);
@@ -243,9 +238,9 @@ async function homeScene(theme) {
 
 const scenes = {
   // The annual report: tabs, All tools, quick toolbar, annotations,
-  // thumbnails. Also the repository's social image.
+  // thumbnails.
   async hero() {
-    await socialPreview(await heroScene('light'));
+    await heroScene('light');
   },
   // The same in dark mode (the README's <picture> for a dark page)
   async 'hero-dark'() {
