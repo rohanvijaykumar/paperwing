@@ -15,10 +15,10 @@
  * The scanner is the development stand-in (scan-test.cjs) with the invoice
  * on its glass and an ordinary name; the Digital IDs are made up
  * (scripts/standin-certs: OpenSSL, nothing from this computer's certificate
- * store). Temporary files go in SHOTS_TMP (BENCH_TMP, else the OS's temp
- * folder). Set CHROME_PATH if Chrome isn't found (it draws the frames).
+ * store). Temporary files go in a new folder in SHOTS_TMP (BENCH_TMP, else
+ * the OS's temp folder). Set CHROME_PATH if Chrome isn't found (it draws the frames).
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,11 +43,10 @@ import { STANDIN_NAME, standinCerts } from './standin-certs/index.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(here, '..', '..', 'docs', 'screenshots');
 const SAMPLES = join(OUT, 'samples');
-const TMP = join(
-  process.env.SHOTS_TMP || process.env.BENCH_TMP || tmpdir(),
-  'paperwing-shots'
-);
-mkdirSync(TMP, { recursive: true });
+// A fresh private folder for each run (mkdtemp: random name, owner only)
+const TMP_BASE = process.env.SHOTS_TMP || process.env.BENCH_TMP || tmpdir();
+mkdirSync(TMP_BASE, { recursive: true });
+const TMP = mkdtempSync(join(TMP_BASE, 'paperwing-shots-'));
 const W = 1440;
 const H = 900;
 const only = new Set(process.argv.slice(2));
