@@ -56,9 +56,16 @@ internal static class Imaging
         return r >= 30 && r <= 20000 && Math.Abs(r - 96) > 0.5 ? (int)Math.Round(r) : 0;
     }
 
+    /// <summary>
+    /// The whole of a page's data, from its first byte. WIA hands over each
+    /// page in a stream the driver has just written, which can be left at its
+    /// end: read from there it looks empty (#55). NAPS2 rewinds it too. (Not
+    /// by Position: NAPS2.Wia's stream says 0 whatever the driver left.)
+    /// </summary>
     public static MemoryStream ToMemory(Stream stream)
     {
-        if (stream is MemoryStream ms && ms.Position == 0) return ms;
+        if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
+        if (stream is MemoryStream ms) return ms;
         var copy = new MemoryStream();
         stream.CopyTo(copy);
         copy.Position = 0;
