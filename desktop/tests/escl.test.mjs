@@ -18,7 +18,12 @@ import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { startFakeEscl, drawPage, encodeJpeg, encodePng } from './fake-escl.mjs';
+import {
+  startFakeEscl,
+  drawPage,
+  encodeJpeg,
+  encodePng,
+} from './fake-escl.mjs';
 
 const require = createRequire(import.meta.url);
 const escl = require('../escl.cjs');
@@ -40,7 +45,11 @@ const outDir = () => join(workDir, `scan-${++dirs}`);
 
 const fakes = [];
 async function fake(options = {}) {
-  const f = await startFakeEscl({ host: '127.0.0.1', mdns: { port: 0 }, ...options });
+  const f = await startFakeEscl({
+    host: '127.0.0.1',
+    mdns: { port: 0 },
+    ...options,
+  });
   fakes.push(f);
   return f;
 }
@@ -49,7 +58,10 @@ after(() => Promise.all(fakes.map((f) => f.close())));
 /** A client that finds `scanners` (over loopback multicast DNS) */
 function client(scanners, config = {}) {
   return createEscl({
-    mdnsTargets: scanners.map((s) => ({ address: '127.0.0.1', port: s.mdnsPort })),
+    mdnsTargets: scanners.map((s) => ({
+      address: '127.0.0.1',
+      port: s.mdnsPort,
+    })),
     ...config,
     timeouts: { ...FAST, ...config.timeouts },
   });
@@ -77,10 +89,25 @@ describe('multicast DNS packets', () => {
       id: 7,
       response: true,
       questions: [{ name: '_uscan._tcp.local', type: mdns.TYPE.PTR }],
-      answers: [{ name: '_uscan._tcp.local', type: mdns.TYPE.PTR, ttl: 10, data: 'Scanner é._uscan._tcp.local' }],
+      answers: [
+        {
+          name: '_uscan._tcp.local',
+          type: mdns.TYPE.PTR,
+          ttl: 10,
+          data: 'Scanner é._uscan._tcp.local',
+        },
+      ],
       additionals: [
-        { name: 'Scanner é._uscan._tcp.local', type: mdns.TYPE.SRV, data: { port: 8080, target: 'host.local' } },
-        { name: 'Scanner é._uscan._tcp.local', type: mdns.TYPE.TXT, data: { rs: 'eSCL', UUID: 'abc', flag: true } },
+        {
+          name: 'Scanner é._uscan._tcp.local',
+          type: mdns.TYPE.SRV,
+          data: { port: 8080, target: 'host.local' },
+        },
+        {
+          name: 'Scanner é._uscan._tcp.local',
+          type: mdns.TYPE.TXT,
+          data: { rs: 'eSCL', UUID: 'abc', flag: true },
+        },
         { name: 'host.local', type: mdns.TYPE.A, data: '192.168.1.20' },
       ],
     });
@@ -89,8 +116,17 @@ describe('multicast DNS packets', () => {
     assert.ok(p.response);
     assert.equal(p.questions[0].name, '_uscan._tcp.local');
     assert.equal(p.answers[0].data, 'Scanner é._uscan._tcp.local');
-    assert.deepEqual(p.additionals[0].data, { priority: 0, weight: 0, port: 8080, target: 'host.local' });
-    assert.deepEqual(p.additionals[1].data, { rs: 'eSCL', uuid: 'abc', flag: true });
+    assert.deepEqual(p.additionals[0].data, {
+      priority: 0,
+      weight: 0,
+      port: 8080,
+      target: 'host.local',
+    });
+    assert.deepEqual(p.additionals[1].data, {
+      rs: 'eSCL',
+      uuid: 'abc',
+      flag: true,
+    });
     assert.equal(p.additionals[2].data, '192.168.1.20');
   });
 
@@ -99,7 +135,9 @@ describe('multicast DNS packets', () => {
     const name = Buffer.from([1, 0x61, 5, 0x6c, 0x6f, 0x63, 0x61, 0x6c, 0]);
     const header = Buffer.from([0, 1, 0x84, 0, 0, 1, 0, 1, 0, 0, 0, 0]);
     const q = Buffer.concat([name, Buffer.from([0, 1, 0, 1])]);
-    const answer = Buffer.from([0xc0, 12, 0, 1, 0, 1, 0, 0, 0, 120, 0, 4, 10, 0, 0, 5]);
+    const answer = Buffer.from([
+      0xc0, 12, 0, 1, 0, 1, 0, 0, 0, 120, 0, 4, 10, 0, 0, 5,
+    ]);
     const p = mdns.decodePacket(Buffer.concat([header, q, answer]));
     assert.equal(p.answers[0].name, 'a.local');
     assert.equal(p.answers[0].data, '10.0.0.5');
@@ -108,15 +146,24 @@ describe('multicast DNS packets', () => {
   test('broken packets throw instead of looping', () => {
     const header = Buffer.from([0, 0, 0x84, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
     // A name pointing at itself
-    assert.throws(() => mdns.decodePacket(Buffer.concat([header, Buffer.from([0xc0, 12, 0, 1, 0, 1])])));
-    assert.throws(() => mdns.decodePacket(Buffer.concat([header, Buffer.from([5, 0x61])])));
+    assert.throws(() =>
+      mdns.decodePacket(
+        Buffer.concat([header, Buffer.from([0xc0, 12, 0, 1, 0, 1])])
+      )
+    );
+    assert.throws(() =>
+      mdns.decodePacket(Buffer.concat([header, Buffer.from([5, 0x61])]))
+    );
     assert.throws(() => mdns.decodePacket(Buffer.from([1, 2, 3])));
   });
 });
 
 describe('finding scanners', () => {
   test('a scanner announced over multicast DNS appears as soon as it answers', async () => {
-    const f = await fake({ name: 'Office Scanner', makeAndModel: 'Paperwing Test 3000' });
+    const f = await fake({
+      name: 'Office Scanner',
+      makeAndModel: 'Paperwing Test 3000',
+    });
     const c = client([f], { timeouts: { discoveryMs: 1500 } });
     const started = Date.now();
     let seenAt = 0;
@@ -150,13 +197,10 @@ describe('finding scanners', () => {
     const b = await fake({ name: 'HP Downstairs', https: true });
     const c = client([a, b]);
     const { scanners } = await c.list();
-    assert.deepEqual(
-      scanners.map((s) => [s.name, s.make, s.model]).sort(),
-      [
-        ['Canon Upstairs', 'Canon', 'Upstairs'],
-        ['HP Downstairs', 'HP', 'Downstairs'],
-      ]
-    );
+    assert.deepEqual(scanners.map((s) => [s.name, s.make, s.model]).sort(), [
+      ['Canon Upstairs', 'Canon', 'Upstairs'],
+      ['HP Downstairs', 'HP', 'Downstairs'],
+    ]);
     // The secure one works through its own self-signed certificate
     const caps = await c.caps(idOf(b));
     assert.equal(caps.type, 'caps');
@@ -170,23 +214,39 @@ describe('finding scanners', () => {
     targets.length = 0; // it stops answering
     const again = [];
     const { scanners } = await c.list({ onDevice: (d) => again.push(d) });
-    assert.deepEqual(scanners.map((s) => s.id), [idOf(f)]);
+    assert.deepEqual(
+      scanners.map((s) => s.id),
+      [idOf(f)]
+    );
     assert.equal(again.length, 1);
     // ...but not forever
-    const short = createEscl({ mdnsTargets: [{ address: '127.0.0.1', port: f.mdnsPort }], timeouts: { ...FAST, cacheMs: 0 } });
+    const short = createEscl({
+      mdnsTargets: [{ address: '127.0.0.1', port: f.mdnsPort }],
+      timeouts: { ...FAST, cacheMs: 0 },
+    });
     await short.list();
     await new Promise((r) => setTimeout(r, 5));
-    assert.equal((await createEscl({ mdnsTargets: [], timeouts: FAST }).list()).scanners.length, 0);
+    assert.equal(
+      (await createEscl({ mdnsTargets: [], timeouts: FAST }).list()).scanners
+        .length,
+      0
+    );
   });
 
   test('two identical scanners stay apart (deviceKey)', async () => {
     const a = await fake({ name: 'EPSON ET-4850 Series' });
-    const b = await fake({ name: 'EPSON ET-4850 Series', instance: 'EPSON ET-4850 Series (2)' });
+    const b = await fake({
+      name: 'EPSON ET-4850 Series',
+      instance: 'EPSON ET-4850 Series (2)',
+    });
     const { scanners } = await client([a, b]).list();
     const keys = scanners.map((s) => s.deviceKey).sort();
     const [first, second] = [a.uuid, b.uuid].sort();
     assert.deepEqual(keys, ['epson:et4850', `epson:et4850#${second}`]);
-    assert.equal(scanners.find((s) => s.uuid === first).deviceKey, 'epson:et4850');
+    assert.equal(
+      scanners.find((s) => s.uuid === first).deviceKey,
+      'epson:et4850'
+    );
   });
 
   test('no scanners: an empty list, not an error', async () => {
@@ -213,7 +273,10 @@ describe('adding a scanner by address', () => {
     assert.equal(added.scanners[0].uuid, f.uuid);
     assert.equal(added.scanners[0].name, 'Paperwing Test Scanner 3000');
     const { scanners } = await c.list();
-    assert.deepEqual(scanners.map((s) => s.id), [idOf(f)]);
+    assert.deepEqual(
+      scanners.map((s) => s.id),
+      [idOf(f)]
+    );
     const caps = await c.caps(idOf(f));
     assert.equal(caps.type, 'caps');
   });
@@ -229,7 +292,11 @@ describe('adding a scanner by address', () => {
 
   test('addresses given to the client at start are found again', async () => {
     const f = await fake({ mdns: false });
-    const c = createEscl({ mdnsTargets: [], manualHosts: [`127.0.0.1:${f.port}`], timeouts: FAST });
+    const c = createEscl({
+      mdnsTargets: [],
+      manualHosts: [`127.0.0.1:${f.port}`],
+      timeouts: FAST,
+    });
     assert.equal((await c.caps(idOf(f))).type, 'caps');
     assert.ok(c.remove(`127.0.0.1:${f.port}`));
   });
@@ -256,7 +323,9 @@ describe('adding a scanner by address', () => {
 
   test('something that answers, but not as a scanner', async () => {
     const http = await import('node:http');
-    const server = http.createServer((req, res) => res.end('<html>a router</html>'));
+    const server = http.createServer((req, res) =>
+      res.end('<html>a router</html>')
+    );
     await new Promise((r) => server.listen(0, '127.0.0.1', r));
     const c = createEscl({ mdnsTargets: [], timeouts: FAST });
     const r = await c.add(`127.0.0.1:${server.address().port}`);
@@ -285,14 +354,41 @@ describe('what a scanner can do', () => {
     assert.equal(flatbed.canPreview, true);
     assert.equal(feeder.canPreview, false);
     const sizes = flatbed.paperSizes.map((p) => p.name);
-    assert.ok(sizes.includes('Letter') && sizes.includes('A4') && sizes.includes('A5'));
-    assert.ok(!sizes.includes('Legal') && !sizes.includes('Tabloid') && !sizes.includes('A3'));
-    assert.deepEqual(flatbed.brightness, { min: 0, max: 2000, step: 1, default: 1000 });
-    assert.deepEqual(flatbed.contrast, { min: 0, max: 2000, step: 1, default: 1000 });
-    assert.deepEqual(flatbed.threshold, { min: 0, max: 255, step: 1, default: 128 });
+    assert.ok(
+      sizes.includes('Letter') && sizes.includes('A4') && sizes.includes('A5')
+    );
+    assert.ok(
+      !sizes.includes('Legal') &&
+        !sizes.includes('Tabloid') &&
+        !sizes.includes('A3')
+    );
+    assert.deepEqual(flatbed.brightness, {
+      min: 0,
+      max: 2000,
+      step: 1,
+      default: 1000,
+    });
+    assert.deepEqual(flatbed.contrast, {
+      min: 0,
+      max: 2000,
+      step: 1,
+      default: 1000,
+    });
+    assert.deepEqual(flatbed.threshold, {
+      min: 0,
+      max: 255,
+      step: 1,
+      default: 128,
+    });
     assert.equal(flatbed.feederLoaded, null);
     assert.equal(feeder.feederLoaded, true);
-    for (const key of ['autoDeskew', 'autoCrop', 'doubleFeed', 'invert', 'blankPageSkip'])
+    for (const key of [
+      'autoDeskew',
+      'autoCrop',
+      'doubleFeed',
+      'invert',
+      'blankPageSkip',
+    ])
       assert.equal(feeder[key], false, key);
   });
 
@@ -323,7 +419,10 @@ describe('what a scanner can do', () => {
     const f = await fake({ platen: false, adf: { sheets: 1 } });
     const c = client([f]);
     const caps = await c.caps(idOf(f));
-    assert.deepEqual(caps.sources.map((s) => s.id), ['feeder']);
+    assert.deepEqual(
+      caps.sources.map((s) => s.id),
+      ['feeder']
+    );
     const r = await run(c, idOf(f), {}, { preview: true });
     assert.equal(r.last.code, 'unsupported');
   });
@@ -394,15 +493,26 @@ describe('what a scanner can do', () => {
     assert.match(s.xml, /<pwg:Width>1749<\/pwg:Width>/);
     assert.match(s.xml, /<scan:Brightness>2000<\/scan:Brightness>/); // clamped
     assert.match(s.xml, /<scan:Threshold>100<\/scan:Threshold>/);
-    assert.match(s.xml, /<scan:DocumentFormatExt>image\/png<\/scan:DocumentFormatExt>/);
+    assert.match(
+      s.xml,
+      /<scan:DocumentFormatExt>image\/png<\/scan:DocumentFormatExt>/
+    );
     assert.match(s.xml, /<scan:Intent>Document<\/scan:Intent>/);
     assert.doesNotMatch(s.xml, /BlankPage/); // not supported by this one
 
-    const auto = escl.buildScanSettings(model, { source: 'flatbed', paper: 'auto', color: 'gray' });
+    const auto = escl.buildScanSettings(model, {
+      source: 'flatbed',
+      paper: 'auto',
+      color: 'gray',
+    });
     assert.doesNotMatch(auto.xml, /ScanRegion/);
     assert.doesNotMatch(auto.xml, /Duplex|Threshold|Brightness/);
     assert.equal(auto.format, 'image/jpeg');
-    const preview = escl.buildScanSettings(model, { dpi: 600 }, { preview: true });
+    const preview = escl.buildScanSettings(
+      model,
+      { dpi: 600 },
+      { preview: true }
+    );
     assert.equal(preview.dpi, 75);
     assert.match(preview.xml, /<scan:Intent>Preview<\/scan:Intent>/);
     assert.match(preview.xml, /<pwg:Width>2550<\/pwg:Width>/);
@@ -416,7 +526,11 @@ function sampleCaps() {
   ${['Platen><scan:PlatenInputCaps', 'Adf><scan:AdfSimplexInputCaps']
     .map((open, i) => {
       const [outer, inner] = open.split('><scan:');
-      const extra = i ? '<scan:AdfDuplexInputCaps>' + profile() + '</scan:AdfDuplexInputCaps><scan:Justification><pwg:XImagePosition>Center</pwg:XImagePosition></scan:Justification>' : '';
+      const extra = i
+        ? '<scan:AdfDuplexInputCaps>' +
+          profile() +
+          '</scan:AdfDuplexInputCaps><scan:Justification><pwg:XImagePosition>Center</pwg:XImagePosition></scan:Justification>'
+        : '';
       return `<scan:${outer}><scan:${inner}>${profile()}</scan:${inner}>${extra}</scan:${outer}>`;
     })
     .join('')}
@@ -429,7 +543,10 @@ function sampleCaps() {
       <scan:ColorModes><scan:ColorMode>RGB24</scan:ColorMode><scan:ColorMode>Grayscale8</scan:ColorMode><scan:ColorMode>BlackAndWhite1</scan:ColorMode></scan:ColorModes>
       <scan:DocumentFormats><pwg:DocumentFormat>image/jpeg</pwg:DocumentFormat><pwg:DocumentFormat>image/png</pwg:DocumentFormat><scan:DocumentFormatExt>image/png</scan:DocumentFormatExt></scan:DocumentFormats>
       <scan:SupportedResolutions><scan:DiscreteResolutions>${[75, 150, 300]
-        .map((d) => `<scan:DiscreteResolution><scan:XResolution>${d}</scan:XResolution><scan:YResolution>${d}</scan:YResolution></scan:DiscreteResolution>`)
+        .map(
+          (d) =>
+            `<scan:DiscreteResolution><scan:XResolution>${d}</scan:XResolution><scan:YResolution>${d}</scan:YResolution></scan:DiscreteResolution>`
+        )
         .join('')}</scan:DiscreteResolutions></scan:SupportedResolutions>
       </scan:SettingProfile></scan:SettingProfiles>
       <scan:SupportedIntents><scan:Intent>Document</scan:Intent><scan:Intent>Preview</scan:Intent></scan:SupportedIntents>`;
@@ -477,7 +594,11 @@ describe('preview and flatbed scans', () => {
     assert.ok(f.requests.some((q) => q.path.endsWith('/NextDocument')));
     assert.ok(job.deleted);
     // Status messages as it goes
-    assert.ok(r.events.some((e) => e.type === 'status' && /Scanning page 1/.test(e.message)));
+    assert.ok(
+      r.events.some(
+        (e) => e.type === 'status' && /Scanning page 1/.test(e.message)
+      )
+    );
   });
 
   test('a scan area, the nearest resolution, black and white as 1-bit PNG', async () => {
@@ -502,50 +623,86 @@ describe('preview and flatbed scans', () => {
 
   test('a range of resolutions: snapped to its steps', async () => {
     const f = await fake({ resolutions: { min: 75, max: 1200, step: 25 } });
-    const r = await run(client([f]), idOf(f), { dpi: 310, paper: { width: 2, height: 2 } });
+    const r = await run(client([f]), idOf(f), {
+      dpi: 310,
+      paper: { width: 2, height: 2 },
+    });
     assert.equal(r.last.type, 'done');
     assert.equal(lastJob(f).settings.dpi, 300);
   });
 
   test("settings a scanner doesn't have aren't sent", async () => {
     const f = await fake({ brightness: false, threshold: false });
-    const r = await run(client([f]), idOf(f), { dpi: 75, brightness: 10, contrast: 10, threshold: 10, color: 'bw' });
+    const r = await run(client([f]), idOf(f), {
+      dpi: 75,
+      brightness: 10,
+      contrast: 10,
+      threshold: 10,
+      color: 'bw',
+    });
     assert.equal(r.last.type, 'done');
     assert.doesNotMatch(lastJob(f).xml, /Brightness|Contrast|Threshold/);
   });
 
   test("HP's server: a new job with Host: localhost", async () => {
-    const f = await fake({ serverHeader: 'HP HTTP Server; HP_Compact_Server', quirks: { hpCompact: true } });
+    const f = await fake({
+      serverHeader: 'HP HTTP Server; HP_Compact_Server',
+      quirks: { hpCompact: true },
+    });
     const r = await run(client([f]), idOf(f), { dpi: 75 });
     assert.equal(r.last.type, 'done');
     assert.match(posts(f)[0].host, /^localhost:\d+$/);
     // Other requests keep the scanner's address
-    assert.match(f.requests.find((q) => q.method === 'GET').host, /^127\.0\.0\.1:\d+$/);
+    assert.match(
+      f.requests.find((q) => q.method === 'GET').host,
+      /^127\.0\.0\.1:\d+$/
+    );
   });
 });
 
 describe('the document feeder', () => {
   test('one side: a page per sheet until the feeder is empty', async () => {
     const f = await fake({ adf: { sheets: 3 } });
-    const r = await run(client([f]), idOf(f), { source: 'feeder', dpi: 75, paper: { width: 8.5, height: 11 } });
+    const r = await run(client([f]), idOf(f), {
+      source: 'feeder',
+      dpi: 75,
+      paper: { width: 8.5, height: 11 },
+    });
     assert.deepEqual(r.last, { type: 'done', pages: 3 });
-    assert.deepEqual(r.pages.map((p) => p.side), ['front', 'front', 'front']);
-    assert.deepEqual(r.pages.map((p) => p.file.match(/page-(\d)/)[1]), ['1', '2', '3']);
+    assert.deepEqual(
+      r.pages.map((p) => p.side),
+      ['front', 'front', 'front']
+    );
+    assert.deepEqual(
+      r.pages.map((p) => p.file.match(/page-(\d)/)[1]),
+      ['1', '2', '3']
+    );
     assert.equal(f.sheets, 0);
     assert.ok(lastJob(f).deleted);
   });
 
   test('both sides: front and back of each sheet, in order', async () => {
     const f = await fake({ adf: { sheets: 2, duplex: true } });
-    const r = await run(client([f]), idOf(f), { source: 'feeder', duplex: true, dpi: 75 });
+    const r = await run(client([f]), idOf(f), {
+      source: 'feeder',
+      duplex: true,
+      dpi: 75,
+    });
     assert.deepEqual(r.last, { type: 'done', pages: 4 });
-    assert.deepEqual(r.pages.map((p) => p.side), ['front', 'back', 'front', 'back']);
+    assert.deepEqual(
+      r.pages.map((p) => p.side),
+      ['front', 'back', 'front', 'back']
+    );
     assert.equal(lastJob(f).settings.duplex, true);
   });
 
   test('both sides asked of a one-sided feeder: one side', async () => {
     const f = await fake({ adf: { sheets: 2 } });
-    const r = await run(client([f]), idOf(f), { source: 'feeder', duplex: true, dpi: 75 });
+    const r = await run(client([f]), idOf(f), {
+      source: 'feeder',
+      duplex: true,
+      dpi: 75,
+    });
     assert.deepEqual(r.last, { type: 'done', pages: 2 });
     assert.doesNotMatch(lastJob(f).xml, /Duplex/);
   });
@@ -562,21 +719,37 @@ describe('when things go wrong', () => {
   };
 
   test('the feeder is empty', async () => {
-    await fails({ adf: { sheets: 0 } }, { source: 'feeder', dpi: 75 }, 'feeder-empty');
+    await fails(
+      { adf: { sheets: 0 } },
+      { source: 'feeder', dpi: 75 },
+      'feeder-empty'
+    );
   });
 
   test('paper jams after the first sheet: that page arrives, then the jam', async () => {
-    const { f, r } = await fails({ adf: { sheets: 3 }, errors: { jamAfter: 1 } }, { source: 'feeder', dpi: 75 }, 'paper-jam');
+    const { f, r } = await fails(
+      { adf: { sheets: 3 }, errors: { jamAfter: 1 } },
+      { source: 'feeder', dpi: 75 },
+      'paper-jam'
+    );
     assert.equal(r.pages.length, 1);
     assert.ok(lastJob(f).deleted);
   });
 
   test('two sheets pulled together', async () => {
-    await fails({ adf: { sheets: 3 }, errors: { multipickAfter: 1 } }, { source: 'feeder', dpi: 75 }, 'double-feed');
+    await fails(
+      { adf: { sheets: 3 }, errors: { multipickAfter: 1 } },
+      { source: 'feeder', dpi: 75 },
+      'double-feed'
+    );
   });
 
   test("the feeder's cover is open", async () => {
-    await fails({ adf: { sheets: 3 }, errors: { coverOpen: true } }, { source: 'feeder', dpi: 75 }, 'cover-open');
+    await fails(
+      { adf: { sheets: 3 }, errors: { coverOpen: true } },
+      { source: 'feeder', dpi: 75 },
+      'cover-open'
+    );
   });
 
   test("a feeder the scanner doesn't have", async () => {
@@ -592,7 +765,9 @@ describe('when things go wrong', () => {
     const f = await fake({ errors: { busy: 3 } });
     const r = await run(client([f]), idOf(f), { dpi: 75 });
     assert.equal(r.last.type, 'done');
-    assert.ok(r.events.some((e) => e.type === 'status' && /Waiting/.test(e.message)));
+    assert.ok(
+      r.events.some((e) => e.type === 'status' && /Waiting/.test(e.message))
+    );
   });
 
   test('busy for good: reported as busy', async () => {
@@ -616,7 +791,9 @@ describe('when things go wrong', () => {
   test("a scanner that stops answering mid-scan doesn't hang", async () => {
     const f = await fake({ errors: { hang: 'page' } });
     const started = Date.now();
-    const r = await run(client([f], { timeouts: { pageMs: 600 } }), idOf(f), { dpi: 75 });
+    const r = await run(client([f], { timeouts: { pageMs: 600 } }), idOf(f), {
+      dpi: 75,
+    });
     assert.equal(r.last.code, 'failed');
     assert.match(r.last.message, /stopped responding/);
     assert.ok(Date.now() - started < 3000);
@@ -626,14 +803,20 @@ describe('when things go wrong', () => {
   test("a scanner that doesn't answer when asked what it can do", async () => {
     const f = await fake({ errors: { hang: 'caps' } });
     const started = Date.now();
-    const caps = await client([f], { timeouts: { requestMs: 500 } }).caps(idOf(f));
+    const caps = await client([f], { timeouts: { requestMs: 500 } }).caps(
+      idOf(f)
+    );
     assert.equal(caps.type, 'error');
     assert.ok(Date.now() - started < 3000);
   });
 
   test("a status that never comes doesn't stop the scan", async () => {
     const f = await fake({ errors: { hang: 'status' } });
-    const r = await run(client([f], { timeouts: { requestMs: 400 } }), idOf(f), { dpi: 75 });
+    const r = await run(
+      client([f], { timeouts: { requestMs: 400 } }),
+      idOf(f),
+      { dpi: 75 }
+    );
     assert.equal(r.last.type, 'done');
   });
 
@@ -650,7 +833,9 @@ describe('when things go wrong', () => {
     // Announced at an address nothing answers on (TEST-NET-1, RFC 5737)
     const f = await fake({ mdns: { port: 0, address: '192.0.2.1' } });
     const started = Date.now();
-    const caps = await client([f], { timeouts: { connectMs: 500 } }).caps(idOf(f));
+    const caps = await client([f], { timeouts: { connectMs: 500 } }).caps(
+      idOf(f)
+    );
     assert.equal(caps.code, 'offline');
     assert.ok(Date.now() - started < 4000);
   });
@@ -660,14 +845,19 @@ describe('cancelling', () => {
   test('mid-job: stops at once, deletes the job, keeps the pages so far', async () => {
     const f = await fake({ adf: { sheets: 5 }, errors: { slowPageMs: 400 } });
     let cancelledAt = 0;
-    const r = await run(client([f]), idOf(f), { source: 'feeder', dpi: 75 }, {
-      onEvent: (e, handle) => {
-        if (e.type === 'page' && !cancelledAt) {
-          cancelledAt = Date.now();
-          handle.cancel();
-        }
-      },
-    });
+    const r = await run(
+      client([f]),
+      idOf(f),
+      { source: 'feeder', dpi: 75 },
+      {
+        onEvent: (e, handle) => {
+          if (e.type === 'page' && !cancelledAt) {
+            cancelledAt = Date.now();
+            handle.cancel();
+          }
+        },
+      }
+    );
     assert.deepEqual(r.last, { type: 'done', pages: 1, cancelled: true });
     assert.ok(Date.now() - cancelledAt < 1000, 'promptly');
     const job = lastJob(f);
@@ -690,7 +880,9 @@ describe('cancelling', () => {
 
   test('while the scanner is busy: no waiting it out', async () => {
     const f = await fake({ errors: { busy: 100 } });
-    const c = client([f], { timeouts: { retryDelayMs: 200, maxRetryDelayMs: 200 } });
+    const c = client([f], {
+      timeouts: { retryDelayMs: 200, maxRetryDelayMs: 200 },
+    });
     await c.caps(idOf(f));
     const started = Date.now();
     const handle = c.scan(idOf(f), { dpi: 75 }, outDir(), () => {});
@@ -704,15 +896,39 @@ describe('cancelling', () => {
 describe('helpers', () => {
   test('image kinds and sizes', () => {
     const page = drawPage(40, 30, { n: 2 });
-    assert.deepEqual(escl.imageInfo(encodePng(page)), { ext: 'png', width: 40, height: 30 });
-    assert.deepEqual(escl.imageInfo(encodeJpeg(page)), { ext: 'jpg', width: 40, height: 30 });
+    assert.deepEqual(escl.imageInfo(encodePng(page)), {
+      ext: 'png',
+      width: 40,
+      height: 30,
+    });
+    assert.deepEqual(escl.imageInfo(encodeJpeg(page)), {
+      ext: 'jpg',
+      width: 40,
+      height: 30,
+    });
     assert.equal(escl.imageInfo(Buffer.from('%PDF-1.7')), null);
   });
 
   test('self-signed certificates are accepted only on the local network', () => {
-    for (const ip of ['192.168.1.2', '10.0.0.1', '172.16.5.4', '169.254.1.1', '127.0.0.1', '::1', 'fe80::1%en0', 'fd00::5', '::ffff:192.168.0.9'])
+    for (const ip of [
+      '192.168.1.2',
+      '10.0.0.1',
+      '172.16.5.4',
+      '169.254.1.1',
+      '127.0.0.1',
+      '::1',
+      'fe80::1%en0',
+      'fd00::5',
+      '::ffff:192.168.0.9',
+    ])
       assert.ok(escl.isLocalAddress(ip), ip);
-    for (const ip of ['8.8.8.8', '172.32.0.1', '100.64.0.1', '2001:db8::1', 'scanner.example.com'])
+    for (const ip of [
+      '8.8.8.8',
+      '172.32.0.1',
+      '100.64.0.1',
+      '2001:db8::1',
+      'scanner.example.com',
+    ])
       assert.ok(!escl.isLocalAddress(ip), ip);
   });
 
@@ -721,20 +937,58 @@ describe('helpers', () => {
   test('deviceKey: the same scanner gives the same key (DeviceKey.cs)', () => {
     const k = escl.deviceKeyFor;
     for (const [twainMake, twainModel, wiaMake, wiaModel] of [
-      ['Brother Industries, Ltd.', 'TW-Brother MFC-L2710DW', 'Brother', 'Brother MFC-L2710DW series'],
-      ['HP', 'HP OfficeJet Pro 9010 series TWAIN', 'HP', 'HP OfficeJet Pro 9010 series'],
-      ['Hewlett-Packard', 'HP ScanJet Pro 2500 f1 TWAIN', 'HP', 'HP ScanJet Pro 2500 f1'],
-      ['SEIKO EPSON CORPORATION', 'EPSON Perfection V39', 'EPSON', 'EPSON Perfection V39'],
+      [
+        'Brother Industries, Ltd.',
+        'TW-Brother MFC-L2710DW',
+        'Brother',
+        'Brother MFC-L2710DW series',
+      ],
+      [
+        'HP',
+        'HP OfficeJet Pro 9010 series TWAIN',
+        'HP',
+        'HP OfficeJet Pro 9010 series',
+      ],
+      [
+        'Hewlett-Packard',
+        'HP ScanJet Pro 2500 f1 TWAIN',
+        'HP',
+        'HP ScanJet Pro 2500 f1',
+      ],
+      [
+        'SEIKO EPSON CORPORATION',
+        'EPSON Perfection V39',
+        'EPSON',
+        'EPSON Perfection V39',
+      ],
       ['Canon Inc.', 'CanoScan LiDE 300 (64-bit)', 'Canon', 'Canon LiDE 300'],
       ['PFU LIMITED', 'PaperStream IP fi-7160', 'FUJITSU', 'fi-7160'],
       ['Kodak Alaris', 'KODAK Scanner: i1150', 'Kodak', 'Kodak i1150'],
-      ['Xerox Corporation', 'WIA-Xerox DocuMate 3125', 'Xerox', 'Xerox DocuMate 3125'],
+      [
+        'Xerox Corporation',
+        'WIA-Xerox DocuMate 3125',
+        'Xerox',
+        'Xerox DocuMate 3125',
+      ],
     ])
-      assert.equal(k(wiaMake, wiaModel, wiaModel), k(twainMake, twainModel, twainModel), twainModel);
-    assert.notEqual(k('Epson', 'Perfection V39', null), k('Epson', 'Perfection V600', null));
+      assert.equal(
+        k(wiaMake, wiaModel, wiaModel),
+        k(twainMake, twainModel, twainModel),
+        twainModel
+      );
+    assert.notEqual(
+      k('Epson', 'Perfection V39', null),
+      k('Epson', 'Perfection V600', null)
+    );
     assert.notEqual(k('Canon', 'LiDE 300', null), k('Epson', 'LiDE 300', null));
-    assert.equal(k('Brother', 'Brother MFC-L2710DW series', null), 'brother:mfcl2710dw');
-    assert.equal(k('TWAIN Working Group', 'TWAIN2 FreeImage Software Scanner', null), 'twainworkinggroup:freeimagesoftware');
+    assert.equal(
+      k('Brother', 'Brother MFC-L2710DW series', null),
+      'brother:mfcl2710dw'
+    );
+    assert.equal(
+      k('TWAIN Working Group', 'TWAIN2 FreeImage Software Scanner', null),
+      'twainworkinggroup:freeimagesoftware'
+    );
     assert.equal(k('', '', 'Canon LiDE 400'), 'canon:lide400');
   });
 
@@ -745,55 +999,81 @@ describe('helpers', () => {
     };
     // The same scanners through WIA/TWAIN, above
     assert.equal(k('Brother MFC-L2710DW series'), 'brother:mfcl2710dw');
-    assert.equal(k('HP OfficeJet Pro 9010 series'), escl.deviceKeyFor('HP', 'HP OfficeJet Pro 9010 series TWAIN', null));
+    assert.equal(
+      k('HP OfficeJet Pro 9010 series'),
+      escl.deviceKeyFor('HP', 'HP OfficeJet Pro 9010 series TWAIN', null)
+    );
     assert.equal(k('EPSON ET-4850 Series'), 'epson:et4850');
     assert.equal(k('Canon MF743C/MF746C'), 'canon:mf743cmf746c');
   });
 
   test('make and model from a name', () => {
-    assert.deepEqual(escl.splitMakeModel('Hewlett-Packard LaserJet M28w'), { make: 'HP', model: 'LaserJet M28w' });
-    assert.deepEqual(escl.splitMakeModel('Konica Minolta bizhub C258'), { make: 'Konica Minolta', model: 'bizhub C258' });
-    assert.deepEqual(escl.splitMakeModel('Scanner'), { make: '', model: 'Scanner' });
+    assert.deepEqual(escl.splitMakeModel('Hewlett-Packard LaserJet M28w'), {
+      make: 'HP',
+      model: 'LaserJet M28w',
+    });
+    assert.deepEqual(escl.splitMakeModel('Konica Minolta bizhub C258'), {
+      make: 'Konica Minolta',
+      model: 'bizhub C258',
+    });
+    assert.deepEqual(escl.splitMakeModel('Scanner'), {
+      make: '',
+      model: 'Scanner',
+    });
   });
 });
 
 // --- On the real network (optional) ----------------------------------------
 
-test('real multicast: the fake answers on the multicast group', { skip: !process.env.ESCL_MULTICAST }, async () => {
-  const f = await startFakeEscl({ mdns: { port: 5353 }, adf: { sheets: 1 } });
-  fakes.push(f);
-  const c = createEscl({ timeouts: { ...FAST, discoveryMs: 4000 } });
-  const result = await c.list();
-  assert.ok(result.scanners?.some((s) => s.id === idOf(f)), JSON.stringify(result));
-  const r = await run(c, idOf(f), { source: 'feeder', dpi: 75 });
-  assert.deepEqual(r.last, { type: 'done', pages: 1 });
-});
-
-test('live: finds and scans a scanner announced by the system', { skip: !process.env.ESCL_LIVE_NAME }, async () => {
-  const c = createEscl({ timeouts: { discoveryMs: 6000 } });
-  const result = await c.list();
-  console.log('found', JSON.stringify(result));
-  // What the network looked like, if nothing was found
-  if (!result.scanners?.length) {
-    console.log('adapters', JSON.stringify(mdns.localInterfaces()));
-    await mdns.browse({ types: ['_uscan._tcp.local'], timeoutMs: 2000 }).then(
-      (r) => console.log('browse', JSON.stringify(r)),
-      (e) => console.log('browse failed', e.code, e.message)
+test(
+  'real multicast: the fake answers on the multicast group',
+  { skip: !process.env.ESCL_MULTICAST },
+  async () => {
+    const f = await startFakeEscl({ mdns: { port: 5353 }, adf: { sheets: 1 } });
+    fakes.push(f);
+    const c = createEscl({ timeouts: { ...FAST, discoveryMs: 4000 } });
+    const result = await c.list();
+    assert.ok(
+      result.scanners?.some((s) => s.id === idOf(f)),
+      JSON.stringify(result)
     );
+    const r = await run(c, idOf(f), { source: 'feeder', dpi: 75 });
+    assert.deepEqual(r.last, { type: 'done', pages: 1 });
   }
-  let s = result.scanners?.find((x) => x.name === process.env.ESCL_LIVE_NAME);
-  // Where this process may not use multicast (macOS Local Network privacy
-  // on CI), the address the system's Bonjour resolved it to
-  if (!s && result.code === 'blocked' && process.env.ESCL_LIVE_ADDRESS) {
-    console.log('multicast blocked here; adding', process.env.ESCL_LIVE_ADDRESS);
-    const added = await c.add(process.env.ESCL_LIVE_ADDRESS);
-    console.log('added', JSON.stringify(added));
-    s = added.scanners?.[0];
+);
+
+test(
+  'live: finds and scans a scanner announced by the system',
+  { skip: !process.env.ESCL_LIVE_NAME },
+  async () => {
+    const c = createEscl({ timeouts: { discoveryMs: 6000 } });
+    const result = await c.list();
+    console.log('found', JSON.stringify(result));
+    // What the network looked like, if nothing was found
+    if (!result.scanners?.length) {
+      console.log('adapters', JSON.stringify(mdns.localInterfaces()));
+      await mdns.browse({ types: ['_uscan._tcp.local'], timeoutMs: 2000 }).then(
+        (r) => console.log('browse', JSON.stringify(r)),
+        (e) => console.log('browse failed', e.code, e.message)
+      );
+    }
+    let s = result.scanners?.find((x) => x.name === process.env.ESCL_LIVE_NAME);
+    // Where this process may not use multicast (macOS Local Network privacy
+    // on CI), the address the system's Bonjour resolved it to
+    if (!s && result.code === 'blocked' && process.env.ESCL_LIVE_ADDRESS) {
+      console.log(
+        'multicast blocked here; adding',
+        process.env.ESCL_LIVE_ADDRESS
+      );
+      const added = await c.add(process.env.ESCL_LIVE_ADDRESS);
+      console.log('added', JSON.stringify(added));
+      s = added.scanners?.[0];
+    }
+    assert.ok(s, `no scanner called ${process.env.ESCL_LIVE_NAME}`);
+    const caps = await c.caps(s.id);
+    assert.equal(caps.type, 'caps', JSON.stringify(caps));
+    const r = await run(c, s.id, { source: caps.sources[0].id, dpi: 75 });
+    assert.equal(r.last.type, 'done', JSON.stringify(r.last));
+    assert.ok(r.pages.length >= 1);
   }
-  assert.ok(s, `no scanner called ${process.env.ESCL_LIVE_NAME}`);
-  const caps = await c.caps(s.id);
-  assert.equal(caps.type, 'caps', JSON.stringify(caps));
-  const r = await run(c, s.id, { source: caps.sources[0].id, dpi: 75 });
-  assert.equal(r.last.type, 'done', JSON.stringify(r.last));
-  assert.ok(r.pages.length >= 1);
-});
+);

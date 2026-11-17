@@ -88,7 +88,8 @@ const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 function decodeEntities(s) {
   return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e) => {
     if (e[0] === '#') {
-      const n = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : +e.slice(1);
+      const n =
+        e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : +e.slice(1);
       return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : all;
     }
     return ENTITIES[e.toLowerCase()] ?? all;
@@ -233,7 +234,8 @@ function parseInputCaps(n) {
 function parseCapabilities(xml) {
   const doc = parseXml(xml);
   const root = child(doc, 'ScannerCapabilities');
-  if (!root) throw new ScanError('failed', "The scanner's settings couldn't be read.");
+  if (!root)
+    throw new ScanError('failed', "The scanner's settings couldn't be read.");
   const adf = child(root, 'Adf');
   const isTrue = (name) =>
     findAll(root, name).some((n) => textOf(n).toLowerCase() === 'true');
@@ -286,7 +288,8 @@ function statusError(status, source) {
     if (adf) return adf;
   }
   if (status.state === 'Down') return 'offline';
-  if (status.state === 'Processing' || status.state === 'Testing') return 'busy';
+  if (status.state === 'Processing' || status.state === 'Testing')
+    return 'busy';
   return null;
 }
 
@@ -306,7 +309,8 @@ const colorOf = (mode) =>
         ? 'bw'
         : null;
 /** Only images: a PDF from the scanner would have to be taken apart */
-const usable = (p) => p.formats.includes(MIME.jpeg) || p.formats.includes(MIME.png);
+const usable = (p) =>
+  p.formats.includes(MIME.jpeg) || p.formats.includes(MIME.png);
 
 const PAPER_SIZES = [
   ['Letter', 8.5, 11],
@@ -342,13 +346,18 @@ function sourceCaps(id, input, model, { duplex, status }) {
       }
     : discrete;
   const inches = (v, fallback) =>
-    Number.isFinite(v) && v > 0 ? Math.round((v / 300) * 1000) / 1000 : fallback;
+    Number.isFinite(v) && v > 0
+      ? Math.round((v / 300) * 1000) / 1000
+      : fallback;
   const maxWidth = inches(input.maxWidth, 8.5);
   const maxHeight = inches(input.maxHeight, 11.69);
   const minWidth = inches(input.minWidth, 0);
   const minHeight = inches(input.minHeight, 0);
   const fits = (w, h) =>
-    w <= maxWidth + 0.05 && h <= maxHeight + 0.05 && w >= minWidth && h >= minHeight;
+    w <= maxWidth + 0.05 &&
+    h <= maxHeight + 0.05 &&
+    w >= minWidth &&
+    h >= minHeight;
   const feeder = id === 'feeder';
   return {
     id,
@@ -386,17 +395,25 @@ function sourceCaps(id, input, model, { duplex, status }) {
 /** The caps event for a parsed ScannerCapabilities (and status, if known) */
 function capsEvent(model, status) {
   const sources = [];
-  if (model.platen) sources.push(sourceCaps('flatbed', model.platen, model, { status }));
+  if (model.platen)
+    sources.push(sourceCaps('flatbed', model.platen, model, { status }));
   const adf = model.adfSimplex ?? model.adfDuplex;
   if (adf)
     sources.push(
       sourceCaps('feeder', adf, model, { duplex: !!model.adfDuplex, status })
     );
-  return { type: 'caps', driver: 'escl', nativeUi: false, sources: sources.filter(Boolean) };
+  return {
+    type: 'caps',
+    driver: 'escl',
+    nativeUi: false,
+    sources: sources.filter(Boolean),
+  };
 }
 
 const nearest = (list, want) =>
-  list.reduce((best, d) => (Math.abs(d - want) < Math.abs(best - want) ? d : best));
+  list.reduce((best, d) =>
+    Math.abs(d - want) < Math.abs(best - want) ? d : best
+  );
 
 /**
  * The ScanSettings for a request: picks the scanner's nearest resolution,
@@ -404,14 +421,17 @@ const nearest = (list, want) =>
  * units. Returns { xml, source, duplex, dpi, color, format }.
  */
 function buildScanSettings(model, options = {}, { preview = false } = {}) {
-  const source = preview ? 'flatbed' : options.source ?? (model.platen ? 'flatbed' : 'feeder');
-  const duplex = !preview && source === 'feeder' && !!options.duplex && !!model.adfDuplex;
+  const source = preview
+    ? 'flatbed'
+    : (options.source ?? (model.platen ? 'flatbed' : 'feeder'));
+  const duplex =
+    !preview && source === 'feeder' && !!options.duplex && !!model.adfDuplex;
   const input =
     source === 'flatbed'
       ? model.platen
       : duplex
         ? model.adfDuplex
-        : model.adfSimplex ?? model.adfDuplex;
+        : (model.adfSimplex ?? model.adfDuplex);
   if (!input)
     throw new ScanError(
       'unsupported',
@@ -421,7 +441,10 @@ function buildScanSettings(model, options = {}, { preview = false } = {}) {
     );
   const profiles = input.profiles.filter(usable);
   if (!profiles.length)
-    throw new ScanError('unsupported', "This scanner doesn't send images Paperwing can use.");
+    throw new ScanError(
+      'unsupported',
+      "This scanner doesn't send images Paperwing can use."
+    );
 
   const color = preview ? 'color' : options.color;
   const order = COLOR_MODES[color] ?? ['RGB24', 'Grayscale8', 'BlackAndWhite1'];
@@ -430,7 +453,8 @@ function buildScanSettings(model, options = {}, { preview = false } = {}) {
   const candidates = profiles.filter((p) => p.colorModes.includes(mode));
   const profile = candidates.length ? candidates[0] : profiles[0];
   // JPEG is small and every scanner does it well; 1-bit images need PNG
-  const preferred = mode === 'BlackAndWhite1' ? [MIME.png, MIME.jpeg] : [MIME.jpeg, MIME.png];
+  const preferred =
+    mode === 'BlackAndWhite1' ? [MIME.png, MIME.jpeg] : [MIME.jpeg, MIME.png];
   const format = preferred.find((f) => profile.formats.includes(f));
 
   // Resolution: a preview is quick and small
@@ -439,8 +463,12 @@ function buildScanSettings(model, options = {}, { preview = false } = {}) {
   if (profile.discrete.length) dpi = nearest(profile.discrete, want);
   if (profile.ranges.length) {
     const r = profile.ranges[0];
-    const snapped = Math.min(r.max, Math.max(r.min, r.min + Math.round((want - r.min) / r.step) * r.step));
-    if (dpi === undefined || Math.abs(snapped - want) < Math.abs(dpi - want)) dpi = snapped;
+    const snapped = Math.min(
+      r.max,
+      Math.max(r.min, r.min + Math.round((want - r.min) / r.step) * r.step)
+    );
+    if (dpi === undefined || Math.abs(snapped - want) < Math.abs(dpi - want))
+      dpi = snapped;
   }
   dpi ??= want;
 
@@ -451,8 +479,10 @@ function buildScanSettings(model, options = {}, { preview = false } = {}) {
   const minH = Number.isFinite(input.minHeight) ? input.minHeight : 1;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v)));
   let region = null;
-  const area = options.area && typeof options.area === 'object' ? options.area : null;
-  const paper = options.paper && typeof options.paper === 'object' ? options.paper : null;
+  const area =
+    options.area && typeof options.area === 'object' ? options.area : null;
+  const paper =
+    options.paper && typeof options.paper === 'object' ? options.paper : null;
   const auto = options.area === 'auto' || options.paper === 'auto';
   if (!preview && area) {
     const w = clamp(area.width * 300, minW, maxW);
@@ -468,8 +498,10 @@ function buildScanSettings(model, options = {}, { preview = false } = {}) {
     const h = clamp(paper.height * 300, minH, maxH);
     let x = 0;
     // A feeder that centres the paper wants the area centred too
-    if (source === 'feeder' && /center/i.test(model.adfJustification)) x = Math.round((maxW - w) / 2);
-    if (source === 'feeder' && /right/i.test(model.adfJustification)) x = maxW - w;
+    if (source === 'feeder' && /center/i.test(model.adfJustification))
+      x = Math.round((maxW - w) / 2);
+    if (source === 'feeder' && /right/i.test(model.adfJustification))
+      x = maxW - w;
     region = { x, y: 0, w, h };
   } else if (preview || !auto) {
     region = { x: 0, y: 0, w: maxW, h: maxH };
@@ -480,8 +512,12 @@ function buildScanSettings(model, options = {}, { preview = false } = {}) {
   const ranged = (key, name) => {
     const range = model[key];
     const v = options[key];
-    if (preview || !range || typeof v !== 'number' || !Number.isFinite(v)) return '';
-    return el(`scan:${name}`, Math.max(range.min, Math.min(range.max, Math.round(v))));
+    if (preview || !range || typeof v !== 'number' || !Number.isFinite(v))
+      return '';
+    return el(
+      `scan:${name}`,
+      Math.max(range.min, Math.min(range.max, Math.round(v)))
+    );
   };
   let xml =
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
@@ -506,7 +542,12 @@ function buildScanSettings(model, options = {}, { preview = false } = {}) {
   xml += ranged('contrast', 'Contrast');
   if (mode === 'BlackAndWhite1') xml += ranged('threshold', 'Threshold');
   xml += ranged('sharpen', 'Sharpen');
-  if (!preview && source === 'feeder' && options.blankPageSkip && model.blankPageRemoval)
+  if (
+    !preview &&
+    source === 'feeder' &&
+    options.blankPageSkip &&
+    model.blankPageRemoval
+  )
     xml += el('scan:BlankPageDetectionAndRemoval', 'true');
   xml += '</scan:ScanSettings>\n';
   return { xml, source, duplex, dpi, color: colorOf(mode), format };
@@ -517,7 +558,11 @@ function buildScanSettings(model, options = {}, { preview = false } = {}) {
 /** The kind and size of an image the scanner sent */
 function imageInfo(buf) {
   if (buf.length >= 24 && buf.readUInt32BE(0) === 0x89504e47)
-    return { ext: 'png', width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+    return {
+      ext: 'png',
+      width: buf.readUInt32BE(16),
+      height: buf.readUInt32BE(20),
+    };
   if (buf.length >= 4 && buf[0] === 0xff && buf[1] === 0xd8) {
     let i = 2;
     while (i + 9 < buf.length) {
@@ -526,13 +571,25 @@ function imageInfo(buf) {
         continue;
       }
       const marker = buf[i + 1];
-      if (marker === 0xff || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {
+      if (
+        marker === 0xff ||
+        marker === 0x01 ||
+        (marker >= 0xd0 && marker <= 0xd8)
+      ) {
         i += marker === 0xff ? 1 : 2;
         continue;
       }
       // Start of frame (any kind except the Huffman/arithmetic table markers)
-      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker))
-        return { ext: 'jpg', width: buf.readUInt16BE(i + 7), height: buf.readUInt16BE(i + 5) };
+      if (
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        ![0xc4, 0xc8, 0xcc].includes(marker)
+      )
+        return {
+          ext: 'jpg',
+          width: buf.readUInt16BE(i + 7),
+          height: buf.readUInt16BE(i + 5),
+        };
       i += 2 + buf.readUInt16BE(i + 2);
     }
     return { ext: 'jpg', width: 0, height: 0 };
@@ -557,7 +614,8 @@ function isLocalAddress(ip) {
     );
   }
   if (net.isIPv6(addr)) {
-    if (addr.startsWith('::ffff:') && net.isIPv4(addr.slice(7))) return isLocalAddress(addr.slice(7));
+    if (addr.startsWith('::ffff:') && net.isIPv4(addr.slice(7)))
+      return isLocalAddress(addr.slice(7));
     return addr === '::1' || /^fe[89ab]/.test(addr) || /^f[cd]/.test(addr);
   }
   return false;
@@ -602,10 +660,18 @@ const MAKES = [
 
 function splitMakeModel(text) {
   const s = String(text ?? '').trim();
-  const make = MAKES.find((m) => s.toLowerCase().startsWith(`${m.toLowerCase()} `));
-  if (make) return { make: make === 'Hewlett-Packard' ? 'HP' : make, model: s.slice(make.length).trim() };
+  const make = MAKES.find((m) =>
+    s.toLowerCase().startsWith(`${m.toLowerCase()} `)
+  );
+  if (make)
+    return {
+      make: make === 'Hewlett-Packard' ? 'HP' : make,
+      model: s.slice(make.length).trim(),
+    };
   const space = s.indexOf(' ');
-  return space > 0 ? { make: s.slice(0, space), model: s.slice(space + 1) } : { make: '', model: s };
+  return space > 0
+    ? { make: s.slice(0, space), model: s.slice(space + 1) }
+    : { make: '', model: s };
 }
 
 // --- deviceKey: one physical scanner, whichever way it's reached ------------
@@ -665,19 +731,26 @@ function makeKey(make) {
   // "Seiko Epson Corp." / "EPSON": an alias may be any run of the tokens
   const inside = MAKE_ALIASES.find(([k]) => joined.includes(k));
   if (inside) return inside[1];
-  const known = MAKE_WORDS.find(([, words]) => tokens.some((t) => words.includes(t)));
+  const known = MAKE_WORDS.find(([, words]) =>
+    tokens.some((t) => words.includes(t))
+  );
   return known ? known[0] : joined;
 }
 
 function modelKey(model, make) {
   // Parenthesised driver notes: "(TWAIN)", "(64-bit)", "(WIA)"
   let text = String(model ?? '').replace(/\(([^)]*)\)/g, (_, inner) =>
-    keyTokens(inner).every((t) => DRIVER_WORDS.has(t) || t === 'bit' || t === '32' || t === '64')
+    keyTokens(inner).every(
+      (t) => DRIVER_WORDS.has(t) || t === 'bit' || t === '32' || t === '64'
+    )
       ? ' '
       : ` ${inner} `
   );
   text = text.replace(/\b(32|64)[\s-]?bit\b/gi, ' ');
-  const own = new Set([make, ...(MAKE_WORDS.find(([k]) => k === make)?.[1] ?? [])]);
+  const own = new Set([
+    make,
+    ...(MAKE_WORDS.find(([k]) => k === make)?.[1] ?? []),
+  ]);
   return keyTokens(text)
     .filter((t) => !DRIVER_WORDS.has(t) && !own.has(t))
     .join('');
@@ -724,8 +797,12 @@ function networkError(err) {
     ].includes(code)
   )
     return new ScanError('offline');
-  if (code === 'ETIMEDOUT') return new ScanError('failed', 'The scanner stopped responding.');
-  return new ScanError('failed', `The scanner couldn't be reached (${err?.message ?? err}).`);
+  if (code === 'ETIMEDOUT')
+    return new ScanError('failed', 'The scanner stopped responding.');
+  return new ScanError(
+    'failed',
+    `The scanner couldn't be reached (${err?.message ?? err}).`
+  );
 }
 
 function createEscl(config = {}) {
@@ -744,7 +821,13 @@ function createEscl(config = {}) {
    * headersOnly: resolve as soon as the status line is in (some Kyocera
    * scanners drop the connection after the headers of a new job).
    */
-  function request(dev, ep, method, reqPath, { body, idleMs = opt.requestMs, signal, headersOnly, hostHeader } = {}) {
+  function request(
+    dev,
+    ep,
+    method,
+    reqPath,
+    { body, idleMs = opt.requestMs, signal, headersOnly, hostHeader } = {}
+  ) {
     return new Promise((resolve, reject) => {
       if (signal?.aborted) return reject(new ScanError('cancelled'));
       const mod = ep.scheme === 'https' ? https : http;
@@ -770,7 +853,12 @@ function createEscl(config = {}) {
       };
       const onAbort = () => fail(new ScanError('cancelled'));
       const connectTimer = setTimeout(
-        () => fail(Object.assign(new Error('Connection timed out'), { code: 'ECONNECT_TIMEOUT' })),
+        () =>
+          fail(
+            Object.assign(new Error('Connection timed out'), {
+              code: 'ECONNECT_TIMEOUT',
+            })
+          ),
         opt.connectMs
       );
       try {
@@ -784,17 +872,24 @@ function createEscl(config = {}) {
           // A scanner's certificate is its own, self-signed: accepted only
           // on the local network
           rejectUnauthorized: !isLocalAddress(ep.address),
-          servername: ep.hostname && !net.isIP(ep.hostname) ? ep.hostname : undefined,
+          servername:
+            ep.hostname && !net.isIP(ep.hostname) ? ep.hostname : undefined,
         });
       } catch (err) {
         return fail(err);
       }
       signal?.addEventListener('abort', onAbort, { once: true });
       req.on('socket', (sock) =>
-        sock.once(ep.scheme === 'https' ? 'secureConnect' : 'connect', () => clearTimeout(connectTimer))
+        sock.once(ep.scheme === 'https' ? 'secureConnect' : 'connect', () =>
+          clearTimeout(connectTimer)
+        )
       );
       req.setTimeout(idleMs, () =>
-        fail(Object.assign(new Error('The scanner stopped responding'), { code: 'ETIMEDOUT' }))
+        fail(
+          Object.assign(new Error('The scanner stopped responding'), {
+            code: 'ETIMEDOUT',
+          })
+        )
       );
       req.on('error', fail);
       req.on('response', (res) => {
@@ -805,18 +900,30 @@ function createEscl(config = {}) {
           signal?.removeEventListener('abort', onAbort);
           res.on('error', () => {});
           res.resume();
-          return resolve({ status: res.statusCode, headers: res.headers, body: Buffer.alloc(0) });
+          return resolve({
+            status: res.statusCode,
+            headers: res.headers,
+            body: Buffer.alloc(0),
+          });
         }
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
         res.on('error', fail);
-        res.on('aborted', () => fail(Object.assign(new Error('Connection lost'), { code: 'ECONNRESET' })));
+        res.on('aborted', () =>
+          fail(
+            Object.assign(new Error('Connection lost'), { code: 'ECONNRESET' })
+          )
+        );
         res.on('end', () => {
           if (settled) return;
           settled = true;
           signal?.removeEventListener('abort', onAbort);
           req.destroy();
-          resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) });
+          resolve({
+            status: res.statusCode,
+            headers: res.headers,
+            body: Buffer.concat(chunks),
+          });
         });
       });
       req.end(body);
@@ -824,7 +931,13 @@ function createEscl(config = {}) {
   }
 
   /** A request that asks again while the scanner answers 503 (busy) */
-  async function call(dev, method, reqPath, options = {}, retries = opt.retries) {
+  async function call(
+    dev,
+    method,
+    reqPath,
+    options = {},
+    retries = opt.retries
+  ) {
     const ep = dev.endpoint;
     for (let attempt = 0; ; attempt++) {
       let res;
@@ -850,10 +963,15 @@ function createEscl(config = {}) {
   /** The Host header. HP's "Compact Server" wants localhost when creating
    *  a job; Epson wants the port even when it's the default */
   function hostFor(dev, ep, { job } = {}) {
-    const host = job && dev.quirks.hpLocalhost ? 'localhost' : ep.hostname ?? ep.address;
-    const name = net.isIPv6(host.replace(/%.*$/, '')) ? `[${host.replace(/%.*$/, '')}]` : host;
+    const host =
+      job && dev.quirks.hpLocalhost ? 'localhost' : (ep.hostname ?? ep.address);
+    const name = net.isIPv6(host.replace(/%.*$/, ''))
+      ? `[${host.replace(/%.*$/, '')}]`
+      : host;
     const usual = ep.scheme === 'https' ? 443 : 80;
-    return ep.port !== usual || dev.quirks.portInHost ? `${name}:${ep.port}` : name;
+    return ep.port !== usual || dev.quirks.portInHost
+      ? `${name}:${ep.port}`
+      : name;
   }
 
   function noteServer(dev, server) {
@@ -888,22 +1006,38 @@ function createEscl(config = {}) {
   }
 
   function upsert(id, fields) {
-    const dev = devices.get(id) ?? { id, endpoints: [], endpoint: null, caps: null, quirks: {} };
+    const dev = devices.get(id) ?? {
+      id,
+      endpoints: [],
+      endpoint: null,
+      caps: null,
+      quirks: {},
+    };
     Object.assign(dev, fields, { lastSeen: Date.now() });
     // Secure first: a scanner's https needs no extra care on a local network
-    dev.endpoints.sort((a, b) => (a.scheme === b.scheme ? 0 : a.scheme === 'https' ? -1 : 1));
-    if (dev.endpoint && !dev.endpoints.some((e) => sameEndpoint(e, dev.endpoint))) dev.endpoint = null;
+    dev.endpoints.sort((a, b) =>
+      a.scheme === b.scheme ? 0 : a.scheme === 'https' ? -1 : 1
+    );
+    if (
+      dev.endpoint &&
+      !dev.endpoints.some((e) => sameEndpoint(e, dev.endpoint))
+    )
+      dev.endpoint = null;
     if (/epson/i.test(`${dev.make} ${dev.name}`)) dev.quirks.portInHost = true;
     devices.set(id, dev);
     return dev;
   }
 
   const sameEndpoint = (a, b) =>
-    a.scheme === b.scheme && a.address === b.address && a.port === b.port && a.rs === b.rs;
+    a.scheme === b.scheme &&
+    a.address === b.address &&
+    a.port === b.port &&
+    a.rs === b.rs;
 
   function addEndpoints(dev, eps) {
     const list = dev?.endpoints ?? [];
-    for (const ep of eps) if (!list.some((e) => sameEndpoint(e, ep))) list.push(ep);
+    for (const ep of eps)
+      if (!list.some((e) => sameEndpoint(e, ep))) list.push(ep);
     return list;
   }
 
@@ -922,7 +1056,10 @@ function createEscl(config = {}) {
     const name = (typeof s.txt.ty === 'string' && s.txt.ty) || s.name;
     const { make, model } =
       typeof s.txt.mfg === 'string' && s.txt.mfg
-        ? { make: s.txt.mfg, model: typeof s.txt.mdl === 'string' ? s.txt.mdl : name }
+        ? {
+            make: s.txt.mfg,
+            model: typeof s.txt.mdl === 'string' ? s.txt.mdl : name,
+          }
         : splitMakeModel(name);
     return upsert(id, {
       name,
@@ -936,19 +1073,28 @@ function createEscl(config = {}) {
   /** Reads ScannerCapabilities, trying each of the scanner's addresses */
   async function loadCaps(dev, signal) {
     const order = dev.endpoint
-      ? [dev.endpoint, ...dev.endpoints.filter((e) => !sameEndpoint(e, dev.endpoint))]
+      ? [
+          dev.endpoint,
+          ...dev.endpoints.filter((e) => !sameEndpoint(e, dev.endpoint)),
+        ]
       : dev.endpoints;
     let lastError = new ScanError('offline');
     for (const ep of order) {
       dev.endpoint = ep;
       try {
-        const res = await call(dev, 'GET', `${ep.rs}/ScannerCapabilities`, { signal });
+        const res = await call(dev, 'GET', `${ep.rs}/ScannerCapabilities`, {
+          signal,
+        });
         if (res.status !== 200) {
-          lastError = new ScanError('failed', `The scanner answered ${res.status} when asked for its settings.`);
+          lastError = new ScanError(
+            'failed',
+            `The scanner answered ${res.status} when asked for its settings.`
+          );
           continue;
         }
         dev.caps = parseCapabilities(res.body.toString('utf8'));
-        if (dev.caps.makeAndModel && !dev.make) Object.assign(dev, splitMakeModel(dev.caps.makeAndModel));
+        if (dev.caps.makeAndModel && !dev.make)
+          Object.assign(dev, splitMakeModel(dev.caps.makeAndModel));
         if (/epson/i.test(dev.caps.makeAndModel)) dev.quirks.portInHost = true;
         return dev.caps;
       } catch (err) {
@@ -962,7 +1108,13 @@ function createEscl(config = {}) {
 
   async function getStatus(dev, signal) {
     try {
-      const res = await call(dev, 'GET', `${dev.endpoint.rs}/ScannerStatus`, { signal }, 2);
+      const res = await call(
+        dev,
+        'GET',
+        `${dev.endpoint.rs}/ScannerStatus`,
+        { signal },
+        2
+      );
       return res.status === 200 ? parseStatus(res.body.toString('utf8')) : null;
     } catch (err) {
       if (err.code === 'cancelled') throw err;
@@ -981,35 +1133,55 @@ function createEscl(config = {}) {
     } catch {
       return null;
     }
-    const explicitScheme = /^https?:\/\//i.test(text) ? url.protocol.slice(0, -1) : null;
+    const explicitScheme = /^https?:\/\//i.test(text)
+      ? url.protocol.slice(0, -1)
+      : null;
     const hostname = url.hostname.replace(/^\[|\]$/g, '');
     const port = url.port ? Number(url.port) : null;
-    const rs = resourcePath(url.pathname.replace(/\/ScannerCapabilities$/i, '') || 'eSCL');
+    const rs = resourcePath(
+      url.pathname.replace(/\/ScannerCapabilities$/i, '') || 'eSCL'
+    );
     const tries = explicitScheme
       ? [[explicitScheme, port ?? (explicitScheme === 'https' ? 443 : 80)]]
       : port
-        ? [['https', port], ['http', port]]
-        : [['https', 443], ['http', 80], ['http', 8080]];
+        ? [
+            ['https', port],
+            ['http', port],
+          ]
+        : [
+            ['https', 443],
+            ['http', 80],
+            ['http', 8080],
+          ];
     return { hostname, rs, tries };
   }
 
   /** Tries an address someone typed in; registers the scanner it finds */
   async function probe(input) {
     const parsed = parseAddress(input);
-    if (!parsed) throw new ScanError('no-scanner', 'That isn’t a valid IP address or host name.');
+    if (!parsed)
+      throw new ScanError(
+        'no-scanner',
+        'That isn’t a valid IP address or host name.'
+      );
     let addresses;
     if (net.isIP(parsed.hostname)) addresses = [parsed.hostname];
     else {
       try {
-        addresses = (await Promise.race([
-          dns.promises.lookup(parsed.hostname, { all: true }),
-          sleep(opt.probeMs).then(() => []),
-        ])).map((a) => a.address);
+        addresses = (
+          await Promise.race([
+            dns.promises.lookup(parsed.hostname, { all: true }),
+            sleep(opt.probeMs).then(() => []),
+          ])
+        ).map((a) => a.address);
       } catch {
         addresses = [];
       }
       if (!addresses.length)
-        throw new ScanError('no-scanner', `Paperwing couldn't find “${parsed.hostname}” on the network.`);
+        throw new ScanError(
+          'no-scanner',
+          `Paperwing couldn't find “${parsed.hostname}” on the network.`
+        );
     }
     const address = addresses.find((a) => net.isIPv4(a)) ?? addresses[0];
     const candidates = parsed.tries.map(([scheme, port]) => ({
@@ -1020,18 +1192,31 @@ function createEscl(config = {}) {
       hostname: net.isIP(parsed.hostname) ? null : parsed.hostname,
     }));
     const probeOne = async (ep) => {
-      const res = await request({ quirks: {} }, ep, 'GET', `${ep.rs}/ScannerCapabilities`, {
-        idleMs: Math.min(opt.requestMs, opt.probeMs),
-      });
+      const res = await request(
+        { quirks: {} },
+        ep,
+        'GET',
+        `${ep.rs}/ScannerCapabilities`,
+        {
+          idleMs: Math.min(opt.requestMs, opt.probeMs),
+        }
+      );
       if (res.status !== 200) throw new Error(String(res.status));
       return { ep, caps: parseCapabilities(res.body.toString('utf8')) };
     };
     const results = await Promise.allSettled(candidates.map(probeOne));
-    const ok = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+    const ok = results
+      .filter((r) => r.status === 'fulfilled')
+      .map((r) => r.value);
     if (!ok.length)
-      throw new ScanError('no-scanner', `No network scanner answered at ${String(input).trim()}.`);
+      throw new ScanError(
+        'no-scanner',
+        `No network scanner answered at ${String(input).trim()}.`
+      );
     const { caps } = ok[0];
-    const id = caps.uuid ? `escl:${caps.uuid}` : `escl:${parsed.hostname.toLowerCase()}`;
+    const id = caps.uuid
+      ? `escl:${caps.uuid}`
+      : `escl:${parsed.hostname.toLowerCase()}`;
     const known = devices.get(id);
     const { make, model } = splitMakeModel(caps.makeAndModel);
     const dev = upsert(id, {
@@ -1039,7 +1224,10 @@ function createEscl(config = {}) {
       make: known?.make || make,
       model: known?.model || model,
       uuid: caps.uuid,
-      endpoints: addEndpoints(known, ok.map((r) => r.ep)),
+      endpoints: addEndpoints(
+        known,
+        ok.map((r) => r.ep)
+      ),
       manual: String(input).trim(),
     });
     dev.endpoint = ok[0].ep;
@@ -1064,7 +1252,9 @@ function createEscl(config = {}) {
       }
     };
     const recent = () =>
-      [...devices.values()].filter((d) => Date.now() - d.lastSeen < opt.cacheMs);
+      [...devices.values()].filter(
+        (d) => Date.now() - d.lastSeen < opt.cacheMs
+      );
     recent().forEach(report);
     let mdnsError = null;
     await Promise.all([
@@ -1082,7 +1272,8 @@ function createEscl(config = {}) {
     // is what a denied Local Network permission looks like
     const blocked = ['EACCES', 'EPERM'];
     if (process.platform === 'darwin') blocked.push('EHOSTUNREACH');
-    if (!seen.size && blocked.includes(mdnsError?.code)) return errorEvent('blocked');
+    if (!seen.size && blocked.includes(mdnsError?.code))
+      return errorEvent('blocked');
     return { type: 'scanners', scanners: [...seen.values()].map(publicDevice) };
   }
 
@@ -1119,7 +1310,10 @@ function createEscl(config = {}) {
       const event = capsEvent(model, await getStatus(dev));
       // e.g. a scanner that only sends PDF files
       if (!event.sources.length)
-        return errorEvent('unsupported', "This scanner doesn't send images Paperwing can use.");
+        return errorEvent(
+          'unsupported',
+          "This scanner doesn't send images Paperwing can use."
+        );
       return event;
     } catch (err) {
       const e = networkError(err);
@@ -1130,7 +1324,9 @@ function createEscl(config = {}) {
   /** Where the scanner is in a job */
   function jobState(status, jobPath) {
     const job = status?.jobs.find(
-      (j) => (j.uri && jobPath.endsWith(j.uri.replace(/^https?:\/\/[^/]+/, ''))) || (j.uuid && jobPath.endsWith(j.uuid))
+      (j) =>
+        (j.uri && jobPath.endsWith(j.uri.replace(/^https?:\/\/[^/]+/, ''))) ||
+        (j.uuid && jobPath.endsWith(j.uuid))
     );
     return job?.state ?? '';
   }
@@ -1158,7 +1354,9 @@ function createEscl(config = {}) {
       const job = jobPath;
       jobPath = null;
       try {
-        await request(dev, dev.endpoint, 'DELETE', job, { idleMs: Math.min(opt.requestMs, 5000) });
+        await request(dev, dev.endpoint, 'DELETE', job, {
+          idleMs: Math.min(opt.requestMs, 5000),
+        });
       } catch {
         /* finished jobs may already be gone */
       }
@@ -1180,38 +1378,62 @@ function createEscl(config = {}) {
           },
           0
         );
-        if ((res.status === 201 || res.status === 200) && res.headers.location) {
+        if (
+          (res.status === 201 || res.status === 200) &&
+          res.headers.location
+        ) {
           // Only the path: scanners put localhost or an old address here
           const loc = new URL(res.headers.location, 'http://scanner/');
           return loc.pathname.replace(/\/+$/, '');
         }
         const why = statusError(await getStatus(dev), settings.source);
-        if (res.status === 503 && attempt < opt.retries && (!why || why === 'busy')) {
+        if (
+          res.status === 503 &&
+          attempt < opt.retries &&
+          (!why || why === 'busy')
+        ) {
           status('Waiting for the scanner…');
           await sleep(backoff(attempt), signal);
           continue;
         }
         if (why) throw new ScanError(why);
-        if (res.status === 503 || res.status === 409) throw new ScanError('busy');
-        if (res.status === 400 || res.status === 415) throw new ScanError('unsupported');
-        throw new ScanError('failed', `The scanner refused the scan (${res.status}).`);
+        if (res.status === 503 || res.status === 409)
+          throw new ScanError('busy');
+        if (res.status === 400 || res.status === 415)
+          throw new ScanError('unsupported');
+        throw new ScanError(
+          'failed',
+          `The scanner refused the scan (${res.status}).`
+        );
       }
     }
 
     async function savePage(body, settings) {
       const info = imageInfo(body);
-      if (!info) throw new ScanError('unsupported', "The scanner sent a page Paperwing can't read.");
+      if (!info)
+        throw new ScanError(
+          'unsupported',
+          "The scanner sent a page Paperwing can't read."
+        );
       const side = settings.duplex && pages % 2 === 1 ? 'back' : 'front';
       pages++;
       const file = path.join(outDir, `page-${pages}.${info.ext}`);
       await fsp.writeFile(file, body);
-      emit({ type: 'page', file, dpi: settings.dpi, width: info.width, height: info.height, side });
+      emit({
+        type: 'page',
+        file,
+        dpi: settings.dpi,
+        width: info.width,
+        height: info.height,
+        side,
+      });
     }
 
     const done = (async () => {
       try {
         dev = await device(id);
-        const model = dev.caps && dev.endpoint ? dev.caps : await loadCaps(dev, signal);
+        const model =
+          dev.caps && dev.endpoint ? dev.caps : await loadCaps(dev, signal);
         const settings = buildScanSettings(model, options ?? {}, { preview });
         await fsp.mkdir(outDir, { recursive: true });
 
@@ -1235,7 +1457,13 @@ function createEscl(config = {}) {
         let busyRetries = 0;
         status(`Scanning page ${pages + 1}…`);
         for (;;) {
-          const res = await call(dev, 'GET', `${jobPath}/NextDocument`, { idleMs: opt.pageMs, signal }, 0);
+          const res = await call(
+            dev,
+            'GET',
+            `${jobPath}/NextDocument`,
+            { idleMs: opt.pageMs, signal },
+            0
+          );
           if (res.status === 200) {
             busyRetries = 0;
             await savePage(res.body, settings);
@@ -1245,8 +1473,12 @@ function createEscl(config = {}) {
           }
           if (res.status === 503) {
             // Usually "still scanning"; but a jam can show up as 503 too
-            const why = statusError(await getStatus(dev, signal), settings.source);
-            if (why && why !== 'busy' && why !== 'feeder-empty') throw new ScanError(why);
+            const why = statusError(
+              await getStatus(dev, signal),
+              settings.source
+            );
+            if (why && why !== 'busy' && why !== 'feeder-empty')
+              throw new ScanError(why);
             if (busyRetries < opt.pageRetries) {
               await sleep(backoff(busyRetries++), signal);
               continue;
@@ -1258,7 +1490,11 @@ function createEscl(config = {}) {
               // The end of the job, unless the feeder stopped on a problem
               if (settings.source === 'feeder') {
                 const why = statusError(await getStatus(dev, signal), 'feeder');
-                if (why === 'paper-jam' || why === 'double-feed' || why === 'cover-open')
+                if (
+                  why === 'paper-jam' ||
+                  why === 'double-feed' ||
+                  why === 'cover-open'
+                )
                   throw new ScanError(why);
               }
               break;
@@ -1266,18 +1502,31 @@ function createEscl(config = {}) {
             const s = await getStatus(dev, signal);
             const state = jobState(s, jobPath);
             // Some scanners (Xerox) say "no page" before the first one is ready
-            if ((state === 'Processing' || state === 'Pending') && lateRetries < opt.pageRetries) {
+            if (
+              (state === 'Processing' || state === 'Pending') &&
+              lateRetries < opt.pageRetries
+            ) {
               await sleep(backoff(lateRetries++), signal);
               continue;
             }
             const why = statusError(s, settings.source);
             if (why && why !== 'busy') throw new ScanError(why);
-            throw new ScanError(settings.source === 'feeder' ? 'feeder-empty' : 'failed',
-              settings.source === 'feeder' ? undefined : "The scanner didn't send a page.");
+            throw new ScanError(
+              settings.source === 'feeder' ? 'feeder-empty' : 'failed',
+              settings.source === 'feeder'
+                ? undefined
+                : "The scanner didn't send a page."
+            );
           }
-          const why = statusError(await getStatus(dev, signal), settings.source);
+          const why = statusError(
+            await getStatus(dev, signal),
+            settings.source
+          );
           if (why && why !== 'busy') throw new ScanError(why);
-          throw new ScanError('failed', `The scanner stopped the scan (${res.status}).`);
+          throw new ScanError(
+            'failed',
+            `The scanner stopped the scan (${res.status}).`
+          );
         }
         await deleteJob();
         return emit({ type: 'done', pages });
@@ -1305,8 +1554,10 @@ function createEscl(config = {}) {
     add,
     remove,
     /** A quick, low-resolution scan of the whole glass */
-    preview: (id, options, outDir, onEvent) => run(id, options, outDir, onEvent, true),
-    scan: (id, options, outDir, onEvent) => run(id, options, outDir, onEvent, false),
+    preview: (id, options, outDir, onEvent) =>
+      run(id, options, outDir, onEvent, true),
+    scan: (id, options, outDir, onEvent) =>
+      run(id, options, outDir, onEvent, false),
   };
 }
 

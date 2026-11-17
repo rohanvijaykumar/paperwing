@@ -123,7 +123,8 @@ function cleanCaps(msg, driver) {
       .filter((s) => s && SOURCES.includes(s.id))
       .map((s) => {
         const { list, range } = cleanResolutions(s.resolutions);
-        const maxWidth = inches(s.maxWidth) && s.maxWidth > 0 ? s.maxWidth : 8.5;
+        const maxWidth =
+          inches(s.maxWidth) && s.maxWidth > 0 ? s.maxWidth : 8.5;
         const maxHeight =
           inches(s.maxHeight) && s.maxHeight > 0 ? s.maxHeight : 11.69;
         return {
@@ -550,12 +551,16 @@ const SETTLE_GIVE_UP_MS = 5 * 60000;
 function looksComplete(name, head, tail) {
   const ext = path.extname(name).toLowerCase();
   if (ext === '.pdf')
-    return head.subarray(0, 5).toString('latin1') === '%PDF-' &&
-      tail.toString('latin1').includes('%%EOF');
+    return (
+      head.subarray(0, 5).toString('latin1') === '%PDF-' &&
+      tail.toString('latin1').includes('%%EOF')
+    );
   if (ext === '.png') return tail.toString('latin1').includes('IEND');
   if (ext === '.jpg' || ext === '.jpeg') {
     const t = tail.subarray(-2);
-    return head[0] === 0xff && head[1] === 0xd8 && t[0] === 0xff && t[1] === 0xd9;
+    return (
+      head[0] === 0xff && head[1] === 0xd8 && t[0] === 0xff && t[1] === 0xd9
+    );
   }
   return true; // TIFF and BMP end anywhere: a steady size has to do
 }
@@ -591,7 +596,8 @@ function watchFolder(
     const now = Date.now();
     const steady = p?.last === stamp(st) && st.size > 0;
     if (!steady) {
-      if (p && now - p.since > SETTLE_GIVE_UP_MS) return void pending.delete(name);
+      if (p && now - p.since > SETTLE_GIVE_UP_MS)
+        return void pending.delete(name);
       pending.set(name, {
         last: stamp(st),
         since: p?.since ?? now,
@@ -603,10 +609,14 @@ function watchFolder(
     let data;
     try {
       // (on Windows, a file still open for writing can't be opened r+)
-      if (process.platform === 'win32') await (await fsp.open(file, 'r+')).close();
+      if (process.platform === 'win32')
+        await (await fsp.open(file, 'r+')).close();
       data = await fsp.readFile(file);
     } catch {
-      pending.set(name, { ...p, timer: setTimeout(() => void check(name), settleMs) });
+      pending.set(name, {
+        ...p,
+        timer: setTimeout(() => void check(name), settleMs),
+      });
       return;
     }
     const head = data.subarray(0, 8);
@@ -626,7 +636,8 @@ function watchFolder(
   }
 
   function noticed(name) {
-    if (closed || !name || !IMPORT_EXT.test(name) || name.startsWith('.')) return;
+    if (closed || !name || !IMPORT_EXT.test(name) || name.startsWith('.'))
+      return;
     if (pending.has(name)) return; // already settling
     pending.set(name, {
       last: null,
@@ -710,7 +721,8 @@ function createScanning({
   const backends = (() => {
     if (testMode) {
       const t =
-        testBackends ?? require('./scan-test.cjs').createTestBackends({ platform, env });
+        testBackends ??
+        require('./scan-test.cjs').createTestBackends({ platform, env });
       return t;
     }
     const map = {};
@@ -771,8 +783,7 @@ function createScanning({
   /** Every scanner, from every backend at once */
   async function list() {
     const all = distinct();
-    if (!all.length)
-      return { ok: true, scanners: [], drivers: [] };
+    if (!all.length) return { ok: true, scanners: [], drivers: [] };
     const results = await Promise.all(
       all.map((b) =>
         b.list().catch((err) => ({
@@ -822,7 +833,8 @@ function createScanning({
    * onStatus(message) for what the scanner says meanwhile.
    */
   async function runJob(command, deviceId, options, onPage, onStatus) {
-    if (current) return { ok: false, error: 'busy', message: 'Already scanning' };
+    if (current)
+      return { ok: false, error: 'busy', message: 'Already scanning' };
     const r = route(deviceId);
     if (!r) return { ok: false, error: 'no-scanner' };
     let opts;
@@ -839,7 +851,11 @@ function createScanning({
       dir = await fsp.mkdtemp(path.join(tempDir, 'paperwing-scan-'));
     } catch (err) {
       current = null;
-      return { ok: false, error: 'failed', message: String(err?.message ?? err) };
+      return {
+        ok: false,
+        error: 'failed',
+        message: String(err?.message ?? err),
+      };
     }
     let pages = 0;
     let ended = null;
@@ -893,7 +909,8 @@ function createScanning({
         return {
           ok: false,
           error: ERRORS.includes(ended.code) ? ended.code : 'failed',
-          message: typeof ended.message === 'string' ? ended.message : undefined,
+          message:
+            typeof ended.message === 'string' ? ended.message : undefined,
           pages,
         };
       }
@@ -905,7 +922,12 @@ function createScanning({
         pages,
       };
     } catch (err) {
-      return { ok: false, error: 'failed', message: String(err?.message ?? err), pages };
+      return {
+        ok: false,
+        error: 'failed',
+        message: String(err?.message ?? err),
+        pages,
+      };
     } finally {
       if (current === job) current = null;
       fs.rm(dir, { recursive: true, force: true }, () => {});
@@ -923,7 +945,11 @@ function createScanning({
     );
     if (r.ok && r.cancelled) return { ok: false, cancelled: true };
     if (r.ok && !page)
-      return { ok: false, error: 'failed', message: 'The scanner sent no preview' };
+      return {
+        ok: false,
+        error: 'failed',
+        message: 'The scanner sent no preview',
+      };
     return r.ok ? { ok: true, page } : r;
   }
 
@@ -956,9 +982,15 @@ function createScanning({
       error: 'offline',
       message: String(err?.message ?? err),
     }));
-    if (!r.ok) return { ok: false, error: r.error ?? 'offline', message: r.message };
-    const [entry] = mergeScanners([{ driver: 'escl', scanner: r.scanner }], order);
-    return entry ? { ok: true, scanner: entry } : { ok: false, error: 'failed' };
+    if (!r.ok)
+      return { ok: false, error: r.error ?? 'offline', message: r.message };
+    const [entry] = mergeScanners(
+      [{ driver: 'escl', scanner: r.scanner }],
+      order
+    );
+    return entry
+      ? { ok: true, scanner: entry }
+      : { ok: false, error: 'failed' };
   }
 
   /** "Import from a scanner app": new files in `dir` go to onFile; null stops */
@@ -969,7 +1001,11 @@ function createScanning({
     try {
       if (!(await fsp.stat(dir)).isDirectory()) throw new Error('not a folder');
     } catch (err) {
-      return { ok: false, error: 'failed', message: String(err?.message ?? err) };
+      return {
+        ok: false,
+        error: 'failed',
+        message: String(err?.message ?? err),
+      };
     }
     watcher = watchFolder(dir, (f) =>
       onFile({ name: f.name, path: f.path, data: f.data, mime: mimeOf(f.data) })
