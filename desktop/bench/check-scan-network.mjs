@@ -35,40 +35,75 @@ await until(
   undefined,
   30000
 );
-check(!!(await page.$('.dlg-scan')), 'the scan dialog opens without the stand-in scanners');
+check(
+  !!(await page.$('.dlg-scan')),
+  'the scan dialog opens without the stand-in scanners'
+);
 
 await click(page, '.dlg-scan .sd-link', 'Add by IP address');
-await until(page, () => document.querySelector('[aria-label="Add a network scanner"]'));
-await page.type('[aria-label="IP address or host name"]', `127.0.0.1:${scanner.port}`);
+await until(page, () =>
+  document.querySelector('[aria-label="Add a network scanner"]')
+);
+await page.type(
+  '[aria-label="IP address or host name"]',
+  `127.0.0.1:${scanner.port}`
+);
 await click(page, '[aria-label="Add a network scanner"] .accent-btn', 'Add');
-const added = await until(page, () => !document.querySelector('[aria-label="Add a network scanner"]'), undefined, 20000);
+const added = await until(
+  page,
+  () => !document.querySelector('[aria-label="Add a network scanner"]'),
+  undefined,
+  20000
+);
 check(!!added, 'Add by IP address: the pretend scanner answers');
 await L.waitReady(page, 30000);
 let d = await dialog(page);
 // (a computer with a real scanner, or the TWAIN sample, lists that too)
-const standIns = ['Paperwing Test Scanner', 'Paperwing Test Feeder', 'Paperwing Network Scanner'];
+const standIns = [
+  'Paperwing Test Scanner',
+  'Paperwing Test Feeder',
+  'Paperwing Network Scanner',
+];
 check(
-  / \(network\)$/.test(d?.scanner ?? '') && !d.scanners.some((s) => standIns.includes(s)),
+  / \(network\)$/.test(d?.scanner ?? '') &&
+    !d.scanners.some((s) => standIns.includes(s)),
   'it is added and chosen (and no stand-in scanners)',
   JSON.stringify(d?.scanners)
 );
-check(JSON.stringify(d?.sources) === JSON.stringify(['Flatbed', 'Document feeder']), 'its flatbed and feeder, as it says', JSON.stringify(d?.sources));
+check(
+  JSON.stringify(d?.sources) === JSON.stringify(['Flatbed', 'Document feeder']),
+  'its flatbed and feeder, as it says',
+  JSON.stringify(d?.sources)
+);
 await click(page, '.dlg-scan .sd-link', 'Options…');
-await until(page, () => document.querySelector('[aria-label="Scanner options"]'));
+await until(page, () =>
+  document.querySelector('[aria-label="Scanner options"]')
+);
 const opts = await page.evaluate(() =>
   [...document.querySelectorAll('[aria-label="Scanner options"] [aria-label]')]
     .filter((x) => !x.closest('[hidden]'))
     .map((x) => x.getAttribute('aria-label'))
 );
-check(opts.includes('Seconds to wait'), 'Options: how long to wait for it', JSON.stringify(opts));
+check(
+  opts.includes('Seconds to wait'),
+  'Options: how long to wait for it',
+  JSON.stringify(opts)
+);
 await click(page, '[aria-label="Scanner options"] .quiet-btn', 'Cancel');
 
-check((await L.shows(page, ['Sharpness'])).Sharpness, 'its own sharpening: Image ▸ Sharpness');
+check(
+  (await L.shows(page, ['Sharpness'])).Sharpness,
+  'its own sharpening: Image ▸ Sharpness'
+);
 await choose(page, 'Source', 'Flatbed');
 await press(page, 'Preview');
 await L.waitIdle(page, 120000);
 d = await dialog(page);
-check(!!d?.box, 'Preview through the network: the glass, with a box', d?.status);
+check(
+  !!d?.box,
+  'Preview through the network: the glass, with a box',
+  d?.status
+);
 await choose(page, 'Paper size', 'Letter');
 await choose(page, 'Color mode', 'Grayscale');
 // (150 dpi: big pages through the network take a while on a busy machine)
@@ -82,17 +117,26 @@ await choose(page, 'Pages', 'Both sides');
 await press(page, 'Scan more pages');
 await L.waitIdle(page, 240000);
 d = await dialog(page);
-check(d?.thumbs === 5, 'both sides of 2 sheets from its feeder: 5 pages in all', d?.status);
+check(
+  d?.thumbs === 5,
+  'both sides of 2 sheets from its feeder: 5 pages in all',
+  d?.status
+);
 await press(page, 'Scan is complete');
 await until(page, () => !document.querySelector('.dlg-scan'), undefined, 60000);
 const doc = await until(
   page,
-  () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 5,
+  () =>
+    window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === 5,
   undefined,
   30000
 );
 const info = await L.docInfo(page);
-check(!!doc && /^Scan /.test(info.name ?? ''), 'a new document with the 5 pages', JSON.stringify(info));
+check(
+  !!doc && /^Scan /.test(info.name ?? ''),
+  'a new document with the 5 pages',
+  JSON.stringify(info)
+);
 
 await app.close();
 await scanner.close();

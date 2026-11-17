@@ -76,7 +76,10 @@ const feeder: ScanSource = {
   brightness: null,
   threshold: null,
 };
-const caps = (driver: ScanCaps['driver'], ...sources: ScanSource[]): ScanCaps => ({
+const caps = (
+  driver: ScanCaps['driver'],
+  ...sources: ScanSource[]
+): ScanCaps => ({
   driver,
   nativeUi: driver === 'twain',
   sources,
@@ -111,7 +114,12 @@ describe('which settings a scanner shows', () => {
     expect(v.driver).toBe(true);
     expect(v.nativeUi).toBe(true);
     expect(v.transfer).toBe(true);
-    v = visibility(c, feeder, settings({ source: 'feeder', sides: 'both' }), devs);
+    v = visibility(
+      c,
+      feeder,
+      settings({ source: 'feeder', sides: 'both' }),
+      devs
+    );
     expect(v.sides).toBe(true);
     expect(v.flipBacks).toBe(true);
     expect(v.preview).toBe(false);
@@ -120,7 +128,9 @@ describe('which settings a scanner shows', () => {
   });
 
   it('a network scanner: its timeout, no TWAIN options, one driver', () => {
-    const v = visibility(caps('escl', flatbed), flatbed, settings(), [device('escl')]);
+    const v = visibility(caps('escl', flatbed), flatbed, settings(), [
+      device('escl'),
+    ]);
     expect(v.source).toBe(false);
     expect(v.networkTimeout).toBe(true);
     expect(v.transfer).toBe(false);
@@ -129,10 +139,18 @@ describe('which settings a scanner shows', () => {
   });
 
   it('threshold with black and white; size fields with a custom size', () => {
-    expect(visibility(null, flatbed, settings({ color: 'bw' }), []).threshold).toBe(true);
-    expect(visibility(null, flatbed, settings({ color: 'gray' }), []).threshold).toBe(false);
-    expect(visibility(null, flatbed, settings({ paper: 'custom' }), []).customSize).toBe(true);
-    expect(visibility(null, flatbed, settings({ paper: 'card' }), []).orientation).toBe(true);
+    expect(
+      visibility(null, flatbed, settings({ color: 'bw' }), []).threshold
+    ).toBe(true);
+    expect(
+      visibility(null, flatbed, settings({ color: 'gray' }), []).threshold
+    ).toBe(false);
+    expect(
+      visibility(null, flatbed, settings({ paper: 'custom' }), []).customSize
+    ).toBe(true);
+    expect(
+      visibility(null, flatbed, settings({ paper: 'card' }), []).orientation
+    ).toBe(true);
   });
 
   it('color modes: Autodetect needs color; black and white always', () => {
@@ -174,7 +192,13 @@ describe('which settings a scanner shows', () => {
 describe('the request, and what is done afterwards', () => {
   it('black and white, brightness and contrast are done here, as the preview shows them', () => {
     const { request, plan } = buildRequest(
-      settings({ color: 'bw', threshold: 102, brightness: 50, contrast: 20, invert: true }),
+      settings({
+        color: 'bw',
+        threshold: 102,
+        brightness: 50,
+        contrast: 20,
+        invert: true,
+      }),
       caps('twain', flatbed),
       flatbed,
       null
@@ -191,20 +215,44 @@ describe('the request, and what is done afterwards', () => {
     });
     for (const k of ['brightness', 'contrast', 'threshold', 'invert'] as const)
       expect(request[k]).toBeUndefined();
-    expect(plan).toMatchObject({ color: 'bw', threshold: 102, brightness: 50, contrast: 20, invert: true });
+    expect(plan).toMatchObject({
+      color: 'bw',
+      threshold: 102,
+      brightness: 50,
+      contrast: 20,
+      invert: true,
+    });
     expect(plan.deskew).toBe(true);
     // Only a scanner that can't scan gray makes black and white itself
     const bwOnly = { ...flatbed, colors: ['bw'] as ScanSource['colors'] };
-    const r = buildRequest(settings({ color: 'bw', threshold: 102 }), caps('twain', bwOnly), bwOnly, null);
+    const r = buildRequest(
+      settings({ color: 'bw', threshold: 102 }),
+      caps('twain', bwOnly),
+      bwOnly,
+      null
+    );
     expect(r.request.color).toBe('bw');
     expect(r.request.threshold).toBe(40); // 102 of 255 on its 0-100 scale
     // Invert is for black and white only
-    expect(buildRequest(settings({ color: 'gray', invert: true }), null, flatbed, null).plan.invert).toBe(false);
+    expect(
+      buildRequest(
+        settings({ color: 'gray', invert: true }),
+        null,
+        flatbed,
+        null
+      ).plan.invert
+    ).toBe(false);
   });
 
   it('black and white from a scanner without it: gray, then made so', () => {
     const { request, plan } = buildRequest(
-      settings({ source: 'feeder', color: 'bw', threshold: 140, invert: true, sides: 'both' }),
+      settings({
+        source: 'feeder',
+        color: 'bw',
+        threshold: 140,
+        invert: true,
+        sides: 'both',
+      }),
       caps('twain32', feeder),
       feeder,
       null
@@ -220,23 +268,41 @@ describe('the request, and what is done afterwards', () => {
   });
 
   it('Autodetect scans in color and decides per page', () => {
-    const { request, plan } = buildRequest(settings(), caps('wia', flatbed), flatbed, null);
+    const { request, plan } = buildRequest(
+      settings(),
+      caps('wia', flatbed),
+      flatbed,
+      null
+    );
     expect(request.color).toBe('color');
     expect(plan.color).toBe('auto');
   });
 
   it('a box from the preview: asked for from the glass corner, cut out here', () => {
     const box = { x: 1, y: 1.2, width: 6.3, height: 8 };
-    const { request, plan } = buildRequest(settings({ paper: 'preview' }), null, flatbed, box);
+    const { request, plan } = buildRequest(
+      settings({ paper: 'preview' }),
+      null,
+      flatbed,
+      box
+    );
     // (a driver that ignores where an area starts, or the area, still
     // sends the corner of the glass: the box is cut from there)
     expect(request.area).toEqual({ x: 0, y: 0, width: 7.3, height: 9.2 });
     expect(plan.crop).toEqual(box);
     // Kept on the glass
-    const off = buildRequest(settings({ paper: 'preview' }), null, flatbed, { x: 5, y: 9, width: 6, height: 6 });
+    const off = buildRequest(settings({ paper: 'preview' }), null, flatbed, {
+      x: 5,
+      y: 9,
+      width: 6,
+      height: 6,
+    });
     expect(off.request.area).toEqual({ x: 0, y: 0, width: 8.5, height: 11.69 });
     expect(off.plan.crop).toEqual({ x: 5, y: 9, width: 3.5, height: 2.69 });
-    expect(buildRequest(settings({ paper: 'auto' }), null, flatbed, null).request.paper).toBe('auto');
+    expect(
+      buildRequest(settings({ paper: 'auto' }), null, flatbed, null).request
+        .paper
+    ).toBe('auto');
     // A scanner that can't: the whole area, cropped afterwards
     const r = buildRequest(settings({ paper: 'auto' }), null, feeder, null);
     expect(r.request.paper).toEqual({ width: 8.5, height: 14 });
@@ -244,38 +310,83 @@ describe('the request, and what is done afterwards', () => {
   });
 
   it('a paper size on a flatbed is cut from the glass corner (whatever the driver sends)', () => {
-    const letter = buildRequest(settings({ paper: 'letter' }), null, flatbed, null);
+    const letter = buildRequest(
+      settings({ paper: 'letter' }),
+      null,
+      flatbed,
+      null
+    );
     expect(letter.request.paper).toEqual({ width: 8.5, height: 11 });
     expect(letter.plan.crop).toEqual({ x: 0, y: 0, width: 8.5, height: 11 });
     // A feeder's pages aren't cut (where the paper lies is the feeder's say)
-    expect(buildRequest(settings({ source: 'feeder', paper: 'letter' }), null, feeder, null).plan.crop).toBeNull();
+    expect(
+      buildRequest(
+        settings({ source: 'feeder', paper: 'letter' }),
+        null,
+        feeder,
+        null
+      ).plan.crop
+    ).toBeNull();
     // The whole glass isn't cut either
-    expect(buildRequest(settings({ paper: 'max' }), null, flatbed, null).plan.crop).toBeNull();
+    expect(
+      buildRequest(settings({ paper: 'max' }), null, flatbed, null).plan.crop
+    ).toBeNull();
   });
 
   it('landscape and custom sizes; never bigger than the glass', () => {
     // A5 lies across the glass
-    const a5 = buildRequest(settings({ paper: 'a5', orientation: 'landscape' }), null, flatbed, null);
+    const a5 = buildRequest(
+      settings({ paper: 'a5', orientation: 'landscape' }),
+      null,
+      flatbed,
+      null
+    );
     expect(a5.request.paper).toEqual({ width: 8.27, height: 5.83 });
     expect(a5.plan.rotate).toBe(0);
     // Letter doesn't fit across: it's scanned upright and the page turned
-    const letter = buildRequest(settings({ paper: 'letter', orientation: 'landscape', rotate: 90 }), null, flatbed, null);
+    const letter = buildRequest(
+      settings({ paper: 'letter', orientation: 'landscape', rotate: 90 }),
+      null,
+      flatbed,
+      null
+    );
     expect(letter.request.paper).toEqual({ width: 8.5, height: 11 });
     expect(letter.plan.rotate).toBe(0); // 90 + 270
     expect(
-      buildRequest(settings({ paper: 'custom', customWidth: 20, customHeight: 4 }), null, flatbed, null).request.paper
+      buildRequest(
+        settings({ paper: 'custom', customWidth: 20, customHeight: 4 }),
+        null,
+        flatbed,
+        null
+      ).request.paper
     ).toEqual({ width: 8.5, height: 4 });
   });
 
   it('the box shown on the glass for each paper choice', () => {
-    expect(glassBox(settings({ paper: 'letter' }), flatbed, null)).toEqual({ x: 0, y: 0, width: 8.5, height: 11 });
-    expect(glassBox(settings({ paper: 'a5', orientation: 'landscape' }), flatbed, null)).toEqual({
+    expect(glassBox(settings({ paper: 'letter' }), flatbed, null)).toEqual({
+      x: 0,
+      y: 0,
+      width: 8.5,
+      height: 11,
+    });
+    expect(
+      glassBox(
+        settings({ paper: 'a5', orientation: 'landscape' }),
+        flatbed,
+        null
+      )
+    ).toEqual({
       x: 0,
       y: 0,
       width: 8.27,
       height: 5.83,
     });
-    expect(glassBox(settings({ paper: 'max' }), flatbed, null)).toEqual({ x: 0, y: 0, width: 8.5, height: 11.69 });
+    expect(glassBox(settings({ paper: 'max' }), flatbed, null)).toEqual({
+      x: 0,
+      y: 0,
+      width: 8.5,
+      height: 11.69,
+    });
     expect(glassBox(settings({ paper: 'auto' }), flatbed, null)).toBeNull();
     const box = { x: 1, y: 2, width: 3, height: 4 };
     expect(glassBox(settings({ paper: 'preview' }), flatbed, box)).toEqual(box);
@@ -283,25 +394,47 @@ describe('the request, and what is done afterwards', () => {
 
   it('the preview is the whole glass, in color, with nothing adjusted', () => {
     const r = previewRequest(
-      settings({ color: 'bw', brightness: 80, contrast: -40, invert: true, paper: 'a5' }),
+      settings({
+        color: 'bw',
+        brightness: 80,
+        contrast: -40,
+        invert: true,
+        paper: 'a5',
+      }),
       caps('twain', flatbed),
       flatbed
     );
-    expect(r).toMatchObject({ source: 'flatbed', color: 'color', dpi: 75, paper: { width: 8.5, height: 11.69 } });
-    expect(r.brightness ?? r.contrast ?? r.threshold ?? r.invert ?? r.area).toBeUndefined();
+    expect(r).toMatchObject({
+      source: 'flatbed',
+      color: 'color',
+      dpi: 75,
+      paper: { width: 8.5, height: 11.69 },
+    });
+    expect(
+      r.brightness ?? r.contrast ?? r.threshold ?? r.invert ?? r.area
+    ).toBeUndefined();
   });
 
   it("a network scanner's own sharpening: shown, and sent in its units", () => {
     const net = { ...flatbed, sharpen: range(0, 10, 1, 5) };
     expect(visibility(null, flatbed, settings(), []).sharpness).toBe(false);
     expect(visibility(null, net, settings(), []).sharpness).toBe(true);
-    expect(buildRequest(settings({ sharpness: 100 }), caps('escl', net), net, null).request.sharpen).toBe(10);
-    expect(buildRequest(settings(), caps('escl', net), net, null).request.sharpen).toBeUndefined();
+    expect(
+      buildRequest(settings({ sharpness: 100 }), caps('escl', net), net, null)
+        .request.sharpen
+    ).toBe(10);
+    expect(
+      buildRequest(settings(), caps('escl', net), net, null).request.sharpen
+    ).toBeUndefined();
   });
 
   it('network scanners get their timeout; blank pages are looked for', () => {
     const { request, plan } = buildRequest(
-      settings({ networkTimeout: 120, removeBlank: true, blankSensitivity: 30 }),
+      settings({
+        networkTimeout: 120,
+        removeBlank: true,
+        blankSensitivity: 30,
+      }),
       caps('escl', flatbed),
       flatbed,
       null
@@ -357,10 +490,14 @@ describe('presets and what is remembered', () => {
   });
 
   it('a summary line like Acrobat’s', () => {
-    expect(settingsSummary(settings({ color: 'gray', source: 'feeder', sides: 'both' }))).toBe(
-      'Grayscale, Letter, 300 dpi, Both sides'
+    expect(
+      settingsSummary(
+        settings({ color: 'gray', source: 'feeder', sides: 'both' })
+      )
+    ).toBe('Grayscale, Letter, 300 dpi, Both sides');
+    expect(settingsSummary(settings({ paper: 'preview' }))).toBe(
+      'Autodetect, From preview, 300 dpi'
     );
-    expect(settingsSummary(settings({ paper: 'preview' }))).toBe('Autodetect, From preview, 300 dpi');
   });
 
   it('after a pass the last choice is offered first, not always "complete"', () => {
@@ -382,22 +519,42 @@ describe('after the scan', () => {
     expect(splitIntoFiles(5, 2)).toEqual([[0, 1], [2, 3], [4]]);
     expect(splitIntoFiles(3, 1)).toEqual([[0], [1], [2]]);
     expect(splitIntoFiles(2, 0)).toEqual([[0], [1]]);
-    expect(fileNames('Invoice', 3)).toEqual(['Invoice 1.pdf', 'Invoice 2.pdf', 'Invoice 3.pdf']);
+    expect(fileNames('Invoice', 3)).toEqual([
+      'Invoice 1.pdf',
+      'Invoice 2.pdf',
+      'Invoice 3.pdf',
+    ]);
     expect(fileNames(' ', 12)[0]).toBe('Scan 01.pdf');
   });
 
   it('Insert pages: before or after the first, last or nth page', () => {
-    expect(insertAfter({ position: 'before', page: 'first', number: 1 }, 10)).toBe(-1);
-    expect(insertAfter({ position: 'after', page: 'first', number: 1 }, 10)).toBe(0);
-    expect(insertAfter({ position: 'after', page: 'last', number: 1 }, 10)).toBe(9);
-    expect(insertAfter({ position: 'before', page: 'last', number: 1 }, 10)).toBe(8);
-    expect(insertAfter({ position: 'after', page: 'number', number: 4 }, 10)).toBe(3);
-    expect(insertAfter({ position: 'before', page: 'number', number: 4 }, 10)).toBe(2);
-    expect(insertAfter({ position: 'after', page: 'number', number: 40 }, 10)).toBe(9);
+    expect(
+      insertAfter({ position: 'before', page: 'first', number: 1 }, 10)
+    ).toBe(-1);
+    expect(
+      insertAfter({ position: 'after', page: 'first', number: 1 }, 10)
+    ).toBe(0);
+    expect(
+      insertAfter({ position: 'after', page: 'last', number: 1 }, 10)
+    ).toBe(9);
+    expect(
+      insertAfter({ position: 'before', page: 'last', number: 1 }, 10)
+    ).toBe(8);
+    expect(
+      insertAfter({ position: 'after', page: 'number', number: 4 }, 10)
+    ).toBe(3);
+    expect(
+      insertAfter({ position: 'before', page: 'number', number: 4 }, 10)
+    ).toBe(2);
+    expect(
+      insertAfter({ position: 'after', page: 'number', number: 40 }, 10)
+    ).toBe(9);
   });
 
   it('a new scan is named by when it was made', () => {
-    expect(scanName(new Date(2026, 10, 6, 18, 5))).toBe('Scan 2026-11-06 18.05.pdf');
+    expect(scanName(new Date(2026, 10, 6, 18, 5))).toBe(
+      'Scan 2026-11-06 18.05.pdf'
+    );
   });
 
   it('Letter where it is used, A4 elsewhere', () => {
@@ -411,7 +568,15 @@ describe('after the scan', () => {
 describe('pages', () => {
   it('the plan becomes scan-image’s settings (flipped backs too)', () => {
     const { plan } = buildRequest(
-      settings({ color: 'bw', threshold: 150, removeBlank: true, blankSensitivity: 70, background: 'high', sharpen: 'low', rotate: 90 }),
+      settings({
+        color: 'bw',
+        threshold: 150,
+        removeBlank: true,
+        blankSensitivity: 70,
+        background: 'high',
+        sharpen: 'low',
+        rotate: 90,
+      }),
       caps('wia', flatbed),
       flatbed,
       null
@@ -443,9 +608,17 @@ describe('pages', () => {
     other.addPage([500, 200]);
     const otherBytes = await other.save();
     const pdf = await buildPdf([
-      { kind: 'image', page: { bytes: PNG, kind: 'png', width: 2, height: 1, dpi: 72 }, rotation: 0 },
+      {
+        kind: 'image',
+        page: { bytes: PNG, kind: 'png', width: 2, height: 1, dpi: 72 },
+        rotation: 0,
+      },
       // 850 × 1100 px at 100 dpi is a Letter page; turned in review
-      { kind: 'image', page: { bytes: PNG, kind: 'png', width: 850, height: 1100, dpi: 100 }, rotation: 90 },
+      {
+        kind: 'image',
+        page: { bytes: PNG, kind: 'png', width: 850, height: 1100, dpi: 100 },
+        rotation: 90,
+      },
       { kind: 'pdf', bytes: otherBytes, index: 1, rotation: 180 },
     ]);
     const doc = await PDFDocument.load(pdf, { updateMetadata: false });
@@ -463,10 +636,20 @@ describe('pages', () => {
 
 describe('messages', () => {
   it('say what happened and what to do', () => {
-    expect(scanErrorMessage('feeder-empty', undefined, false)).toMatch(/feeder is empty/);
-    expect(scanErrorMessage('double-feed', undefined, false)).toMatch(/Two sheets/);
-    expect(scanErrorMessage('blocked', undefined, false)).toMatch(/IT department/);
-    expect(scanErrorMessage('blocked', undefined, true)).toMatch(/Local Network/);
-    expect(scanErrorMessage('failed', 'Device error', false)).toBe("The scan didn't work: Device error");
+    expect(scanErrorMessage('feeder-empty', undefined, false)).toMatch(
+      /feeder is empty/
+    );
+    expect(scanErrorMessage('double-feed', undefined, false)).toMatch(
+      /Two sheets/
+    );
+    expect(scanErrorMessage('blocked', undefined, false)).toMatch(
+      /IT department/
+    );
+    expect(scanErrorMessage('blocked', undefined, true)).toMatch(
+      /Local Network/
+    );
+    expect(scanErrorMessage('failed', 'Device error', false)).toBe(
+      "The scan didn't work: Device error"
+    );
   });
 });
