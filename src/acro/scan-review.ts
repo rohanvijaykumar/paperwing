@@ -70,14 +70,17 @@ export function createReview(actions: ReviewActions) {
     const img = p.url
       ? el('img', { src: p.url, alt: '', draggable: 'false' })
       : el('span', { class: 'sr-wait' }, 'Cleaning up…');
-    if (p.url) (img as HTMLElement).style.transform = `rotate(${p.rotation}deg)`;
+    if (p.url)
+      (img as HTMLElement).style.transform = `rotate(${p.rotation}deg)`;
     const tools = el(
       'div',
       { class: 'sr-tools' },
       tool(`Rotate page ${n} counterclockwise`, 'rotateCcw', () =>
         actions.rotate(p.id, -90)
       ),
-      tool(`Rotate page ${n} clockwise`, 'rotate', () => actions.rotate(p.id, 90)),
+      tool(`Rotate page ${n} clockwise`, 'rotate', () =>
+        actions.rotate(p.id, 90)
+      ),
       p.canRescan
         ? tool(`Rescan page ${n}`, 'refresh', () => actions.rescan(p.id))
         : null,
@@ -86,7 +89,11 @@ export function createReview(actions: ReviewActions) {
     const keep = left
       ? el(
           'button',
-          { type: 'button', class: 'sr-keep', 'aria-label': `Keep blank page ${n}` },
+          {
+            type: 'button',
+            class: 'sr-keep',
+            'aria-label': `Keep blank page ${n}`,
+          },
           'Keep'
         )
       : null;
@@ -141,14 +148,20 @@ export function createReview(actions: ReviewActions) {
 
   /** Dragging a page: a line shows where it will go */
   function startDrag(start: PointerEvent, item: HTMLElement, id: number) {
-    if (locked || start.button !== 0 || (start.target as HTMLElement).closest('button'))
+    if (
+      locked ||
+      start.button !== 0 ||
+      (start.target as HTMLElement).closest('button')
+    )
       return;
     let dragging = false;
     let to = -1;
     const marker = el('div', { class: 'sr-drop' });
     const move = (e: PointerEvent) => {
       if (!dragging) {
-        if (Math.hypot(e.clientX - start.clientX, e.clientY - start.clientY) < 6)
+        if (
+          Math.hypot(e.clientX - start.clientX, e.clientY - start.clientY) < 6
+        )
           return;
         dragging = true;
         item.classList.add('is-dragging');
@@ -160,7 +173,10 @@ export function createReview(actions: ReviewActions) {
       let bestD = Infinity;
       cards.forEach((c, k) => {
         const r = c.getBoundingClientRect();
-        const d = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
+        const d = Math.hypot(
+          e.clientX - (r.left + r.width / 2),
+          e.clientY - (r.top + r.height / 2)
+        );
         if (d < bestD) {
           bestD = d;
           best = k;
@@ -194,7 +210,8 @@ export function createReview(actions: ReviewActions) {
   return {
     el: root,
     render(next: ReviewPage[], emptyText: string) {
-      const focused = (document.activeElement as HTMLElement | null)?.closest?.('.sr-page')
+      const focused = (document.activeElement as HTMLElement | null)
+        ?.closest?.('.sr-page')
         ?.getAttribute('data-id');
       const scroll = list.scrollTop;
       pages = next;
@@ -203,7 +220,8 @@ export function createReview(actions: ReviewActions) {
       empty.textContent = emptyText;
       empty.hidden = pages.length > 0;
       list.hidden = !pages.length;
-      if (focused) list.querySelector<HTMLElement>(`[data-id="${focused}"]`)?.focus();
+      if (focused)
+        list.querySelector<HTMLElement>(`[data-id="${focused}"]`)?.focus();
     },
     /** Scrolls to the newest page */
     showLast() {
