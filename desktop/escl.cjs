@@ -30,6 +30,7 @@ const net = require('node:net');
 const path = require('node:path');
 const fsp = require('node:fs/promises');
 const mdns = require('./mdns.cjs');
+const { fixJpegHeight, jpegSize } = require('./jpeg.cjs');
 
 const SERVICE_TYPES = ['_uscan._tcp.local', '_uscans._tcp.local'];
 const NS_SCAN = 'http://schemas.hp.com/imaging/escl/2011/05/03';
@@ -555,7 +556,8 @@ function buildScanSettings(model, options = {}, { preview = false } = {}) {
 
 // --- Images ----------------------------------------------------------------
 
-/** The kind and size of an image the scanner sent */
+/** The kind and size of an image the scanner sent (a JPEG's height from
+ *  its DNL marker when its header says 0, as HP's feeders send them) */
 function imageInfo(buf) {
   if (buf.length >= 24 && buf.readUInt32BE(0) === 0x89504e47)
     return {
@@ -563,37 +565,8 @@ function imageInfo(buf) {
       width: buf.readUInt32BE(16),
       height: buf.readUInt32BE(20),
     };
-  if (buf.length >= 4 && buf[0] === 0xff && buf[1] === 0xd8) {
-    let i = 2;
-    while (i + 9 < buf.length) {
-      if (buf[i] !== 0xff) {
-        i++;
-        continue;
-      }
-      const marker = buf[i + 1];
-      if (
-        marker === 0xff ||
-        marker === 0x01 ||
-        (marker >= 0xd0 && marker <= 0xd8)
-      ) {
-        i += marker === 0xff ? 1 : 2;
-        continue;
-      }
-      // Start of frame (any kind except the Huffman/arithmetic table markers)
-      if (
-        marker >= 0xc0 &&
-        marker <= 0xcf &&
-        ![0xc4, 0xc8, 0xcc].includes(marker)
-      )
-        return {
-          ext: 'jpg',
-          width: buf.readUInt16BE(i + 7),
-          height: buf.readUInt16BE(i + 5),
-        };
-      i += 2 + buf.readUInt16BE(i + 2);
-    }
-    return { ext: 'jpg', width: 0, height: 0 };
-  }
+  if (buf.length >= 4 && buf[0] === 0xff && buf[1] === 0xd8)
+    return { ext: 'jpg', width: 0, height: 0, ...jpegSize(buf) };
   return null;
 }
 
@@ -1408,7 +1381,10 @@ function createEscl(config = {}) {
       }
     }
 
-    async function savePage(body, settings) {
+    async function savePage(scanned, settings) {
+      // A feeder page's height sent at the end: put where decoders look
+      // (one with no height at all is passed on; scan.cjs reports it)
+      const body = fixJpegHeight(scanned).data;
       const info = imageInfo(body);
       if (!info)
         throw new ScanError(

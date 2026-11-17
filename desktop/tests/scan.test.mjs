@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { inflateSync } from 'node:zlib';
+import { drawPage, encodeJpeg, heightAtEnd } from './fake-escl.mjs';
 
 const require = createRequire(import.meta.url);
 const {
@@ -128,6 +129,14 @@ function fakeHelpers(script) {
           writeFileSync(file, PNG);
           child.stdout.write(
             `${JSON.stringify({ type: 'page', file, dpi: 200, side: step % 2 ? 'front' : 'back' })}\n`
+          );
+        } else if (step.bytes) {
+          // A page of these bytes: { bytes, name, width?, height? }
+          const file = join(outDir, step.name);
+          writeFileSync(file, step.bytes);
+          child.stdout.write(
+            `${JSON.stringify({ type: 'page', file, dpi: 200, side: 'front', width: step.width, height: step.height })}
+`
           );
         } else if (step.wait) {
           const end = Date.now() + step.wait;
@@ -575,6 +584,39 @@ describe('scanning', () => {
     );
     const args = calls[0].args;
     assert.deepEqual(args.slice(-2), ['-Window', '8589934594']);
+  });
+
+  test('a JPEG whose height comes at its end gets it in its header; one with none is unreadable (#55)', async () => {
+    const jpeg = encodeJpeg(drawPage(80, 113, { n: 2 }));
+    const { s } = windows(() => [
+      { bytes: heightAtEnd(jpeg), name: 'page-1.jpg', width: 80, height: 0 },
+      {
+        bytes: heightAtEnd(jpeg, { dnl: false }),
+        name: 'page-2.jpg',
+        width: 80,
+        height: 0,
+      },
+      { bytes: jpeg, name: 'page-3.jpg', width: 80, height: 113 },
+      { type: 'done', pages: 3 },
+      { exit: 0 },
+    ]);
+    const pages = [];
+    const r = await s.scan('wia:dev', OPTS, (data, info) =>
+      pages.push({ data, info })
+    );
+    assert.deepEqual(r, { ok: true, pages: 3 });
+    assert.ok(
+      Buffer.from(pages[0].data).equals(jpeg),
+      'page 1: the height moved into the header'
+    );
+    assert.deepEqual(
+      [pages[0].info.width, pages[0].info.height, pages[0].info.unreadable],
+      [80, 113, undefined]
+    );
+    assert.equal(pages[1].info.unreadable, true, 'page 2: no height anywhere');
+    assert.equal(pages[1].info.mime, 'image/jpeg');
+    assert.ok(Buffer.from(pages[2].data).equals(jpeg), 'page 3: as it came');
+    assert.equal(pages[2].info.unreadable, undefined);
   });
 
   test('only files in its own folder are read', async () => {

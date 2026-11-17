@@ -23,6 +23,7 @@ import {
   drawPage,
   encodeJpeg,
   encodePng,
+  heightAtEnd,
 } from './fake-escl.mjs';
 
 const require = createRequire(import.meta.url);
@@ -696,6 +697,34 @@ describe('the document feeder', () => {
     assert.equal(lastJob(f).settings.duplex, true);
   });
 
+  test("HP's feeder: the height sent at the end of each JPEG goes into its header (#55)", async () => {
+    const f = await fake({ adf: { sheets: 2 }, quirks: { heightAtEnd: true } });
+    const r = await run(client([f]), idOf(f), {
+      source: 'feeder',
+      color: 'color',
+      dpi: 75,
+      paper: { width: 8.27, height: 11.69 },
+    });
+    assert.deepEqual(r.last, { type: 'done', pages: 2 });
+    // A4 at 75 dpi, as the scanner sent it
+    assert.deepEqual(
+      r.pages.map((p) => [p.width, p.height]),
+      [
+        [620, 877],
+        [620, 877],
+      ]
+    );
+    for (const p of r.pages) {
+      const saved = readFileSync(p.file);
+      assert.equal(saved.indexOf(Buffer.from([0xff, 0xdc])), -1, 'no DNL left');
+      assert.deepEqual(escl.imageInfo(saved), {
+        ext: 'jpg',
+        width: 620,
+        height: 877,
+      });
+    }
+  });
+
   test('both sides asked of a one-sided feeder: one side', async () => {
     const f = await fake({ adf: { sheets: 2 } });
     const r = await run(client([f]), idOf(f), {
@@ -906,6 +935,16 @@ describe('helpers', () => {
       width: 40,
       height: 30,
     });
+    // The height in a DNL at the end (#55), or nowhere
+    assert.deepEqual(escl.imageInfo(heightAtEnd(encodeJpeg(page))), {
+      ext: 'jpg',
+      width: 40,
+      height: 30,
+    });
+    assert.deepEqual(
+      escl.imageInfo(heightAtEnd(encodeJpeg(page), { dnl: false })),
+      { ext: 'jpg', width: 40, height: 0 }
+    );
     assert.equal(escl.imageInfo(Buffer.from('%PDF-1.7')), null);
   });
 
