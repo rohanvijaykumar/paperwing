@@ -22,6 +22,7 @@ const os = require('node:os');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const { spawn } = require('node:child_process');
+const { fixJpegHeight, jpegSize } = require('./jpeg.cjs');
 
 /** Error codes a scanner can fail with; the dialog explains each */
 const ERRORS = [
@@ -867,16 +868,22 @@ function createScanning({
       const file = path.resolve(dir, String(m.file));
       const real = (p) => fsp.realpath(p).catch(() => path.resolve(p));
       if ((await real(path.dirname(file))) !== (await real(dir))) return;
-      const data = await fsp.readFile(file);
+      // A JPEG whose height comes at its end (HP's feeders, #55) gets it in
+      // its header, from whichever backend; one with no height at all
+      // can't be opened by anything, and is said to be unreadable
+      const fixed = fixJpegHeight(await fsp.readFile(file));
+      const data = fixed.data;
+      const size = fixed.changed ? jpegSize(data) : null;
       await fsp.rm(file, { force: true });
       pages++;
       onPage(new Uint8Array(data), {
         index: pages,
         dpi: isNum(m.dpi) && m.dpi > 0 ? m.dpi : opts.dpi,
-        width: isNum(m.width) ? m.width : undefined,
-        height: isNum(m.height) ? m.height : undefined,
+        width: size ? size.width : isNum(m.width) ? m.width : undefined,
+        height: size ? size.height : isNum(m.height) ? m.height : undefined,
         side: m.side === 'back' ? 'back' : 'front',
         mime: mimeOf(data),
+        ...(fixed.error ? { unreadable: true } : {}),
       });
     };
     try {
