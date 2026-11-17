@@ -192,8 +192,12 @@ internal sealed class WiaDriver : IScanDriver
                 using var stream = e.Stream;
                 if (stream.Length == 0) return;
                 var front = !setup.Duplex || ((index % 2 == 0) != setup.BackFirst);
-                index++;
+                var before = job.Pages;
                 job.AddPage(stream, setup.Dpi, front ? "front" : "back");
+                // (counted only once it's a page: a feeder that sent nothing
+                // usable must end in an error, not "0 pages" and no word why)
+                if (job.Pages == before) return;
+                index++;
                 if (job.CancelRequested || job.Preview) transfer.Cancel();
             }
             catch (Exception ex)
