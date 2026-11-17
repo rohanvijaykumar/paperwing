@@ -24,6 +24,8 @@
  *   brightness: true, threshold: true, sharpen: false, blankPage: false
  *   justification: 'Center' | 'Left' | 'Right'   (the feeder's)
  *   quirks: { hpCompact }   (HP's server: new jobs need Host: localhost)
+ *           { heightAtEnd }   feeder JPEGs with the height in a DNL at the
+ *                           end, as HP's feeders send them (#55)
  *   errors: {
  *     busy: n          the first n new jobs: 503 and "Processing"
  *     flaky: n         every kind of request answers 503 n times first
@@ -223,9 +225,12 @@ const COS = Array.from({ length: 64 }, (_, i) =>
   Math.cos(((2 * (i >> 3) + 1) * (i & 7) * Math.PI) / 16)
 );
 
+/**
+ * restart: a restart marker every n blocks (DRI), as some scanners write
+ */
 export function encodeJpeg(
   { width, height, channels, data },
-  { quality = 80, dpi = 0 } = {}
+  { quality = 80, dpi = 0, restart = 0 } = {}
 ) {
   const scale = quality < 50 ? 5000 / quality : 200 - quality * 2;
   const q = BASE_Q.map((v) =>
@@ -261,8 +266,16 @@ export function encodeJpeg(
     if (c === 1) return -0.168736 * r - 0.331264 * g + 0.5 * b + 128;
     return 0.5 * r - 0.418688 * g - 0.081312 * b + 128;
   };
+  let mcus = 0;
   for (let by = 0; by < height; by += 8)
-    for (let bx = 0; bx < width; bx += 8)
+    for (let bx = 0; bx < width; bx += 8) {
+      if (restart && mcus && mcus % restart === 0) {
+        // Byte-aligned (padded with 1 bits), then RSTn, predictions reset
+        if (nbits) put((1 << (8 - nbits)) - 1, 8 - nbits);
+        out.push(0xff, 0xd0 + ((mcus / restart - 1) & 7));
+        pred.fill(0);
+      }
+      mcus++;
       for (let c = 0; c < comps; c++) {
         for (let y = 0; y < 8; y++)
           for (let x = 0; x < 8; x++)
@@ -304,6 +317,7 @@ export function encodeJpeg(
         }
         if (run) put(...AC_CODES[0x00]);
       }
+    }
   if (nbits) put((1 << (8 - nbits)) - 1, 8 - nbits);
 
   const seg = (marker, body) => {
@@ -342,10 +356,38 @@ export function encodeJpeg(
     seg(0xdb, [0, ...ZIGZAG.map((pos) => q[pos])]),
     seg(0xc0, sof),
     seg(0xc4, [0x00, ...DC_BITS, ...DC_VALS, 0x10, ...AC_BITS, ...AC_VALS]),
+    ...(restart ? [seg(0xdd, [restart >> 8, restart & 255])] : []),
     seg(0xda, sos),
     Buffer.from(out),
     Buffer.from([0xff, 0xd9]),
   ]);
+}
+
+/**
+ * A JPEG as HP's feeders send it (#55): height 0 in the frame header, the
+ * real number of lines in a DNL marker after the scan's data (ITU T.81
+ * B.2.5). dnl: false leaves the DNL out (a file nothing can open).
+ */
+export function heightAtEnd(jpeg, { dnl = true } = {}) {
+  const out = Buffer.from(jpeg);
+  let height = -1;
+  // Segments up to the scan; the frame header's height becomes 0
+  for (let i = 2; i < out.length && height < 0; ) {
+    const marker = out[i + 1];
+    if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
+      height = out.readUInt16BE(i + 5);
+      out.writeUInt16BE(0, i + 5);
+    }
+    if (marker === 0xda) break;
+    i += 2 + out.readUInt16BE(i + 2);
+  }
+  if (height < 0) throw new Error('no frame header');
+  // (the encoders here end with EOI: the DNL goes right before it)
+  const end = out.length - 2;
+  const tail = dnl
+    ? Buffer.from([0xff, 0xdc, 0, 4, height >> 8, height & 255])
+    : Buffer.alloc(0);
+  return Buffer.concat([out.subarray(0, end), tail, out.subarray(end)]);
 }
 
 // --- A self-signed certificate (as a scanner's own) -------------------------
@@ -549,7 +591,10 @@ export async function startFakeEscl(options = {}) {
     const page = drawPage(w, h, { n, color, side });
     if (s.format === 'image/png')
       return encodePng(page, { bits: color === 'bw' ? 1 : 8, dpi });
-    return encodeJpeg(page, { dpi });
+    const jpeg = encodeJpeg(page, { dpi });
+    return cfg.quirks.heightAtEnd && s.source === 'Feeder'
+      ? heightAtEnd(jpeg)
+      : jpeg;
   }
 
   const xmlReply = (res, body, code = 200) => {
