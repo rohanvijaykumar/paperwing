@@ -1714,7 +1714,20 @@ export function showScanDialog(
       const n = included().length;
       const blanks = pages.filter((p) => p.blank && !p.keep).length;
       const count = `${n} page${n === 1 ? '' : 's'} scanned${blanks ? ` (${blanks} blank left out)` : ''}.`;
-      if (result.ok) {
+      // A feeder pass that ended well with nothing in it: the pages
+      // weren't where the scanner looks (any driver)
+      const nothing =
+        result.ok &&
+        !result.cancelled &&
+        !got.length &&
+        request.source === 'feeder';
+      if (nothing) {
+        const then =
+          kind === 'rescan'
+            ? 'rescan the page'
+            : `select ${kind === 'reverse' ? 'Scan reverse sides' : kind === 'more' ? 'Scan more pages' : 'Scan'}`;
+        status.textContent = `No pages came through the document feeder. Check that the pages are in the feeder, then ${then}.`;
+      } else if (result.ok) {
         // Both sides from a one-sided feeder: now the backs
         const needBacks =
           kind !== 'reverse' &&
