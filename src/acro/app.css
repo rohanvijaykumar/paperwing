@@ -3081,6 +3081,28 @@ body.is-dragging-page * {
   color: var(--text-3);
   font-size: 12px;
 }
+/* A page the scanner sent as a picture that can't be opened (#55) */
+.sr-bad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 104px;
+  height: 136px;
+  padding: 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 2px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: center;
+}
+.sr-bad .ic {
+  color: var(--brand);
+}
 .sr-page.is-left-out .sr-thumb img {
   opacity: 0.35;
 }

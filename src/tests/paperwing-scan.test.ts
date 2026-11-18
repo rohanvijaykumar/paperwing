@@ -25,7 +25,7 @@ import {
   type ScanSettings,
 } from '../acro/scan-settings';
 import { buildPdf, imageSettings } from '../acro/scan-process';
-import { scanErrorMessage } from '../acro/scan';
+import { pageList, scanErrorMessage } from '../acro/scan';
 import type { ScanCaps, ScanDevice, ScanSource } from '../acro/desktop';
 
 const range = (min: number, max: number, step = 1, def = 0) => ({
@@ -659,5 +659,11 @@ describe('messages', () => {
       'The document feeder is empty. Put the pages in, then try again.'
     );
     expect(m).not.toMatch(/select/);
+  });
+
+  it('pages that could not be read, by number', () => {
+    expect(pageList([2])).toBe('Page 2');
+    expect(pageList([2, 5])).toBe('Pages 2 and 5');
+    expect(pageList([2, 3, 5])).toBe('Pages 2, 3 and 5');
   });
 });

@@ -13,6 +13,9 @@
  *    the open document; Ctrl+Z
  *  - errors: a jam, two sheets fed together after two pages, Stop mid-scan
  *    (the scanner free again), no scanners, a blocked helper
+ *  - pages the scanner sends as images that can't be opened (#55): said at
+ *    once and on their tiles, no PDF until they're deleted; a feeder pass
+ *    with nothing in it; no folder or settings while looking for scanners
  *   node bench/check-scan.mjs
  */
 import { fileURLToPath } from 'node:url';
@@ -506,6 +509,162 @@ await press(page, 'Cancel');
 await press(
   page,
   (await dialog(page))?.buttons.find((b) => b.startsWith('Discard'))
+);
+await app.close();
+
+/* Pages that can't be read (#55) ------------------------------------------ */
+// Page 2 comes as a PNG cut short (the dialog can't open it), page 3 as a
+// JPEG with no height (the shell says so); finding scanners takes 4 s
+app = await L.start({
+  PAPERWING_SCAN_TEST_PAGES: '6',
+  PAPERWING_SCAN_TEST_UNREADABLE: '2',
+  PAPERWING_SCAN_TEST_NO_HEIGHT: '3',
+  PAPERWING_SCAN_TEST_SLOW_LIST: '4000',
+});
+page = app.page;
+await click(page, '#create-btn');
+await until(page, () => document.querySelector('.menu .menu-item'));
+await click(page, '.menu .menu-item', 'From scanner');
+const looking = await until(page, () => {
+  const d = document.querySelector('.dlg-scan');
+  const s = d?.querySelector('.sd-status')?.textContent ?? '';
+  if (!/Looking for scanners/.test(s)) return null;
+  const shown = (e) => !!e && !e.closest('[hidden]');
+  return {
+    folder: shown(d.querySelector('.sd-folder')),
+    flip: [...d.querySelectorAll('.pd-check')].some(
+      (l) => shown(l) && /Flip back sides/.test(l.textContent)
+    ),
+    pages: shown(d.querySelector('select[aria-label="Source"]')),
+  };
+});
+check(
+  !!looking && !looking.folder && !looking.flip && !looking.pages,
+  'while looking for scanners: no folder to choose, no Flip back sides',
+  JSON.stringify(looking)
+);
+if (process.env.SCAN_SHOTS)
+  await page.screenshot({
+    path: `${process.env.SCAN_SHOTS}/light-looking.png`,
+  });
+await L.waitReady(page, 30000);
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Document feeder');
+await choose(page, 'Pages', 'Front sides');
+await press(page, 'Scan');
+// Said while the feeder is still going, not only at the end
+const early = await until(
+  page,
+  () => {
+    const d = document.querySelector('.dlg-scan');
+    const stop = [...d.querySelectorAll('.dlg-actions button')].some(
+      (b) => b.textContent === 'Stop'
+    );
+    const s = d.querySelector('.sd-status').textContent;
+    return stop && /couldn.t be read/.test(s) ? s : null;
+  },
+  undefined,
+  30000
+);
+check(
+  /Pages? [0-9, and]+ couldn.t be read: the scanner sent (an image|images) Paperwing can.t open/.test(
+    early ?? ''
+  ),
+  'a page that can’t be read is said at once, while scanning',
+  early
+);
+await L.waitIdle(page, 60000);
+d = await dialog(page);
+const unreadable = await page.evaluate(() =>
+  [...document.querySelectorAll('.dlg-scan .sr-page')].map((p) =>
+    p.classList.contains('is-unreadable')
+  )
+);
+check(
+  d?.thumbs === 6 &&
+    JSON.stringify(unreadable) ===
+      JSON.stringify([false, true, true, false, false, false]),
+  'pages 2 and 3 show as unreadable on their tiles',
+  JSON.stringify(unreadable)
+);
+check(
+  d?.pages[1] === 'Page 2, can’t be read' &&
+    d.pages[2] === 'Page 3, can’t be read',
+  'and say so to a screen reader',
+  JSON.stringify(d?.pages)
+);
+check(
+  /Pages 2 and 3 couldn.t be read: the scanner sent images Paperwing can.t open\. Delete them or rescan them\./.test(
+    d?.status ?? ''
+  ),
+  'after the pass: which pages, and what to do',
+  d?.status
+);
+if (process.env.SCAN_SHOTS)
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((theme) => {
+      localStorage.setItem('paperwing:theme', theme);
+      window.dispatchEvent(new CustomEvent('paperwing:themechange'));
+    }, theme);
+    await sleep(400);
+    await page.screenshot({
+      path: `${process.env.SCAN_SHOTS}/${theme}-unreadable.png`,
+    });
+  }
+const tabsBefore = await page.evaluate(
+  () => document.querySelectorAll('#tabs .tab').length
+);
+await press(page, 'Scan is complete');
+await sleep(1500);
+d = await dialog(page);
+check(
+  !!d &&
+    /Pages 2 and 3 couldn.t be read, so the PDF wasn.t made\. Delete them or rescan them, then select Scan is complete\./.test(
+      d.status
+    ) &&
+    (await page.evaluate(
+      () => document.querySelectorAll('#tabs .tab').length
+    )) === tabsBefore,
+  'Scan is complete makes no PDF with a broken page, and says why',
+  d?.status
+);
+// Rescan one, delete the other: then the PDF is made
+await page.hover('.dlg-scan .sr-page:nth-child(2)');
+await click(page, '.dlg-scan .sr-tool', 'Rescan page 2');
+await L.waitIdle(page, 60000);
+d = await dialog(page);
+check(
+  d?.pages[1] === 'Page 2' && d.pages[2] === 'Page 3, can’t be read',
+  'a rescan replaces the unreadable page',
+  JSON.stringify(d?.pages)
+);
+await page.hover('.dlg-scan .sr-page:nth-child(3)');
+await click(page, '.dlg-scan .sr-tool', 'Delete page 3');
+await sleep(300);
+await L.complete(page, 5);
+check(
+  (await L.docInfo(page)).pages === 5,
+  'with it rescanned and the other deleted, the PDF is made'
+);
+await app.close();
+
+// A feeder pass that ends well with nothing in it (as WIA can)
+app = await L.start({ PAPERWING_SCAN_TEST_PAGES: '0' });
+page = app.page;
+await L.openDialog(page);
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Document feeder');
+await press(page, 'Scan');
+await L.waitIdle(page);
+d = await dialog(page);
+check(
+  /^No pages came through the document feeder\. Check that the pages are in the feeder, then select Scan\.$/.test(
+    d?.status ?? ''
+  ) && !/0 pages scanned/.test(d.status),
+  'a feeder pass with nothing in it says to check the feeder (not "0 pages scanned")',
+  d?.status
 );
 await app.close();
 
