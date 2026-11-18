@@ -313,6 +313,12 @@ function group(
   return { section, body };
 }
 
+/** "Page 2", "Pages 2 and 5", "Pages 2, 3 and 5" */
+export function pageList(numbers: number[]): string {
+  if (numbers.length < 2) return `Page ${numbers[0] ?? ''}`.trim();
+  return `Pages ${numbers.slice(0, -1).join(', ')} and ${numbers[numbers.length - 1]}`;
+}
+
 /** A page in the dialog: scanned (cleaned up as it arrives) or a page of a
  *  PDF a scanner's app saved */
 interface Page {
@@ -326,6 +332,9 @@ interface Page {
   keep: boolean;
   /** Settings it was scanned with (a rescan uses the same scanner) */
   rescannable: boolean;
+  /** The scanner sent a picture that can't be opened: it can't go in the
+   *  PDF (#55) */
+  unreadable?: boolean;
 }
 
 let nextPageId = 1;
@@ -1205,6 +1214,7 @@ export function showScanDialog(
         blank: p.blank,
         keep: p.keep,
         canRescan: p.rescannable && scanner.value !== WATCH,
+        unreadable: p.unreadable,
       }));
       const n = included().length;
       tabPages.textContent = pages.length ? `Pages (${n})` : 'Pages';
@@ -1223,6 +1233,48 @@ export function showScanDialog(
     /** Import from a scanner app is chosen (not while the scanners are
      *  still being looked for: the list may hold only that choice then) */
     const importChosen = () => scanner.value === WATCH && busy !== 'list';
+
+    /** The reverse sides of the pass under way, which go in after their
+     *  fronts when it ends */
+    let reverseSides: Page[] | null = null;
+    /** The pages in their order, the reverse sides scanned so far woven in */
+    function woven(backs: Page[] | null): Page[] {
+      if (!backs?.length || !lastPass) return pages;
+      const fronts = lastPass.ids
+        .map((id) => pages.find((p) => p.id === id))
+        .filter((p): p is Page => !!p);
+      const start = pages.indexOf(fronts[0]);
+      const rest = pages.filter((p) => !fronts.includes(p));
+      rest.splice(Math.max(0, start), 0, ...interleave(fronts, backs));
+      return rest;
+    }
+    /** Which pages couldn't be read, by their number; with `advice`, what
+     *  to do about them */
+    function unreadableNote(advice = false): string {
+      const bad = woven(reverseSides).flatMap((p, k) =>
+        p.unreadable ? [{ n: k + 1, p }] : []
+      );
+      if (!bad.length) return '';
+      const one = bad.length === 1;
+      const note = `${pageList(bad.map((b) => b.n))} couldn’t be read: the scanner sent ${one ? 'an image' : 'images'} Paperwing can’t open.`;
+      if (!advice) return note;
+      const it = one ? 'it' : 'them';
+      const rescan =
+        bad.every((b) => b.p.rescannable) && scanner.value !== WATCH;
+      return `${note} Delete ${it}${rescan ? ` or rescan ${it}` : ''}.`;
+    }
+    /** A status message, with the pages that couldn't be read */
+    const withNote = (text: string) => {
+      const note = unreadableNote();
+      return note ? `${text} ${note}` : text;
+    };
+    /** A page that can't be opened: shown as such, and said at once */
+    function markUnreadable(page: Page) {
+      page.unreadable = true;
+      page.url = '';
+      if (page.source.kind === 'scan') page.source.processed = null;
+      if (busy === 'scan') status.textContent = unreadableNote();
+    }
 
     function enable() {
       const working = busy !== '';
@@ -1588,21 +1640,27 @@ export function showScanDialog(
           page.blank = done.blank;
           page.url = thumb(done.thumb);
         } catch (err) {
-          // Kept as it came, if it can't be cleaned up
           console.error(err);
           const blob = new Blob([data as BlobPart], { type: info.mime });
-          if (page.source.kind === 'scan')
-            page.source.processed = {
-              kind: 'color',
-              image: blob,
-              bitmap: null,
-              thumb: blob,
-              width: info.width ?? 0,
-              height: info.height ?? 0,
-              dpi: info.dpi,
-              blank: false,
-            };
-          page.url = thumb(blob);
+          // Kept as it came if only the clean-up failed; a picture that
+          // can't be opened at all can't go in the PDF (#55)
+          const opened = await createImageBitmap(blob).catch((): null => null);
+          if (!opened) markUnreadable(page);
+          else {
+            if (page.source.kind === 'scan')
+              page.source.processed = {
+                kind: 'color',
+                image: blob,
+                bitmap: null,
+                thumb: blob,
+                width: opened.width,
+                height: opened.height,
+                dpi: info.dpi,
+                blank: false,
+              };
+            opened.close();
+            page.url = thumb(blob);
+          }
         }
         if (!closed) renderPages();
       });
@@ -1641,20 +1699,31 @@ export function showScanDialog(
           renderPages();
           review.showLast();
         }
-        // The backs of a top-bound stack come upside down
-        process(
-          page,
-          data,
-          info,
-          plan,
-          settings.flipBacks && (kind === 'reverse' || info.side === 'back')
-        );
         const total = pages.length + (kind === 'reverse' ? got.length : 0);
-        status.textContent = `Scanned ${total} page${total === 1 ? '' : 's'}…`;
+        status.textContent = withNote(
+          `Scanned ${total} page${total === 1 ? '' : 's'}…`
+        );
+        // A picture nothing can open (a JPEG with no height): said at once
+        if (info.unreadable) {
+          markUnreadable(page);
+          renderPages();
+        }
+        // The backs of a top-bound stack come upside down
+        else
+          process(
+            page,
+            data,
+            info,
+            plan,
+            settings.flipBacks && (kind === 'reverse' || info.side === 'back')
+          );
         // A rescan wants one page: the rest of a feeder stays in it
         if (got.length >= wanted) void bridge.cancelScan();
       });
-      const offStatus = bridge.onScanStatus((m) => (status.textContent = m));
+      const offStatus = bridge.onScanStatus(
+        (m) => (status.textContent = withNote(m))
+      );
+      reverseSides = kind === 'reverse' ? got : null;
       busy = 'scan';
       confirmDiscard = false;
       showPane('pages');
@@ -1684,20 +1753,15 @@ export function showScanDialog(
         offStatus();
       }
       // (clean-up runs in a worker; the slow filters can take a few seconds a page)
-      if (got.some((p) => !p.url))
+      if (got.some((p) => !p.url && !p.unreadable))
         status.textContent = 'Cleaning up the pages…';
       await processing;
+      reverseSides = null;
       if (closed) return;
       busy = '';
       if (kind === 'reverse' && got.length && lastPass) {
         // The backs of the last pass, woven in after their fronts
-        const fronts = lastPass.ids
-          .map((id) => pages.find((p) => p.id === id))
-          .filter((p): p is Page => !!p);
-        const start = pages.indexOf(fronts[0]);
-        const rest = pages.filter((p) => !fronts.includes(p));
-        rest.splice(Math.max(0, start), 0, ...interleave(fronts, got));
-        pages = rest;
+        pages = woven(got);
         lastPass = null;
       } else if (kind === 'rescan' && got.length) {
         const at = pages.findIndex((p) => p.id === rescanId);
@@ -1713,7 +1777,8 @@ export function showScanDialog(
       renderPages();
       const n = included().length;
       const blanks = pages.filter((p) => p.blank && !p.keep).length;
-      const count = `${n} page${n === 1 ? '' : 's'} scanned${blanks ? ` (${blanks} blank left out)` : ''}.`;
+      const note = unreadableNote(true);
+      const count = `${n} page${n === 1 ? '' : 's'} scanned${blanks ? ` (${blanks} blank left out)` : ''}.${note ? ` ${note}` : ''}`;
       // A feeder pass that ended well with nothing in it: the pages
       // weren't where the scanner looks (any driver)
       const nothing =
@@ -1751,7 +1816,8 @@ export function showScanDialog(
           !result.cancelled &&
           !settings.promptMore &&
           !needBacks &&
-          pages.length
+          pages.length &&
+          !note
         ) {
           await finish();
           return;
@@ -1848,7 +1914,9 @@ export function showScanDialog(
         await processing;
       }
       if (closed) return;
-      status.textContent = `Added ${f.name}. Select Scan is complete when you have everything.`;
+      status.textContent = withNote(
+        `Added ${f.name}. Select Scan is complete when you have everything.`
+      );
       renderPages();
       showActions();
     }
@@ -1903,6 +1971,16 @@ export function showScanDialog(
       if (!list.length) {
         status.textContent =
           'Every page was left out. Keep a page, or scan some.';
+        return;
+      }
+      // A page that can't be read would be a broken page in the PDF (#55)
+      const bad = pages.flatMap((p, k) => (p.unreadable ? [k + 1] : []));
+      if (bad.length) {
+        const it = bad.length === 1 ? 'it' : 'them';
+        const rescan =
+          pages.every((p) => !p.unreadable || p.rescannable) &&
+          scanner.value !== WATCH;
+        status.textContent = `${pageList(bad)} couldn’t be read, so the PDF wasn’t made. Delete ${it}${rescan ? ` or rescan ${it}` : ''}, then select Scan is complete.`;
         return;
       }
       remember();

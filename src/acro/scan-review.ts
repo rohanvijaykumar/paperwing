@@ -1,7 +1,8 @@
 /**
  * The scan dialog's pages: thumbnails as they arrive, then after each pass
  * rotate, delete, drag to reorder (or Ctrl+arrow keys), rescan this page,
- * and pages found blank shown as left out, with Keep to keep them.
+ * pages found blank shown as left out, with Keep to keep them, and pages
+ * that can't be read shown as such (#55).
  */
 import { icon } from './icons';
 
@@ -14,6 +15,8 @@ export interface ReviewPage {
   blank: boolean;
   keep: boolean;
   canRescan: boolean;
+  /** The scanner sent a picture that can't be opened */
+  unreadable?: boolean;
 }
 
 export interface ReviewActions {
@@ -67,20 +70,33 @@ export function createReview(actions: ReviewActions) {
   function card(p: ReviewPage, k: number) {
     const n = k + 1;
     const left = p.blank && !p.keep;
-    const img = p.url
-      ? el('img', { src: p.url, alt: '', draggable: 'false' })
-      : el('span', { class: 'sr-wait' }, 'Cleaning up…');
-    if (p.url)
+    const bad = !!p.unreadable;
+    const img = bad
+      ? el(
+          'span',
+          { class: 'sr-bad' },
+          icon('alert', 20),
+          el('span', {}, 'Can’t be read')
+        )
+      : p.url
+        ? el('img', { src: p.url, alt: '', draggable: 'false' })
+        : el('span', { class: 'sr-wait' }, 'Cleaning up…');
+    if (p.url && !bad)
       (img as HTMLElement).style.transform = `rotate(${p.rotation}deg)`;
+    // (nothing to turn on a page that can't be read)
     const tools = el(
       'div',
       { class: 'sr-tools' },
-      tool(`Rotate page ${n} counterclockwise`, 'rotateCcw', () =>
-        actions.rotate(p.id, -90)
-      ),
-      tool(`Rotate page ${n} clockwise`, 'rotate', () =>
-        actions.rotate(p.id, 90)
-      ),
+      bad
+        ? null
+        : tool(`Rotate page ${n} counterclockwise`, 'rotateCcw', () =>
+            actions.rotate(p.id, -90)
+          ),
+      bad
+        ? null
+        : tool(`Rotate page ${n} clockwise`, 'rotate', () =>
+            actions.rotate(p.id, 90)
+          ),
       p.canRescan
         ? tool(`Rescan page ${n}`, 'refresh', () => actions.rescan(p.id))
         : null,
@@ -104,13 +120,15 @@ export function createReview(actions: ReviewActions) {
     const item = el(
       'div',
       {
-        class: `sr-page${left ? ' is-left-out' : ''}`,
+        class: `sr-page${left ? ' is-left-out' : ''}${bad ? ' is-unreadable' : ''}`,
         role: 'listitem',
         tabindex: '0',
         'data-id': String(p.id),
-        'aria-label': left
-          ? `Page ${n}, blank: left out`
-          : `Page ${n}${p.rotation ? `, turned ${p.rotation}°` : ''}`,
+        'aria-label': bad
+          ? `Page ${n}, can’t be read`
+          : left
+            ? `Page ${n}, blank: left out`
+            : `Page ${n}${p.rotation ? `, turned ${p.rotation}°` : ''}`,
         title: 'Drag to move. Ctrl+arrow keys move it too.',
       },
       el('div', { class: 'sr-thumb' }, img),

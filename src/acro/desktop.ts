@@ -205,6 +205,8 @@ export interface ScanPageInfo {
   height?: number;
   side: 'front' | 'back';
   mime: string;
+  /** A picture nothing can open (a JPEG with no height, #55) */
+  unreadable?: boolean;
 }
 
 /** A file a scanner's own app saved in the watched folder */
