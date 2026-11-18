@@ -652,4 +652,12 @@ describe('messages', () => {
       "The scan didn't work: Device error"
     );
   });
+
+  it("an empty feeder doesn't name a button (it may be Scan reverse sides)", () => {
+    const m = scanErrorMessage('feeder-empty', undefined, false);
+    expect(m).toBe(
+      'The document feeder is empty. Put the pages in, then try again.'
+    );
+    expect(m).not.toMatch(/select/);
+  });
 });
