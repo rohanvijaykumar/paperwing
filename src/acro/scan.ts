@@ -193,7 +193,7 @@ export function scanErrorMessage(
     case 'paper-jam':
       return 'The paper is jammed. Clear it, then scan again.';
     case 'feeder-empty':
-      return 'The document feeder is empty. Put the pages in, then select Scan.';
+      return 'The document feeder is empty. Put the pages in, then try again.';
     case 'double-feed':
       return 'Two sheets went through together. Put them back in the feeder, then scan again.';
     case 'cover-open':
@@ -1035,7 +1035,7 @@ export function showScanDialog(
 
     /** Shows what this scanner can do and these settings need */
     function refresh() {
-      const watchMode = scanner.value === WATCH;
+      const watchMode = importChosen();
       const s = source();
       const v = visibility(caps, s, settings, entry?.devices ?? []);
       folderRow.hidden = !watchMode;
@@ -1210,7 +1210,7 @@ export function showScanDialog(
       tabPages.textContent = pages.length ? `Pages (${n})` : 'Pages';
       review.render(
         shownPages,
-        scanner.value === WATCH
+        importChosen()
           ? watching
             ? `Waiting for new scans in ${watchFolder}…`
             : 'Choose the folder your scanner app saves to.'
@@ -1219,6 +1219,10 @@ export function showScanDialog(
     }
 
     const included = () => pages.filter((p) => !p.blank || p.keep);
+
+    /** Import from a scanner app is chosen (not while the scanners are
+     *  still being looked for: the list may hold only that choice then) */
+    const importChosen = () => scanner.value === WATCH && busy !== 'list';
 
     function enable() {
       const working = busy !== '';
@@ -1284,10 +1288,10 @@ export function showScanDialog(
     /** The actions at the bottom: Scan (and Preview), or after a pass the
      *  three choices with the last one made offered first */
     function showActions() {
-      if (!pages.length || scanner.value === WATCH) {
+      if (!pages.length || importChosen()) {
         actions.replaceChildren(
           cancelBtn,
-          ...(scanner.value === WATCH
+          ...(importChosen()
             ? pages.length
               ? [doneBtn]
               : []
@@ -1388,7 +1392,10 @@ export function showScanDialog(
 
     async function loadScanners() {
       busy = 'list';
-      enable();
+      // (no folder to choose, nor scanner settings, while looking)
+      refresh();
+      renderPages();
+      showActions();
       status.textContent = 'Looking for scanners…';
       none.hidden = true;
       const r = await bridge.scanners().catch((err: unknown) => ({
