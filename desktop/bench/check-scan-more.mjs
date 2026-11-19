@@ -17,6 +17,9 @@
  *    search; Scan & OCR's start page; Enhance scanned pages (and Ctrl+Z)
  *  - Import from a scanner app: files appear as they're written
  *  - Add by IP address; a scan recovered after a crash
+ *  - Reorder (#58): the pages strip's menu with the mouse and the keys,
+ *    Scan reverse sides after it, a rescan after it, the PDF's page order
+ *    (SCAN_SHOTS=<folder>: the menu open, light and dark)
  *   node bench/check-scan-more.mjs
  */
 import {
@@ -1109,6 +1112,271 @@ check(
   !!recovered && names.some((n) => /^Scan \d{4}/.test(n)),
   'after a crash, the unsaved scans come back',
   JSON.stringify(names)
+);
+await app.close();
+
+/* Reorder (#58): the pages strip's menu, with the mouse and the keys; the
+   order checked in the PDF made, by what each page says ------------------- */
+// (the second one-sided pass gets the stack turned over: its backs, last
+// sheet first, as when fronts and backs are scanned as two batches)
+app = await L.start({
+  PAPERWING_SCAN_TEST_STACK: 'turn',
+  PAPERWING_SCAN_TEST_BLANK: 'none',
+  PAPERWING_SCAN_TEST_SKEW: 'none',
+});
+page = app.page;
+const order = () =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('.dlg-scan .sr-page')].map((p) =>
+      Number(p.dataset.id)
+    )
+  );
+const reorderBtn = () =>
+  page.evaluate(() => {
+    const b = document.querySelector('.dlg-scan .sd-reorder');
+    return (
+      b && {
+        shown: b.getBoundingClientRect().width > 0,
+        disabled: b.disabled,
+        expanded: b.getAttribute('aria-expanded'),
+        popup: b.getAttribute('aria-haspopup'),
+        focused: document.activeElement === b,
+      }
+    );
+  });
+const menuItems = () =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('.popover .menu-item')].map((m) => ({
+      name: m.getAttribute('aria-label'),
+      hint:
+        document.getElementById(m.getAttribute('aria-describedby'))
+          ?.textContent ?? '',
+      role: m.getAttribute('role'),
+    }))
+  );
+const menuOpen = () =>
+  page.evaluate(() => !!document.querySelector('.popover .menu-item'));
+const focusedName = () =>
+  page.evaluate(
+    () =>
+      document.activeElement?.getAttribute('aria-label') ??
+      document.activeElement?.textContent.trim()
+  );
+/** Reorder ▸ an item, with the mouse */
+async function reorderBy(label) {
+  await click(page, '.dlg-scan .sd-reorder');
+  await until(
+    page,
+    () => document.querySelector('.popover .menu-item'),
+    undefined,
+    5000
+  );
+  const ok = await click(page, '.popover .menu-item', label);
+  await sleep(200);
+  return ok;
+}
+const pick = (ids, at) => at.map((k) => ids[k]);
+check(await L.openDialog(page), '(reorder) the dialog opens');
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Document feeder');
+await choose(page, 'Pages', 'Front sides');
+await choose(page, 'Paper size', 'Letter');
+await choose(page, 'Color mode', 'Grayscale');
+let rb = await reorderBtn();
+check(
+  !!rb && !rb.shown,
+  'Reorder: not shown before there are pages',
+  JSON.stringify(rb)
+);
+await press(page, 'Scan');
+await L.waitIdle(page);
+await press(page, 'Scan more pages');
+await L.waitIdle(page);
+// 1F 2F 3F, then 3B 2B 1B
+const scanned = await order();
+d = await dialog(page);
+check(
+  scanned.length === 6,
+  'fronts, then the backs as a batch of their own: 6 pages',
+  `${scanned.length}`
+);
+check(
+  d.buttons.includes('Scan reverse sides'),
+  '(the backs’ one-sided pass: Scan reverse sides offered for it)',
+  JSON.stringify(d.buttons)
+);
+rb = await reorderBtn();
+check(
+  rb.shown && !rb.disabled && rb.popup === 'menu' && rb.expanded === 'false',
+  'Reorder shown with the pages: a menu button, available',
+  JSON.stringify(rb)
+);
+// The menu, with the mouse
+await click(page, '.dlg-scan .sd-reorder');
+await until(
+  page,
+  () => document.querySelector('.popover .menu-item'),
+  undefined,
+  5000
+);
+const items = await menuItems();
+check(
+  items.map((i) => i.name).join() ===
+    'Interleave,Deinterleave,Alternate interleave,Alternate deinterleave,Reverse order' &&
+    items.every((i) => i.role === 'menuitem' && i.hint.length > 8),
+  'its items, each saying what it does',
+  JSON.stringify(items)
+);
+check(
+  /backs in reverse order/.test(items[2]?.hint ?? ''),
+  'Alternate interleave: for fronts and backs scanned as two batches, backs in reverse order',
+  items[2]?.hint
+);
+check(
+  (await reorderBtn()).expanded === 'true',
+  'the button says its menu is open'
+);
+if (process.env.SCAN_SHOTS)
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((theme) => {
+      localStorage.setItem('paperwing:theme', theme);
+      window.dispatchEvent(new CustomEvent('paperwing:themechange'));
+    }, theme);
+    await sleep(500);
+    await page.screenshot({
+      path: join(process.env.SCAN_SHOTS, `reorder-menu-${theme}.png`),
+    });
+  }
+await click(page, '.popover .menu-item', 'Alternate interleave');
+await sleep(200);
+const woven = pick(scanned, [0, 5, 1, 4, 2, 3]);
+check(
+  JSON.stringify(await order()) === JSON.stringify(woven),
+  'Alternate interleave: each back after its front',
+  `${await order()}`
+);
+d = await dialog(page);
+check(
+  /^Pages interleaved, the second half last to first\./.test(d.status),
+  'the status says what happened',
+  d.status
+);
+check(
+  !d.buttons.includes('Scan reverse sides'),
+  'the backs’ pass split up: Scan reverse sides no longer offered (it would weave in the wrong place)',
+  JSON.stringify(d.buttons)
+);
+rb = await reorderBtn();
+check(
+  rb.focused && rb.expanded === 'false',
+  'the menu closes; focus is back on Reorder',
+  JSON.stringify(rb)
+);
+// Undone from the keyboard (a page missing from the batch)
+await page.keyboard.press('Enter');
+await until(
+  page,
+  () => document.querySelector('.popover .menu-item'),
+  undefined,
+  5000
+);
+check(
+  (await focusedName()) === 'Interleave',
+  'Reorder opened with Enter: the first item has focus',
+  await focusedName()
+);
+await page.keyboard.press('ArrowDown', { delay: 30 });
+await page.keyboard.press('ArrowDown', { delay: 30 });
+await page.keyboard.press('ArrowDown', { delay: 30 });
+check(
+  (await focusedName()) === 'Alternate deinterleave',
+  'the arrow keys move through the items',
+  await focusedName()
+);
+await page.keyboard.press('Enter');
+await sleep(300);
+check(
+  JSON.stringify(await order()) === JSON.stringify(scanned),
+  'Alternate deinterleave undoes it exactly',
+  `${await order()}`
+);
+d = await dialog(page);
+check(
+  /^Pages deinterleaved, the even pages last to first\./.test(d.status),
+  'and says so',
+  d.status
+);
+check(
+  d.buttons.includes('Scan reverse sides'),
+  'the backs’ pass together again: Scan reverse sides back',
+  JSON.stringify(d.buttons)
+);
+check((await reorderBtn()).focused, 'focus back on Reorder');
+await page.keyboard.press('Enter');
+await until(
+  page,
+  () => document.querySelector('.popover .menu-item'),
+  undefined,
+  5000
+);
+await page.keyboard.press('Escape');
+await sleep(300);
+rb = await reorderBtn();
+check(
+  !(await menuOpen()) && !!(await dialog(page)) && rb.focused,
+  'Escape closes just the menu (not the dialog); focus back on Reorder',
+  JSON.stringify(rb)
+);
+// The others, with the mouse
+await reorderBy('Interleave');
+check(
+  JSON.stringify(await order()) ===
+    JSON.stringify(pick(scanned, [0, 3, 1, 4, 2, 5])),
+  'Interleave: A1 B1 A2 B2…',
+  `${await order()}`
+);
+await reorderBy('Deinterleave');
+check(
+  JSON.stringify(await order()) === JSON.stringify(scanned),
+  'Deinterleave undoes it',
+  `${await order()}`
+);
+await reorderBy('Reverse order');
+d = await dialog(page);
+check(
+  JSON.stringify(await order()) === JSON.stringify([...scanned].reverse()) &&
+    /^Page order reversed\./.test(d.status),
+  'Reverse order: last page first',
+  `${await order()} ${d.status}`
+);
+await reorderBy('Reverse order');
+// Rescan after a reorder: the new page takes that page's place
+await reorderBy('Alternate interleave');
+await page.hover('.dlg-scan .sr-page:nth-child(2)');
+check(
+  await click(page, '.dlg-scan .sr-tool', 'Rescan page 2'),
+  'Rescan page 2 (after reordering)'
+);
+await L.waitIdle(page);
+const afterRescan = await order();
+check(
+  afterRescan.length === 6 &&
+    !scanned.includes(afterRescan[1]) &&
+    JSON.stringify(pick(afterRescan, [0, 2, 3, 4, 5])) ===
+      JSON.stringify(pick(woven, [0, 2, 3, 4, 5])),
+  'the rescanned page stays page 2',
+  `${afterRescan}`
+);
+// Scan is complete: the PDF's pages in this order, by what each says
+const reordered = await L.complete(page, 6);
+const said = [];
+for (let k = 0; k < 6; k++)
+  said.push(P.labelText(P.readLabel(await P.renderPage(reordered, k, 50))));
+check(
+  said.join() === '1F,4F,2F,2B,3F,3B',
+  'the PDF: each back after its front, the rescanned sheet as page 2',
+  said.join()
 );
 await app.close();
 
