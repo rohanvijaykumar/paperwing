@@ -224,7 +224,14 @@ export const BUILTIN_PRESETS: Preset[] = [
 /* Reading saved settings back ----------------------------------------- */
 
 const LEVELS: Level[] = ['off', 'low', 'medium', 'high'];
-const DRIVERS: ScanDriver[] = ['twain', 'wia', 'escl', 'twain32', 'wia1', 'ica'];
+const DRIVERS: ScanDriver[] = [
+  'twain',
+  'wia',
+  'escl',
+  'twain32',
+  'wia1',
+  'ica',
+];
 
 /** What's valid of something read from storage (anything else is dropped) */
 export function cleanSettings(raw: unknown): Partial<ScanSettings> {
@@ -263,7 +270,10 @@ export function cleanSettings(raw: unknown): Partial<ScanSettings> {
   ] as const)
     set(k, bool(k));
   set('transfer', oneOf('transfer', ['native', 'memory']));
-  set('networkTimeout', num('networkTimeout', 5, 600) && Number.isInteger(r.networkTimeout));
+  set(
+    'networkTimeout',
+    num('networkTimeout', 5, 600) && Number.isInteger(r.networkTimeout)
+  );
   set('source', oneOf('source', ['flatbed', 'feeder']));
   set('sides', oneOf('sides', ['front', 'both']));
   set('color', oneOf('color', ['auto', 'color', 'gray', 'bw']));
@@ -455,7 +465,8 @@ export function visibility(
     sharpness: !!source?.sharpen,
     customDpi: !!source?.resolutionRange,
     customSize: s.paper === 'custom',
-    orientation: s.paper in PAPERS && PAPERS[s.paper].width !== PAPERS[s.paper].height,
+    orientation:
+      s.paper in PAPERS && PAPERS[s.paper].width !== PAPERS[s.paper].height,
     preview: !!source?.canPreview,
     driver: devices.length > 1,
     nativeUi: !!caps?.nativeUi,
@@ -745,6 +756,50 @@ export function interleave<T>(fronts: T[], backs: T[]): T[] {
     if (k < reversed.length) out.push(reversed[k]);
   }
   return out;
+}
+
+/** The pages strip's Reorder menu (#58), as NAPS2 has it */
+export type Reorder =
+  | 'interleave'
+  | 'deinterleave'
+  | 'alternateInterleave'
+  | 'alternateDeinterleave'
+  | 'reverse';
+
+/**
+ * Reorders all the pages. Interleave weaves the first half (the first
+ * ceil(n/2) pages) with the rest: A1 B1 A2 B2…; Alternate interleave the
+ * same with the second half last to first (A1 Bk A2 Bk-1…, what Scan
+ * reverse sides does). The deinterleaves undo them exactly: the odd pages
+ * first, then the even ones (last to first for Alternate).
+ */
+export function reorderPages<T>(pages: T[], how: Reorder): T[] {
+  const half = Math.ceil(pages.length / 2);
+  const first = pages.slice(0, half);
+  const second = pages.slice(half);
+  const odd = pages.filter((_, k) => k % 2 === 0);
+  const even = pages.filter((_, k) => k % 2 === 1);
+  switch (how) {
+    case 'interleave':
+      return interleave(first, [...second].reverse());
+    case 'alternateInterleave':
+      return interleave(first, second);
+    case 'deinterleave':
+      return [...odd, ...even];
+    case 'alternateDeinterleave':
+      return [...odd, ...even.reverse()];
+    case 'reverse':
+      return [...pages].reverse();
+  }
+}
+
+/** Scan reverse sides weaves the backs in after the last pass's pages: only
+ *  while those are still together, in the order they were scanned (a
+ *  reorder that splits them up takes it away; undoing it brings it back) */
+export function passTogether<T>(pass: T[], pages: T[]): boolean {
+  if (!pass.length) return false;
+  const start = pages.indexOf(pass[0]);
+  return start >= 0 && pass.every((p, k) => pages[start + k] === p);
 }
 
 /** Save multiple files: the pages of each file (the last may be short) */

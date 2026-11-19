@@ -16,7 +16,9 @@ import {
   nearestResolution,
   offeredResolutions,
   paperChoices,
+  passTogether,
   previewRequest,
+  reorderPages,
   scanName,
   settingsSummary,
   splitIntoFiles,
@@ -513,6 +515,92 @@ describe('after the scan', () => {
     expect(interleave([1, 3, 5], [6, 4, 2])).toEqual([1, 2, 3, 4, 5, 6]);
     expect(interleave([1, 3, 5], [4, 2])).toEqual([1, 2, 3, 4, 5]);
     expect(interleave([], [2])).toEqual([2]);
+  });
+
+  it('Reorder (#58): interleave and deinterleave as NAPS2 does', () => {
+    // First half: the first ceil(n/2) pages
+    expect(reorderPages([1, 2, 3, 4, 5, 6], 'interleave')).toEqual([
+      1, 4, 2, 5, 3, 6,
+    ]);
+    expect(reorderPages([1, 2, 3, 4, 5], 'interleave')).toEqual([
+      1, 4, 2, 5, 3,
+    ]);
+    expect(reorderPages([1, 2, 3, 4, 5, 6], 'alternateInterleave')).toEqual([
+      1, 6, 2, 5, 3, 4,
+    ]);
+    expect(reorderPages([1, 2, 3, 4, 5], 'alternateInterleave')).toEqual([
+      1, 5, 2, 4, 3,
+    ]);
+    expect(reorderPages([1, 2, 3, 4, 5, 6], 'deinterleave')).toEqual([
+      1, 3, 5, 2, 4, 6,
+    ]);
+    expect(reorderPages([1, 2, 3, 4, 5], 'alternateDeinterleave')).toEqual([
+      1, 3, 5, 4, 2,
+    ]);
+    expect(reorderPages([1, 2, 3], 'reverse')).toEqual([3, 2, 1]);
+    expect(reorderPages([1, 2], 'alternateInterleave')).toEqual([1, 2]);
+    expect(reorderPages([7], 'interleave')).toEqual([7]);
+    expect(reorderPages([], 'deinterleave')).toEqual([]);
+  });
+
+  it('Alternate interleave does what Scan reverse sides does', () => {
+    // Fronts 1F 2F 3F, then the stack turned over: 3B 2B 1B
+    const scanned = ['1F', '2F', '3F', '3B', '2B', '1B'];
+    expect(reorderPages(scanned, 'alternateInterleave')).toEqual(
+      interleave(['1F', '2F', '3F'], ['3B', '2B', '1B'])
+    );
+    expect(reorderPages(scanned, 'alternateInterleave')).toEqual([
+      '1F',
+      '1B',
+      '2F',
+      '2B',
+      '3F',
+      '3B',
+    ]);
+  });
+
+  it('each deinterleave undoes its interleave, and back again (odd and even counts)', () => {
+    for (let n = 0; n <= 9; n++) {
+      const x = Array.from({ length: n }, (_, k) => k + 1);
+      for (const [weave, unweave] of [
+        ['interleave', 'deinterleave'],
+        ['alternateInterleave', 'alternateDeinterleave'],
+      ] as const) {
+        expect(reorderPages(reorderPages(x, weave), unweave)).toEqual(x);
+        expect(reorderPages(reorderPages(x, unweave), weave)).toEqual(x);
+      }
+      expect(reorderPages(reorderPages(x, 'reverse'), 'reverse')).toEqual(x);
+    }
+  });
+
+  it('Reorder keeps the pages themselves (their flags go with them)', () => {
+    const pages = [
+      { id: 1, rotation: 90 },
+      { id: 2, blank: true },
+      { id: 3, unreadable: true },
+    ];
+    const out = reorderPages(pages, 'interleave');
+    expect(out.map((p) => p.id)).toEqual([1, 3, 2]);
+    expect(out[0]).toBe(pages[0]);
+    expect(out[1]).toBe(pages[2]);
+  });
+
+  it('Scan reverse sides: only while the last pass is together, in its order', () => {
+    expect(passTogether([3, 4, 5], [1, 2, 3, 4, 5])).toBe(true);
+    expect(passTogether([3, 4, 5], [3, 4, 5, 1, 2])).toBe(true);
+    // Split up by Alternate interleave
+    expect(passTogether([4, 5, 6], [1, 6, 2, 5, 3, 4])).toBe(false);
+    // Reversed
+    expect(passTogether([1, 2], [2, 1])).toBe(false);
+    // Undone: together again
+    const pages = [1, 2, 3, 6, 5, 4];
+    const woven = reorderPages(pages, 'alternateInterleave');
+    expect(passTogether([6, 5, 4], woven)).toBe(false);
+    expect(
+      passTogether([6, 5, 4], reorderPages(woven, 'alternateDeinterleave'))
+    ).toBe(true);
+    expect(passTogether([], [1])).toBe(false);
+    expect(passTogether([9], [1])).toBe(false);
   });
 
   it('Save multiple files: pages per file, the last one short', () => {
