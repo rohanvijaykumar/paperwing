@@ -1479,6 +1479,11 @@ body.is-dragging .drop-inner {
   z-index: 100;
   pointer-events: none;
 }
+/* A menu a dialog opens (the scan dialog's Reorder) shows over it; modal.ts
+   keeps the layer reachable */
+body:has(> .dlg-backdrop) > #popover-layer {
+  z-index: 210;
+}
 .popover {
   position: fixed;
   pointer-events: auto;
@@ -1512,6 +1517,27 @@ body.is-dragging .drop-inner {
 }
 .mi-label {
   flex: 1;
+}
+/* An item that says what it does in a line under its name (the scan
+   dialog's Reorder menu) */
+.menu-item.has-hint {
+  align-items: flex-start;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.menu-item.has-hint .mi-icon {
+  display: none;
+}
+.mi-label:has(.mi-hint) {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 300px;
+}
+.mi-hint {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.35;
 }
 .mi-key {
   color: var(--text-3);
@@ -2899,10 +2925,26 @@ body.is-dragging-page * {
   gap: 8px;
   min-width: 0;
 }
+.sd-tabrow {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
 .sd-tabs {
   flex: none;
   align-self: flex-start;
   margin: 0;
+}
+/* Reorder (#58): the pages strip's menu, at the end of the tabs' row */
+.sd-reorder {
+  margin-left: auto;
+  padding: 0 8px 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sd-reorder:disabled {
+  background: none;
 }
 .sd-tabs .pd-seg-btn {
   min-width: 96px;

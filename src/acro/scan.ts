@@ -42,8 +42,10 @@ import {
   offeredResolutions,
   omit,
   paperChoices,
+  passTogether,
   pick,
   previewRequest,
+  reorderPages,
   settingsSummary,
   splitIntoFiles,
   startingSettings,
@@ -54,6 +56,7 @@ import {
   type InsertAt,
   type Preset,
   type ProcessPlan,
+  type Reorder,
   type ScanSettings,
 } from './scan-settings';
 import {
@@ -121,7 +124,52 @@ export interface ScanDialogOptions {
   languages: Record<string, string>;
   /** Which way up a page is (Auto-rotate pages) */
   detectOrientation?: OrientationDetector;
+  /** The app's menu (app.ts showMenu), under `anchor` */
+  menu(anchor: HTMLElement, items: ScanMenuItem[]): void;
 }
+
+export interface ScanMenuItem {
+  label: string;
+  /** What it does, in a line under the label */
+  hint?: string;
+  onClick(): void;
+}
+
+/** The pages strip's Reorder menu (#58): what each does, in plain words,
+ *  and what the status says once it's done */
+const REORDERS: { how: Reorder; label: string; hint: string; done: string }[] =
+  [
+    {
+      how: 'interleave',
+      label: 'Interleave',
+      hint: 'Fronts and backs scanned as two batches, both in the same order',
+      done: 'Pages interleaved.',
+    },
+    {
+      how: 'deinterleave',
+      label: 'Deinterleave',
+      hint: 'Undoes Interleave: odd pages first, then even pages',
+      done: 'Pages deinterleaved.',
+    },
+    {
+      how: 'alternateInterleave',
+      label: 'Alternate interleave',
+      hint: 'Fronts and backs scanned as two batches, backs in reverse order',
+      done: 'Pages interleaved, the second half last to first.',
+    },
+    {
+      how: 'alternateDeinterleave',
+      label: 'Alternate deinterleave',
+      hint: 'Undoes Alternate interleave: odd pages first, then even pages last to first',
+      done: 'Pages deinterleaved, the even pages last to first.',
+    },
+    {
+      how: 'reverse',
+      label: 'Reverse order',
+      hint: 'Last page first',
+      done: 'Page order reversed.',
+    },
+  ];
 
 export type ScanOutcome =
   | {
@@ -851,6 +899,40 @@ export function showScanDialog(
       tabPreview,
       tabPages
     );
+    // Reorder (#58): all the pages at once, like NAPS2's Reorder menu
+    const reorderBtn = el(
+      'button',
+      {
+        type: 'button',
+        class: 'tb-btn sd-reorder',
+        'aria-haspopup': 'menu',
+        'aria-expanded': 'false',
+        title:
+          'Interleave fronts and backs scanned as two batches, or reverse the order',
+      },
+      icon('reorder', 16),
+      'Reorder',
+      icon('chevronDown', 14)
+    );
+    reorderBtn.hidden = true;
+    // (the menu marks the button open while it's shown)
+    new MutationObserver(() =>
+      reorderBtn.setAttribute(
+        'aria-expanded',
+        String(reorderBtn.classList.contains('is-open'))
+      )
+    ).observe(reorderBtn, { attributes: true, attributeFilter: ['class'] });
+    reorderBtn.addEventListener('click', () => {
+      if (reorderBtn.disabled) return;
+      options.menu(
+        reorderBtn,
+        REORDERS.map((r) => ({
+          label: r.label,
+          hint: r.hint,
+          onClick: () => reorder(r.how, r.done),
+        }))
+      );
+    });
     const previewPane = el(
       'div',
       { class: 'sd-pane', role: 'tabpanel', 'aria-label': 'Preview' },
@@ -870,13 +952,14 @@ export function showScanDialog(
       tabPages.classList.toggle('is-on', which === 'pages');
       tabPreview.setAttribute('aria-selected', String(which === 'preview'));
       tabPages.setAttribute('aria-selected', String(which === 'pages'));
+      showReorder();
     };
     tabPreview.addEventListener('click', () => showPane('preview'));
     tabPages.addEventListener('click', () => showPane('pages'));
     const right = el(
       'div',
       { class: 'sd-right' },
-      tabs,
+      el('div', { class: 'sd-tabrow' }, tabs, reorderBtn),
       previewPane,
       pagesPane
     );
@@ -1218,6 +1301,7 @@ export function showScanDialog(
       }));
       const n = included().length;
       tabPages.textContent = pages.length ? `Pages (${n})` : 'Pages';
+      showReorder();
       review.render(
         shownPages,
         importChosen()
@@ -1229,6 +1313,34 @@ export function showScanDialog(
     }
 
     const included = () => pages.filter((p) => !p.blank || p.keep);
+
+    /** Reorder: with the pages shown, for two pages or more, not while
+     *  scanning or making the PDF */
+    function showReorder() {
+      reorderBtn.hidden = shown !== 'pages' || !pages.length;
+      reorderBtn.disabled = busy !== '' || pages.length < 2;
+    }
+    /** Reorders all the pages (blank and unreadable ones too, each with its
+     *  rotation and marks); Scan is complete, Save multiple files and
+     *  rescanning a page all go by the new order */
+    function reorder(how: Reorder, done: string) {
+      if (busy || pages.length < 2) return;
+      pages = reorderPages(pages, how);
+      renderPages();
+      status.textContent = withNote(done);
+      // Scan reverse sides stays only while the last pass is still together
+      // in its order (canReverse); focus stays on Reorder
+      showActions(false);
+    }
+    /** Scan reverse sides applies: the last pass was one-sided through a
+     *  feeder, and its pages are still together, in the order scanned */
+    const canReverse = () =>
+      !!lastPass?.feeder &&
+      !lastPass.duplex &&
+      passTogether(
+        lastPass.ids,
+        pages.map((p) => p.id)
+      );
 
     /** Import from a scanner app is chosen (not while the scanners are
      *  still being looked for: the list may hold only that choice then) */
@@ -1335,11 +1447,13 @@ export function showScanDialog(
       else if (!confirmDiscard) cancelBtn.textContent = 'Cancel';
       review.lock(working);
       glass.setBusy(working);
+      showReorder();
     }
 
     /** The actions at the bottom: Scan (and Preview), or after a pass the
-     *  three choices with the last one made offered first */
-    function showActions() {
+     *  three choices with the last one made offered first (and focused,
+     *  unless `focus` is false) */
+    function showActions(focus = true) {
       if (!pages.length || importChosen()) {
         actions.replaceChildren(
           cancelBtn,
@@ -1353,10 +1467,9 @@ export function showScanDialog(
         enable();
         return;
       }
-      const canReverse =
-        !!lastPass?.feeder && !lastPass.duplex && lastPass.ids.length > 0;
-      reverseBtn.hidden = !canReverse;
-      const first = defaultAfterPass(scanPrefs().last.next, canReverse);
+      const reverse = canReverse();
+      reverseBtn.hidden = !reverse;
+      const first = defaultAfterPass(scanPrefs().last.next, reverse);
       for (const [b, k] of [
         [moreBtn, 'more'],
         [reverseBtn, 'reverse'],
@@ -1371,7 +1484,8 @@ export function showScanDialog(
         doneBtn
       );
       enable();
-      ({ more: moreBtn, reverse: reverseBtn, done: doneBtn })[first].focus();
+      if (focus)
+        ({ more: moreBtn, reverse: reverseBtn, done: doneBtn })[first].focus();
     }
 
     /* Scanners ------------------------------------------------------------- */
@@ -1767,6 +1881,11 @@ export function showScanDialog(
         const at = pages.findIndex((p) => p.id === rescanId);
         if (at >= 0) pages[at] = got[0];
         else pages.push(got[0]);
+        // (the new page takes the old one's place in the last pass too)
+        if (lastPass)
+          lastPass.ids = lastPass.ids.map((x) =>
+            x === rescanId ? got[0].id : x
+          );
       } else if ((kind === 'first' || kind === 'more') && got.length) {
         lastPass = {
           ids: got.map((p) => p.id),
@@ -2101,6 +2220,8 @@ export function showScanDialog(
       if (e.key !== 'Escape') return;
       const all = document.querySelectorAll('.dlg-backdrop');
       if (all[all.length - 1] !== backdrop) return;
+      // A menu open over the dialog (Reorder): Escape closes just the menu
+      if (document.querySelector('#popover-layer .popover')) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       void cancel();
