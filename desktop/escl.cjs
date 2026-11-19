@@ -787,6 +787,9 @@ function createEscl(config = {}) {
 
   const backoff = (attempt) =>
     Math.min(opt.maxRetryDelayMs, opt.retryDelayMs * 1.3 ** attempt);
+  /** The scan under way's diagnostics (test build for #55): every request
+   *  made meanwhile is noted */
+  let activeDiag = null;
 
   /**
    * One HTTP request to an endpoint. Times out if the connection takes
@@ -801,6 +804,23 @@ function createEscl(config = {}) {
     reqPath,
     { body, idleMs = opt.requestMs, signal, headersOnly, hostHeader } = {}
   ) {
+    const began = Date.now();
+    const noteHttp = (entry) => {
+      try {
+        activeDiag?.('http', {
+          method,
+          path: reqPath,
+          scheme: ep.scheme,
+          address: ep.address,
+          port: ep.port,
+          requestBytes: body === undefined ? 0 : Buffer.byteLength(body),
+          ms: Date.now() - began,
+          ...entry,
+        });
+      } catch {
+        /* diagnostics never stop a scan */
+      }
+    };
     return new Promise((resolve, reject) => {
       if (signal?.aborted) return reject(new ScanError('cancelled'));
       const mod = ep.scheme === 'https' ? https : http;
@@ -818,6 +838,10 @@ function createEscl(config = {}) {
       let settled = false;
       const fail = (err) => {
         if (settled) return;
+        noteHttp({
+          error: String(err?.message ?? err),
+          code: err?.code ?? null,
+        });
         settled = true;
         clearTimeout(connectTimer);
         signal?.removeEventListener('abort', onAbort);
@@ -873,6 +897,12 @@ function createEscl(config = {}) {
           signal?.removeEventListener('abort', onAbort);
           res.on('error', () => {});
           res.resume();
+          noteHttp({
+            status: res.statusCode,
+            headers: res.headers,
+            bytes: 0,
+            headersOnly: true,
+          });
           return resolve({
             status: res.statusCode,
             headers: res.headers,
@@ -892,10 +922,16 @@ function createEscl(config = {}) {
           settled = true;
           signal?.removeEventListener('abort', onAbort);
           req.destroy();
+          const got = Buffer.concat(chunks);
+          noteHttp({
+            status: res.statusCode,
+            headers: res.headers,
+            bytes: got.length,
+          });
           resolve({
             status: res.statusCode,
             headers: res.headers,
-            body: Buffer.concat(chunks),
+            body: got,
           });
         });
       });
@@ -1065,7 +1101,8 @@ function createEscl(config = {}) {
           );
           continue;
         }
-        dev.caps = parseCapabilities(res.body.toString('utf8'));
+        dev.capsXml = res.body.toString('utf8');
+        dev.caps = parseCapabilities(dev.capsXml);
         if (dev.caps.makeAndModel && !dev.make)
           Object.assign(dev, splitMakeModel(dev.caps.makeAndModel));
         if (/epson/i.test(dev.caps.makeAndModel)) dev.quirks.portInHost = true;
@@ -1175,7 +1212,8 @@ function createEscl(config = {}) {
         }
       );
       if (res.status !== 200) throw new Error(String(res.status));
-      return { ep, caps: parseCapabilities(res.body.toString('utf8')) };
+      const xml = res.body.toString('utf8');
+      return { ep, xml, caps: parseCapabilities(xml) };
     };
     const results = await Promise.allSettled(candidates.map(probeOne));
     const ok = results
@@ -1205,6 +1243,7 @@ function createEscl(config = {}) {
     });
     dev.endpoint = ok[0].ep;
     dev.caps = caps;
+    dev.capsXml = ok[0].xml;
     return dev;
   }
 
@@ -1304,7 +1343,15 @@ function createEscl(config = {}) {
     return job?.state ?? '';
   }
 
-  function run(id, options, outDir, onEvent, preview) {
+  function run(id, options, outDir, onEvent, preview, onDiag) {
+    const diag = (kind, data) => {
+      try {
+        onDiag?.(kind, data);
+      } catch {
+        /* diagnostics never stop a scan */
+      }
+    };
+    if (onDiag) activeDiag = diag;
     const ctl = new AbortController();
     const signal = ctl.signal;
     let cancelled = false;
@@ -1357,6 +1404,10 @@ function createEscl(config = {}) {
         ) {
           // Only the path: scanners put localhost or an old address here
           const loc = new URL(res.headers.location, 'http://scanner/');
+          diag('job', {
+            location: res.headers.location,
+            path: loc.pathname.replace(/\/+$/, ''),
+          });
           return loc.pathname.replace(/\/+$/, '');
         }
         const why = statusError(await getStatus(dev), settings.source);
@@ -1382,9 +1433,13 @@ function createEscl(config = {}) {
     }
 
     async function savePage(scanned, settings) {
+      // As it came, before anything is fixed (diagnostics)
+      diag('page-raw', { index: pages + 1, data: scanned, facts: {} });
       // A feeder page's height sent at the end: put where decoders look
       // (one with no height at all is passed on; scan.cjs reports it)
-      const body = fixJpegHeight(scanned).data;
+      const fix = fixJpegHeight(scanned);
+      const body = fix.data;
+      if (fix.changed) diag('page-fixed', { index: pages + 1, data: body });
       const info = imageInfo(body);
       if (!info)
         throw new ScanError(
@@ -1411,6 +1466,17 @@ function createEscl(config = {}) {
         const model =
           dev.caps && dev.endpoint ? dev.caps : await loadCaps(dev, signal);
         const settings = buildScanSettings(model, options ?? {}, { preview });
+        diag('device', {
+          name: dev.name,
+          make: dev.make,
+          model: dev.model,
+          uuid: dev.uuid,
+          endpoint: dev.endpoint,
+          quirks: dev.quirks,
+        });
+        diag('capabilities', { xml: dev.capsXml ?? null });
+        const { xml: settingsXml, ...chosen } = settings;
+        diag('scanSettings', { xml: settingsXml, chosen });
         await fsp.mkdir(outDir, { recursive: true });
 
         // A scanner that has just finished a job can say it's busy for a
@@ -1507,12 +1573,21 @@ function createEscl(config = {}) {
         await deleteJob();
         return emit({ type: 'done', pages });
       } catch (err) {
+        diag('error', {
+          message: String(err?.message ?? err),
+          code: err?.code ?? null,
+          stack: err?.stack ?? null,
+        });
         await deleteJob();
         if (cancelled) return emit({ type: 'done', pages, cancelled: true });
         const e = networkError(err);
         return emit(errorEvent(e.code, e.message));
       }
     })();
+    // (the requests after this scan aren't its)
+    void done.finally(() => {
+      if (activeDiag === diag) activeDiag = null;
+    });
 
     return {
       cancel() {
@@ -1532,8 +1607,8 @@ function createEscl(config = {}) {
     /** A quick, low-resolution scan of the whole glass */
     preview: (id, options, outDir, onEvent) =>
       run(id, options, outDir, onEvent, true),
-    scan: (id, options, outDir, onEvent) =>
-      run(id, options, outDir, onEvent, false),
+    scan: (id, options, outDir, onEvent, onDiag) =>
+      run(id, options, outDir, onEvent, false, onDiag),
   };
 }
 

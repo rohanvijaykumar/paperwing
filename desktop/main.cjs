@@ -34,6 +34,7 @@ const {
 } = require('./certs.cjs');
 const dns = require('node:dns/promises');
 const { createScanning } = require('./scan.cjs');
+const { createScanDiagnostics } = require('./scan-diagnostics.cjs');
 
 /** PAPERWING_TRACE=1 prints startup timings (ms since the process started) */
 const trace = process.env.PAPERWING_TRACE
@@ -1212,7 +1213,40 @@ const getScanning = () =>
     escl: createNetworkScanners(),
     tempDir: app.getPath('temp'),
     windowHandle: scannerWindowHandle,
+    diagnostics: scanDiagnostics(),
   }));
+
+/** Test build for #55: a folder of diagnostics per scan pass, in Documents
+ *  (PAPERWING_SCAN_DIAGNOSTICS_DIR elsewhere: the benches) */
+const scanDiagnosticsRoot = () =>
+  process.env.PAPERWING_SCAN_DIAGNOSTICS_DIR ||
+  path.join(app.getPath('documents'), 'Paperwing scan diagnostics');
+function scanDiagnostics() {
+  try {
+    const os = require('node:os');
+    return createScanDiagnostics({
+      root: scanDiagnosticsRoot(),
+      about: {
+        version: app.getVersion(),
+        electron: process.versions.electron,
+        os: `${os.type()} ${os.release()} (${os.version?.() ?? ''}) ${os.arch()}`,
+        platform: process.platform,
+        packaged: app.isPackaged,
+      },
+    });
+  } catch {
+    return null;
+  }
+}
+
+// The status's "Open diagnostics folder": only a folder in that root
+ipcMain.handle('paperwing:open-scan-diagnostics', async (e, dir) => {
+  if (!senderIsApp(e) || typeof dir !== 'string') return false;
+  const root = path.resolve(scanDiagnosticsRoot());
+  const want = path.resolve(dir);
+  if (path.dirname(want) !== root) return false;
+  return (await shell.openPath(want)) === '';
+});
 
 /** The window the scanner's own window opens in front of (Windows: its
  *  HWND as a number) */
@@ -1230,12 +1264,20 @@ function scannerHelpers() {
     return {
       scan: app.isPackaged
         ? res('paperwing-scan')
-        : path.join(__dirname, 'native', 'mac-scanner', 'out', 'paperwing-scan'),
+        : path.join(
+            __dirname,
+            'native',
+            'mac-scanner',
+            'out',
+            'paperwing-scan'
+          ),
     };
   const dev = (name) =>
     path.join(__dirname, 'native', 'win-scanner', 'out', name);
   return {
-    scan: app.isPackaged ? res('paperwing-scan.exe') : dev('paperwing-scan.exe'),
+    scan: app.isPackaged
+      ? res('paperwing-scan.exe')
+      : dev('paperwing-scan.exe'),
     twain32: app.isPackaged
       ? res('paperwing-twain32.exe')
       : dev('paperwing-twain32.exe'),
@@ -1379,7 +1421,10 @@ ipcMain.handle('paperwing:save-files', async (e, dir, files) => {
       .replace(/^[.\s]+|[.\s]+$/g, '')
       .slice(0, 150);
     if (!clean || !(f.data instanceof Uint8Array)) continue;
-    const name = await freeName(dir, /\.pdf$/i.test(clean) ? clean : `${clean}.pdf`);
+    const name = await freeName(
+      dir,
+      /\.pdf$/i.test(clean) ? clean : `${clean}.pdf`
+    );
     const full = path.join(dir, name);
     await writeAtomic(full, f.data);
     openedPath(full);

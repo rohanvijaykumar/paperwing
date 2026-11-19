@@ -194,6 +194,8 @@ export interface ScanResult {
   cancelled?: boolean;
   error?: ScanError;
   message?: string;
+  /** Test build for #55: the folder this pass's diagnostics went to */
+  diagnostics?: string;
 }
 
 /** A page as the scanner sent it */
@@ -325,6 +327,8 @@ export interface DesktopBridge {
   scan?(id: string, request: ScanRequest): Promise<ScanResult>;
   /** Stops the scan after the page being scanned, and lets the scanner go */
   cancelScan?(): Promise<boolean>;
+  /** Test build for #55: opens a scan's diagnostics folder */
+  openScanDiagnostics?(dir: string): Promise<boolean>;
   onScanPage?(
     callback: (data: Uint8Array, info: ScanPageInfo) => void
   ): () => void;

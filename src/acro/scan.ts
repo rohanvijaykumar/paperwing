@@ -81,6 +81,7 @@ export type ScanBridge = Required<
     | 'scanPreview'
     | 'scan'
     | 'cancelScan'
+    | 'openScanDiagnostics'
     | 'onScanPage'
     | 'onScanStatus'
     | 'watchScanFolder'
@@ -1951,8 +1952,26 @@ export function showScanDialog(
           scanErrorMessage(result.error, result.message, options.isMac) +
           (pages.length ? ` ${count}` : '');
       }
+      // Test build for #55: a page that can't be read, an empty feeder pass
+      // or a failed scan says where its diagnostics are
+      if (result.diagnostics && (note || nothing || !result.ok))
+        showDiagnostics(result.diagnostics);
       refresh();
       showActions();
+    }
+
+    /** Test build for #55: "Diagnostics saved in …", and a way to open them */
+    function showDiagnostics(dir: string) {
+      const open = el(
+        'button',
+        { type: 'button', class: 'quiet-btn sd-link sd-diagnostics' },
+        'Open diagnostics folder'
+      );
+      open.addEventListener(
+        'click',
+        () => void bridge.openScanDiagnostics(dir).catch(() => false)
+      );
+      status.append(` Diagnostics saved in ${dir}. `, open);
     }
 
     /** After a pass: the choice is remembered for next time */

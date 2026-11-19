@@ -23,6 +23,8 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const { spawn } = require('node:child_process');
 const { fixJpegHeight, jpegSize } = require('./jpeg.cjs');
+// (test build for #55)
+const { imageFacts } = require('./scan-diagnostics.cjs');
 
 /** Error codes a scanner can fail with; the dialog explains each */
 const ERRORS = [
@@ -323,7 +325,19 @@ function helperBackend({
   /** The app window's handle: the scanner's own window opens in front */
   windowHandle = () => null,
 }) {
-  function run(args, onMessage, { timeoutMs, input = false } = {}) {
+  function run(
+    args,
+    onMessage,
+    { timeoutMs, input = false, onDiag = null } = {}
+  ) {
+    const diag = (kind, data) => {
+      try {
+        onDiag?.(kind, data);
+      } catch {
+        /* diagnostics never stop a scan */
+      }
+    };
+    diag('spawn', { command, args: [...prefix, ...args] });
     let child;
     try {
       child = spawnProcess(command, [...prefix, ...args], {
@@ -358,8 +372,11 @@ function helperBackend({
         buffer += chunk;
         let nl;
         while ((nl = buffer.indexOf('\n')) >= 0) {
-          const msg = parseLine(buffer.slice(0, nl));
+          const line = buffer.slice(0, nl);
+          const msg = parseLine(line);
           buffer = buffer.slice(nl + 1);
+          // (its messages are noted as they reach runJob)
+          if (!msg && line.trim()) diag('stdout', { line });
           if (msg) {
             arm();
             onMessage(msg);
@@ -368,6 +385,7 @@ function helperBackend({
       });
       child.stderr?.on('data', (d) => {
         stderr = (stderr + d).slice(-4000);
+        diag('stderr', { text: String(d) });
       });
       // (a helper gone before we write to it: nothing to do)
       child.stdin?.on?.('error', () => {});
@@ -380,6 +398,8 @@ function helperBackend({
         clearTimeout(timer);
         clearTimeout(killTimer);
         const last = parseLine(buffer);
+        if (!last && buffer.trim()) diag('stdout', { line: buffer });
+        diag('exit', { code, timedOut });
         if (last) onMessage(last);
         resolve({ code, stderr: stderr.trim(), timedOut });
       });
@@ -443,7 +463,7 @@ function helperBackend({
       return r.ok ? { ok: true, msg: r.msg } : r;
     },
     /** preview or scan: events as they come; resolves when it has ended */
-    start(command, id, outDir, options, onEvent) {
+    start(command, id, outDir, options, onEvent, onDiag) {
       const job = run(
         [
           command,
@@ -459,6 +479,7 @@ function helperBackend({
         {
           timeoutMs: options.nativeUi ? null : PAGE_TIMEOUT_MS,
           input: true,
+          onDiag,
         }
       );
       return {
@@ -499,7 +520,7 @@ function esclBackend(escl) {
       const r = await escl.caps(id);
       return r?.type === 'caps' ? { ok: true, msg: r } : failure(r);
     },
-    start(command, id, outDir, options, onEvent) {
+    start(command, id, outDir, options, onEvent, onDiag) {
       const { timeout, ...opts } = options;
       let timer = null;
       let silent = false;
@@ -510,7 +531,8 @@ function esclBackend(escl) {
         (m) => {
           arm();
           onEvent(m);
-        }
+        },
+        onDiag
       );
       function arm() {
         if (!timeout) return;
@@ -712,7 +734,13 @@ function createScanning({
   cancelKillMs,
   /** () => the app window's native handle, for the scanner's own window */
   windowHandle,
+  /** scan-diagnostics.cjs (test build for #55): a folder per scan pass */
+  diagnostics = null,
 }) {
+  /** device id -> its name and capabilities, for the diagnostics */
+  const seen = new Map();
+  const note = (id, facts) =>
+    seen.set(id, { ...(seen.get(id) ?? {}), ...facts });
   const testMode = !isPackaged && !!env.PAPERWING_SCAN_TEST;
   const order = DRIVER_ORDER[platform] ?? ['escl'];
   let current = null;
@@ -796,6 +824,18 @@ function createScanning({
     );
     const found = results.flatMap((r) => (r.ok ? r.found : []));
     const scanners = mergeScanners(found, order);
+    try {
+      for (const s of scanners)
+        for (const d of s.devices)
+          note(d.id, {
+            name: d.name,
+            make: s.make,
+            model: s.model,
+            connection: s.connection,
+          });
+    } catch {
+      /* only for the diagnostics */
+    }
     const failed = results.filter((r) => !r.ok);
     // Some backend answered: what it found is the answer. Only when all of
     // them failed is the failure worth showing.
@@ -820,6 +860,7 @@ function createScanning({
     }));
     if (!got.ok) return { ok: false, error: got.error, message: got.message };
     const caps = cleanCaps(got.msg, r.driver);
+    note(deviceId, { caps: got.msg });
     if (!caps.sources.length)
       return {
         ok: false,
@@ -833,7 +874,27 @@ function createScanning({
    * Runs a preview or a scan. Pages go to onPage(data, info) as they come;
    * onStatus(message) for what the scanner says meanwhile.
    */
-  async function runJob(command, deviceId, options, onPage, onStatus) {
+  async function runJob(
+    command,
+    deviceId,
+    options,
+    onPage,
+    onStatus,
+    /** The pass's diagnostics (scans only; test build for #55) */
+    diag = null
+  ) {
+    const diagEvent = (kind, data) => {
+      try {
+        if (kind === 'page-raw')
+          diag?.rawPage(data.index, data.data, data.facts);
+        else if (kind === 'http') diag?.http(data);
+        else if (kind === 'page-fixed')
+          diag?.page(data.index, { fixedBy: 'escl.cjs' }, data.data);
+        else diag?.event(kind, data);
+      } catch {
+        /* never the scan's problem */
+      }
+    };
     if (current)
       return { ok: false, error: 'busy', message: 'Already scanning' };
     const r = route(deviceId);
@@ -841,6 +902,7 @@ function createScanning({
     let opts;
     try {
       opts = checkScanOptions(options);
+      diag?.set('optionsSent', opts);
     } catch (err) {
       return { ok: false, error: 'invalid', message: err.message };
     }
@@ -871,11 +933,29 @@ function createScanning({
       // A JPEG whose height comes at its end (HP's feeders, #55) gets it in
       // its header, from whichever backend; one with no height at all
       // can't be opened by anything, and is said to be unreadable
-      const fixed = fixJpegHeight(await fsp.readFile(file));
+      const raw = await fsp.readFile(file);
+      const fixed = fixJpegHeight(raw);
       const data = fixed.data;
       const size = fixed.changed ? jpegSize(data) : null;
       await fsp.rm(file, { force: true });
       pages++;
+      // As the driver gave it (eSCL's came already, before escl.cjs fixed
+      // it), and as fixed if the height fix changed it
+      diag?.rawPage(pages, raw, { fromFile: path.basename(file) });
+      diag?.page(
+        pages,
+        {
+          message: m,
+          delivered: {
+            bytes: data.length,
+            mime: mimeOf(data),
+            heightFixed: fixed.changed,
+            ...(fixed.error ? { unreadable: fixed.error } : {}),
+            facts: imageFacts(data),
+          },
+        },
+        fixed.changed ? data : null
+      );
       onPage(new Uint8Array(data), {
         index: pages,
         dpi: isNum(m.dpi) && m.dpi > 0 ? m.dpi : opts.dpi,
@@ -887,19 +967,30 @@ function createScanning({
       });
     };
     try {
-      job.handle = r.backend.start(command, r.id, dir, opts, (m) => {
-        if (m.type === 'page' && typeof m.file === 'string')
-          // (one after another: the pages keep the order they came in)
-          delivering.push(
-            (lastDelivery = lastDelivery.then(() => deliver(m).catch(() => {})))
-          );
-        else if (m.type === 'status' && typeof m.message === 'string')
-          onStatus?.(m.message.slice(0, 300));
-        else if (m.type === 'done' || m.type === 'error') ended = m;
-      });
+      job.handle = r.backend.start(
+        command,
+        r.id,
+        dir,
+        opts,
+        (m) => {
+          diagEvent('event', { msg: m });
+          if (m.type === 'page' && typeof m.file === 'string')
+            // (one after another: the pages keep the order they came in)
+            delivering.push(
+              (lastDelivery = lastDelivery.then(() =>
+                deliver(m).catch(() => {})
+              ))
+            );
+          else if (m.type === 'status' && typeof m.message === 'string')
+            onStatus?.(m.message.slice(0, 300));
+          else if (m.type === 'done' || m.type === 'error') ended = m;
+        },
+        diag ? diagEvent : undefined
+      );
       if (job.cancelled) job.handle.cancel();
       const exit = await job.handle.done;
       await Promise.all(delivering);
+      diag?.set('backendExit', exit ?? null);
       // The backend gave up on its own (a scanner gone silent)
       if (exit?.error && !job.cancelled)
         return { ok: false, error: exit.error, message: exit.message, pages };
@@ -929,6 +1020,7 @@ function createScanning({
         pages,
       };
     } catch (err) {
+      diag?.error('scan', err);
       return {
         ok: false,
         error: 'failed',
@@ -960,8 +1052,41 @@ function createScanning({
     return r.ok ? { ok: true, page } : r;
   }
 
-  const scan = (deviceId, options, onPage, onStatus) =>
-    runJob('scan', deviceId, options, onPage, onStatus);
+  async function scan(deviceId, options, onPage, onStatus) {
+    let diag;
+    try {
+      const r = !current && route(deviceId);
+      diag =
+        (r &&
+          diagnostics?.start?.({
+            driver: r.driver,
+            driverLabel: DRIVER_LABELS[r.driver] ?? r.driver,
+            deviceId,
+            backendId: r.id,
+            device: seen.get(deviceId) ?? null,
+            optionsRequested: options,
+          })) ||
+        null;
+    } catch {
+      diag = null;
+    }
+    const result = await runJob(
+      'scan',
+      deviceId,
+      options,
+      onPage,
+      onStatus,
+      diag
+    );
+    if (!diag) return result;
+    try {
+      diag.set('cancelled', !!result.cancelled);
+      const where = await diag.finish(result);
+      return where ? { ...result, diagnostics: where } : result;
+    } catch {
+      return result;
+    }
+  }
 
   /** Stops the scan after the page being scanned (it may still arrive) and
    *  lets the scanner go; a backend that doesn't stop is ended in 10 s */
@@ -995,6 +1120,8 @@ function createScanning({
       [{ driver: 'escl', scanner: r.scanner }],
       order
     );
+    for (const d of entry?.devices ?? [])
+      note(d.id, { name: d.name, make: entry.make, model: entry.model });
     return entry
       ? { ok: true, scanner: entry }
       : { ok: false, error: 'failed' };

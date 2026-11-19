@@ -102,4 +102,19 @@ function fixJpegHeight(buf) {
   return { data, changed: true };
 }
 
-module.exports = { fixJpegHeight, jpegSize };
+/** What a JPEG's header says as it is (diagnostics): { width, height (0:
+ *  given at the end), dnl: { lines } | null }; null if it isn't a JPEG with
+ *  a frame header */
+function jpegHeader(buf) {
+  if (!isJpeg(buf)) return null;
+  const head = walk(buf, { untilFrame: true });
+  if (head.frame < 0) return null;
+  const all = head.height ? head : walk(buf);
+  return {
+    width: head.width,
+    height: head.height,
+    dnl: all.dnl ? { lines: all.dnl.lines } : null,
+  };
+}
+
+module.exports = { fixJpegHeight, jpegSize, jpegHeader };

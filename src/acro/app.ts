@@ -5046,7 +5046,7 @@ function showAbout() {
           h(
             'div',
             { class: 'about-version' },
-            `Version ${__PAPERWING_VERSION__}`
+            `Version ${__PAPERWING_VERSION__} (test build for #55)`
           )
         )
       ),

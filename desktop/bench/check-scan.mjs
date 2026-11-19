@@ -660,7 +660,7 @@ await press(page, 'Scan');
 await L.waitIdle(page);
 d = await dialog(page);
 check(
-  /^No pages came through the document feeder\. Check that the pages are in the feeder, then select Scan\.$/.test(
+  /^No pages came through the document feeder\. Check that the pages are in the feeder, then select Scan\.( Diagnostics saved in .+\. Open diagnostics folder)?$/.test(
     d?.status ?? ''
   ) && !/0 pages scanned/.test(d.status),
   'a feeder pass with nothing in it says to check the feeder (not "0 pages scanned")',

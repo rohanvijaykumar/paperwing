@@ -64,13 +64,15 @@ contextBridge.exposeInMainWorld('paperwing', {
       ipcRenderer.invoke('paperwing:certs-save-id', name, data),
   },
   scanners: () => ipcRenderer.invoke('paperwing:scanners'),
-  addScanner: (address) =>
-    ipcRenderer.invoke('paperwing:scanner-add', address),
+  addScanner: (address) => ipcRenderer.invoke('paperwing:scanner-add', address),
   scannerCaps: (id) => ipcRenderer.invoke('paperwing:scanner-caps', id),
   scanPreview: (id, options) =>
     ipcRenderer.invoke('paperwing:scan-preview', id, options),
   scan: (id, options) => ipcRenderer.invoke('paperwing:scan', id, options),
   cancelScan: () => ipcRenderer.invoke('paperwing:scan-cancel'),
+  // Test build for #55: the folder a scan's diagnostics went to
+  openScanDiagnostics: (dir) =>
+    ipcRenderer.invoke('paperwing:open-scan-diagnostics', dir),
   onScanPage: (callback) => {
     const listener = (_e, data, info) => callback(data, info);
     ipcRenderer.on('paperwing:scan-page', listener);
