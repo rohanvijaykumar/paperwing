@@ -193,7 +193,7 @@ export function scanErrorMessage(
     case 'paper-jam':
       return 'The paper is jammed. Clear it, then scan again.';
     case 'feeder-empty':
-      return 'The document feeder is empty. Put the pages in, then select Scan.';
+      return 'The document feeder is empty. Put the pages in, then try again.';
     case 'double-feed':
       return 'Two sheets went through together. Put them back in the feeder, then scan again.';
     case 'cover-open':
@@ -224,16 +224,28 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return e;
 }
 
-function fill(s: HTMLSelectElement, options: [string, string][], value?: string) {
-  s.replaceChildren(...options.map(([v, text]) => el('option', { value: v }, text)));
-  if (value !== undefined && options.some(([v]) => v === value)) s.value = value;
+function fill(
+  s: HTMLSelectElement,
+  options: [string, string][],
+  value?: string
+) {
+  s.replaceChildren(
+    ...options.map(([v, text]) => el('option', { value: v }, text))
+  );
+  if (value !== undefined && options.some(([v]) => v === value))
+    s.value = value;
 }
 
 const select = (label: string) =>
   el('select', { class: 'pref-select', 'aria-label': label });
 
 const row = (label: string, ...controls: HTMLElement[]) =>
-  el('label', { class: 'pref-row' }, el('span', {}, el('b', {}, label)), ...controls);
+  el(
+    'label',
+    { class: 'pref-row' },
+    el('span', {}, el('b', {}, label)),
+    ...controls
+  );
 
 const check = (label: string) => {
   const input = el('input', { type: 'checkbox', 'aria-label': label });
@@ -261,9 +273,20 @@ const number = (label: string, min: number, max: number, step = 1) =>
   });
 
 /** A titled group of settings; collapsible ones start closed */
-function group(title: string, collapsed: boolean | null, ...children: (Node | false)[]) {
-  const body = el('div', { class: 'sd-group-body' }, ...(children.filter(Boolean) as Node[]));
-  const section = el('section', { class: 'pd-group sd-group', 'aria-label': title });
+function group(
+  title: string,
+  collapsed: boolean | null,
+  ...children: (Node | false)[]
+) {
+  const body = el(
+    'div',
+    { class: 'sd-group-body' },
+    ...(children.filter(Boolean) as Node[])
+  );
+  const section = el('section', {
+    class: 'pd-group sd-group',
+    'aria-label': title,
+  });
   if (collapsed === null) {
     section.append(el('h3', {}, title), body);
     return { section, body };
@@ -272,7 +295,12 @@ function group(title: string, collapsed: boolean | null, ...children: (Node | fa
   body.id = id;
   const toggle = el(
     'button',
-    { type: 'button', class: 'sd-toggle', 'aria-expanded': String(!collapsed), 'aria-controls': id },
+    {
+      type: 'button',
+      class: 'sd-toggle',
+      'aria-expanded': String(!collapsed),
+      'aria-controls': id,
+    },
     icon('chevronRight', 14),
     title
   );
@@ -283,6 +311,12 @@ function group(title: string, collapsed: boolean | null, ...children: (Node | fa
   });
   section.append(el('h3', {}, toggle), body);
   return { section, body };
+}
+
+/** "Page 2", "Pages 2 and 5", "Pages 2, 3 and 5" */
+export function pageList(numbers: number[]): string {
+  if (numbers.length < 2) return `Page ${numbers[0] ?? ''}`.trim();
+  return `Pages ${numbers.slice(0, -1).join(', ')} and ${numbers[numbers.length - 1]}`;
 }
 
 /** A page in the dialog: scanned (cleaned up as it arrives) or a page of a
@@ -298,6 +332,9 @@ interface Page {
   keep: boolean;
   /** Settings it was scanned with (a rescan uses the same scanner) */
   rescannable: boolean;
+  /** The scanner sent a picture that can't be opened: it can't go in the
+   *  PDF (#55) */
+  unreadable?: boolean;
 }
 
 let nextPageId = 1;
@@ -315,7 +352,9 @@ async function pdfPageThumbs(bytes: Uint8Array): Promise<string[]> {
     const urls: string[] = [];
     for (let n = 1; n <= doc.numPages; n++) {
       const page = await doc.getPage(n);
-      const viewport = page.getViewport({ scale: 160 / page.getViewport({ scale: 1 }).width });
+      const viewport = page.getViewport({
+        scale: 160 / page.getViewport({ scale: 1 }).width,
+      });
       const canvas = document.createElement('canvas');
       canvas.width = Math.ceil(viewport.width);
       canvas.height = Math.ceil(viewport.height);
@@ -323,7 +362,9 @@ async function pdfPageThumbs(bytes: Uint8Array): Promise<string[]> {
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvas, canvasContext: ctx, viewport }).promise;
-      const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'));
+      const blob = await new Promise<Blob | null>((r) =>
+        canvas.toBlob(r, 'image/png')
+      );
       urls.push(blob ? URL.createObjectURL(blob) : '');
     }
     return urls;
@@ -372,7 +413,11 @@ export function showScanDialog(
   };
   let settings = settingsFor(presetId, stored.last.scanner);
   if (options.ocr) settings.ocr = true;
-  if (options.mode === 'create' && settings.output === 'append' && !options.documents.length)
+  if (
+    options.mode === 'create' &&
+    settings.output === 'append' &&
+    !options.documents.length
+  )
     settings.output = 'new';
 
   return new Promise((resolve) => {
@@ -386,7 +431,8 @@ export function showScanDialog(
     let closed = false;
     let pages: Page[] = [];
     /** The last pass's pages (fronts, for Scan reverse sides) */
-    let lastPass: { ids: number[]; feeder: boolean; duplex: boolean } | null = null;
+    let lastPass: { ids: number[]; feeder: boolean; duplex: boolean } | null =
+      null;
     let watching = '';
     /** Cleans up the pages, in a worker */
     const processor = createPageProcessor(options.detectOrientation);
@@ -416,28 +462,53 @@ export function showScanDialog(
 
     /* Controls ------------------------------------------------------------ */
     const preset = select('Preset');
-    const savePresetBtn = el('button', { type: 'button', class: 'quiet-btn sd-link' }, 'Save as preset…');
+    const savePresetBtn = el(
+      'button',
+      { type: 'button', class: 'quiet-btn sd-link' },
+      'Save as preset…'
+    );
     const summary = el('p', { class: 'sd-summary', 'aria-live': 'polite' });
 
     const scanner = select('Scanner');
     const refreshBtn = el(
       'button',
-      { type: 'button', class: 'tb-btn', title: 'Refresh', 'aria-label': 'Refresh the scanner list' },
+      {
+        type: 'button',
+        class: 'tb-btn',
+        title: 'Refresh',
+        'aria-label': 'Refresh the scanner list',
+      },
       icon('refresh', 16)
     );
-    const addBtn = el('button', { type: 'button', class: 'quiet-btn sd-link' }, 'Add by IP address…');
-    const optionsBtn = el('button', { type: 'button', class: 'quiet-btn sd-link' }, 'Options…');
+    const addBtn = el(
+      'button',
+      { type: 'button', class: 'quiet-btn sd-link' },
+      'Add by IP address…'
+    );
+    const optionsBtn = el(
+      'button',
+      { type: 'button', class: 'quiet-btn sd-link' },
+      'Options…'
+    );
     const none = el('div', { class: 'sd-none', role: 'note' });
     none.hidden = true;
-    const folderName = el('span', { class: 'sd-folder-name' }, 'No folder chosen');
-    const folderBtn = el('button', { type: 'button', class: 'pill-btn' }, 'Choose…');
+    const folderName = el(
+      'span',
+      { class: 'sd-folder-name' },
+      'No folder chosen'
+    );
+    const folderBtn = el(
+      'button',
+      { type: 'button', class: 'pill-btn' },
+      'Choose…'
+    );
     const folderRow = el(
       'div',
       { class: 'sd-folder' },
       el(
         'p',
         { class: 'pd-hint' },
-        "For scanners that only work with their own app (ScanSnap and the like): choose the folder that app saves to, and each new scan shows here."
+        'For scanners that only work with their own app (ScanSnap and the like): choose the folder that app saves to, and each new scan shows here.'
       ),
       el('div', { class: 'sd-folder-row' }, folderName, folderBtn)
     );
@@ -506,7 +577,12 @@ export function showScanDialog(
 
     const compressAfter = check('Compress after scanning (Compress a PDF)');
     const outputChoice = (value: string, text: string) => {
-      const input = el('input', { type: 'radio', name: 'sd-output', value, 'aria-label': text });
+      const input = el('input', {
+        type: 'radio',
+        name: 'sd-output',
+        value,
+        'aria-label': text,
+      });
       return { input, label: el('label', { class: 'pd-radio' }, input, text) };
     };
     const outNew = outputChoice('new', 'Create new PDF');
@@ -516,8 +592,16 @@ export function showScanDialog(
     // (a button beside the list, not a choice in it: with nothing else
     // listed, that choice was already chosen, choosing it again changed
     // nothing, and the file picker never opened)
-    const appendNone = el('span', { class: 'sd-folder-name' }, 'No file chosen');
-    const appendBrowse = el('button', { type: 'button', class: 'pill-btn' }, 'Browse…');
+    const appendNone = el(
+      'span',
+      { class: 'sd-folder-name' },
+      'No file chosen'
+    );
+    const appendBrowse = el(
+      'button',
+      { type: 'button', class: 'pill-btn' },
+      'Browse…'
+    );
     const perFile = number('Pages per file', 1, 9999);
     const prefix = el('input', {
       type: 'text',
@@ -526,15 +610,27 @@ export function showScanDialog(
       maxlength: '100',
       spellcheck: 'false',
     });
-    const saveFolderName = el('span', { class: 'sd-folder-name' }, 'No folder chosen');
-    const saveFolderBtn = el('button', { type: 'button', class: 'pill-btn' }, 'Choose…');
+    const saveFolderName = el(
+      'span',
+      { class: 'sd-folder-name' },
+      'No folder chosen'
+    );
+    const saveFolderBtn = el(
+      'button',
+      { type: 'button', class: 'pill-btn' },
+      'Choose…'
+    );
     const insertPos = select('Location');
     fill(insertPos, [
       ['after', 'After'],
       ['before', 'Before'],
     ]);
     const insertPage = select('Page');
-    const insertNumber = number('Page number', 1, Math.max(1, options.insert?.total ?? 1));
+    const insertNumber = number(
+      'Page number',
+      1,
+      Math.max(1, options.insert?.total ?? 1)
+    );
     const promptMore = check('Prompt to scan more pages');
     const ocr = check('Recognize text (OCR)');
     const ocrLang = select('Language');
@@ -557,11 +653,24 @@ export function showScanDialog(
       'div',
       { class: 'pref-row sd-size' },
       el('span', {}, el('b', {}, 'Size')),
-      el('span', { class: 'sd-size-fields' }, customW, el('span', { 'aria-hidden': 'true' }, '×'), customH, units)
+      el(
+        'span',
+        { class: 'sd-size-fields' },
+        customW,
+        el('span', { 'aria-hidden': 'true' }, '×'),
+        customH,
+        units
+      )
     );
     const orientationRow = row('Orientation', orientation);
     const sensitivityRow = row('Sensitivity', sensitivity);
-    const appendRow = el('div', { class: 'sd-sub sd-append' }, appendTo, appendNone, appendBrowse);
+    const appendRow = el(
+      'div',
+      { class: 'sd-sub sd-append' },
+      appendTo,
+      appendNone,
+      appendBrowse
+    );
     const multipleRows = el(
       'div',
       { class: 'sd-sub' },
@@ -622,10 +731,20 @@ export function showScanDialog(
       el(
         'label',
         { class: 'pref-row sd-quality-row' },
-        el('span', { class: 'sd-quality-scale' }, el('small', {}, 'Small size'), quality, el('small', {}, 'High quality'))
+        el(
+          'span',
+          { class: 'sd-quality-scale' },
+          el('small', {}, 'Small size'),
+          quality,
+          el('small', {}, 'High quality')
+        )
       ),
       row('Color and grayscale', compression),
-      el('p', { class: 'pd-hint' }, 'Black and white pages: CCITT Group 4 (lossless, and small).'),
+      el(
+        'p',
+        { class: 'pd-hint' },
+        'Black and white pages: CCITT Group 4 (lossless, and small).'
+      ),
       options.mode === 'create' && compressAfter.label
     );
     const insertRows = el(
@@ -702,11 +821,46 @@ export function showScanDialog(
         renderPages();
       },
     });
-    const tabPreview = el('button', { type: 'button', class: 'pd-seg-btn', role: 'tab', 'aria-selected': 'false' }, 'Preview');
-    const tabPages = el('button', { type: 'button', class: 'pd-seg-btn', role: 'tab', 'aria-selected': 'true' }, 'Pages');
-    const tabs = el('div', { class: 'pd-seg sd-tabs', role: 'tablist', 'aria-label': 'Preview or pages' }, tabPreview, tabPages);
-    const previewPane = el('div', { class: 'sd-pane', role: 'tabpanel', 'aria-label': 'Preview' }, glass.el);
-    const pagesPane = el('div', { class: 'sd-pane', role: 'tabpanel', 'aria-label': 'Pages' }, review.el);
+    const tabPreview = el(
+      'button',
+      {
+        type: 'button',
+        class: 'pd-seg-btn',
+        role: 'tab',
+        'aria-selected': 'false',
+      },
+      'Preview'
+    );
+    const tabPages = el(
+      'button',
+      {
+        type: 'button',
+        class: 'pd-seg-btn',
+        role: 'tab',
+        'aria-selected': 'true',
+      },
+      'Pages'
+    );
+    const tabs = el(
+      'div',
+      {
+        class: 'pd-seg sd-tabs',
+        role: 'tablist',
+        'aria-label': 'Preview or pages',
+      },
+      tabPreview,
+      tabPages
+    );
+    const previewPane = el(
+      'div',
+      { class: 'sd-pane', role: 'tabpanel', 'aria-label': 'Preview' },
+      glass.el
+    );
+    const pagesPane = el(
+      'div',
+      { class: 'sd-pane', role: 'tabpanel', 'aria-label': 'Pages' },
+      review.el
+    );
     let shown: 'preview' | 'pages' = 'pages';
     const showPane = (which: 'preview' | 'pages') => {
       shown = which;
@@ -719,10 +873,19 @@ export function showScanDialog(
     };
     tabPreview.addEventListener('click', () => showPane('preview'));
     tabPages.addEventListener('click', () => showPane('pages'));
-    const right = el('div', { class: 'sd-right' }, tabs, previewPane, pagesPane);
+    const right = el(
+      'div',
+      { class: 'sd-right' },
+      tabs,
+      previewPane,
+      pagesPane
+    );
 
     /* Actions --------------------------------------------------------------- */
-    const status = el('p', { class: 'muted pd-status sd-status', role: 'status' });
+    const status = el('p', {
+      class: 'muted pd-status sd-status',
+      role: 'status',
+    });
     // (under the pages, like Print's sheet count: under the settings it ran
     // into their scrolled-off edge)
     right.append(status);
@@ -734,18 +897,38 @@ export function showScanDialog(
     const cancelBtn = btn('quiet-btn', 'Cancel', () => void cancel());
     const previewBtn = btn('pill-btn', 'Preview', () => void preview());
     const scanBtn = btn('accent-btn', 'Scan', () => void scanPass('first'));
-    const moreBtn = btn('pill-btn', 'Scan more pages', () => void after('more'));
-    const reverseBtn = btn('pill-btn', 'Scan reverse sides', () => void after('reverse'));
+    const moreBtn = btn(
+      'pill-btn',
+      'Scan more pages',
+      () => void after('more')
+    );
+    const reverseBtn = btn(
+      'pill-btn',
+      'Scan reverse sides',
+      () => void after('reverse')
+    );
     reverseBtn.title =
       'For pages printed on both sides: turn the scanned stack over and put it back in the feeder. The backs go in after their fronts.';
-    const doneBtn = btn('pill-btn', 'Scan is complete', () => void after('done'));
+    const doneBtn = btn(
+      'pill-btn',
+      'Scan is complete',
+      () => void after('done')
+    );
     const actions = el('div', { class: 'dlg-actions' });
 
-    const closeBtn = el('button', { type: 'button', class: 'tb-btn', title: 'Close', 'aria-label': 'Close' });
+    const closeBtn = el('button', {
+      type: 'button',
+      class: 'tb-btn',
+      title: 'Close',
+      'aria-label': 'Close',
+    });
     closeBtn.append(icon('close'));
     closeBtn.addEventListener('click', () => void cancel());
 
-    const title = options.mode === 'insert' ? 'Insert pages from scanner' : 'Create PDF from scanner';
+    const title =
+      options.mode === 'insert'
+        ? 'Insert pages from scanner'
+        : 'Create PDF from scanner';
     const backdrop = el(
       'div',
       { class: 'dlg-backdrop' },
@@ -801,13 +984,15 @@ export function showScanDialog(
       prefix.value = settings.prefix;
       promptMore.input.checked = settings.promptMore;
       ocr.input.checked = settings.ocr;
-      if (options.languages[settings.ocrLanguage]) ocrLang.value = settings.ocrLanguage;
+      if (options.languages[settings.ocrLanguage])
+        ocrLang.value = settings.ocrLanguage;
       pdfa.input.checked = settings.pdfa;
       metadata.input.checked = settings.metadata;
     }
 
     function readControls() {
-      if (scanner.value !== WATCH && caps) settings.source = src.value as ScanSettings['source'];
+      if (scanner.value !== WATCH && caps)
+        settings.source = src.value as ScanSettings['source'];
       settings.sides = sides.value as ScanSettings['sides'];
       settings.flipBacks = flip.input.checked;
       settings.color = (color.value || settings.color) as ScanSettings['color'];
@@ -859,15 +1044,19 @@ export function showScanDialog(
 
     /** Shows what this scanner can do and these settings need */
     function refresh() {
-      const watchMode = scanner.value === WATCH;
+      const watchMode = importChosen();
       const s = source();
       const v = visibility(caps, s, settings, entry?.devices ?? []);
       folderRow.hidden = !watchMode;
       optionsBtn.hidden = watchMode || !caps;
-      pagesGroup.section.hidden = imageGroup.section.hidden = watchMode || !caps;
+      pagesGroup.section.hidden = imageGroup.section.hidden =
+        watchMode || !caps;
       fill(
         src,
-        (caps?.sources ?? []).map((x) => [x.id, x.id === 'feeder' ? 'Document feeder' : 'Flatbed']),
+        (caps?.sources ?? []).map((x) => [
+          x.id,
+          x.id === 'feeder' ? 'Document feeder' : 'Flatbed',
+        ]),
         settings.source
       );
       if (s && s.id !== settings.source) settings.source = s.id;
@@ -882,16 +1071,20 @@ export function showScanDialog(
         colorChoices(s).map((c) => [c, COLOR_LABELS[c]]),
         settings.color
       );
-      if (color.value && color.value !== settings.color) settings.color = color.value as ScanSettings['color'];
+      if (color.value && color.value !== settings.color)
+        settings.color = color.value as ScanSettings['color'];
       thresholdRow.hidden = !v.threshold;
       sharpnessRow.hidden = !v.sharpness;
       const offered = offeredResolutions(s);
-      const custom = v.customDpi && (dpiCustom || !offered.includes(settings.dpi));
+      const custom =
+        v.customDpi && (dpiCustom || !offered.includes(settings.dpi));
       fill(
         dpi,
         [
           ...offered.map((d) => [String(d), `${d} dpi`] as [string, string]),
-          ...(v.customDpi ? ([['custom', 'Custom…']] as [string, string][]) : []),
+          ...(v.customDpi
+            ? ([['custom', 'Custom…']] as [string, string][])
+            : []),
         ],
         custom ? 'custom' : String(nearestResolution(offered, settings.dpi))
       );
@@ -904,11 +1097,20 @@ export function showScanDialog(
       sensitivityRow.hidden = !settings.removeBlank;
       // Output
       const docs: [string, string][] = [
-        ...options.documents.map((d) => [`doc:${d.id}`, d.name] as [string, string]),
-        ...picked.map((f, k) => [`file:${k}`, `${f.name} (not open)`] as [string, string]),
+        ...options.documents.map(
+          (d) => [`doc:${d.id}`, d.name] as [string, string]
+        ),
+        ...picked.map(
+          (f, k) => [`file:${k}`, `${f.name} (not open)`] as [string, string]
+        ),
       ];
       const was = appendTo.value;
-      fill(appendTo, docs, was || (options.activeDocument ? `doc:${options.activeDocument}` : undefined));
+      fill(
+        appendTo,
+        docs,
+        was ||
+          (options.activeDocument ? `doc:${options.activeDocument}` : undefined)
+      );
       appendTo.hidden = !docs.length;
       appendNone.hidden = docs.length > 0;
       appendRow.hidden = settings.output !== 'append';
@@ -924,7 +1126,8 @@ export function showScanDialog(
       // (the tooltip moves a title into data-tip once shown: both go)
       previewBtn.removeAttribute('data-tip');
       if (settings.source === 'feeder')
-        previewBtn.title = "A document feeder can't preview pages. Choose Flatbed to preview.";
+        previewBtn.title =
+          "A document feeder can't preview pages. Choose Flatbed to preview.";
       else previewBtn.removeAttribute('title');
       if (tabPreview.hidden && shown === 'preview') showPane('pages');
       syncGlass(s);
@@ -961,7 +1164,10 @@ export function showScanDialog(
       );
       const box = glassBox(settings, s, areaBox);
       glass.setBox(box);
-      if (!box) glass.note('Auto-detect: the scanner finds the paper on the glass itself.');
+      if (!box)
+        glass.note(
+          'Auto-detect: the scanner finds the paper on the glass itself.'
+        );
       updateLook();
     }
 
@@ -1008,12 +1214,13 @@ export function showScanDialog(
         blank: p.blank,
         keep: p.keep,
         canRescan: p.rescannable && scanner.value !== WATCH,
+        unreadable: p.unreadable,
       }));
       const n = included().length;
       tabPages.textContent = pages.length ? `Pages (${n})` : 'Pages';
       review.render(
         shownPages,
-        scanner.value === WATCH
+        importChosen()
           ? watching
             ? `Waiting for new scans in ${watchFolder}…`
             : 'Choose the folder your scanner app saves to.'
@@ -1023,9 +1230,57 @@ export function showScanDialog(
 
     const included = () => pages.filter((p) => !p.blank || p.keep);
 
+    /** Import from a scanner app is chosen (not while the scanners are
+     *  still being looked for: the list may hold only that choice then) */
+    const importChosen = () => scanner.value === WATCH && busy !== 'list';
+
+    /** The reverse sides of the pass under way, which go in after their
+     *  fronts when it ends */
+    let reverseSides: Page[] | null = null;
+    /** The pages in their order, the reverse sides scanned so far woven in */
+    function woven(backs: Page[] | null): Page[] {
+      if (!backs?.length || !lastPass) return pages;
+      const fronts = lastPass.ids
+        .map((id) => pages.find((p) => p.id === id))
+        .filter((p): p is Page => !!p);
+      const start = pages.indexOf(fronts[0]);
+      const rest = pages.filter((p) => !fronts.includes(p));
+      rest.splice(Math.max(0, start), 0, ...interleave(fronts, backs));
+      return rest;
+    }
+    /** Which pages couldn't be read, by their number; with `advice`, what
+     *  to do about them */
+    function unreadableNote(advice = false): string {
+      const bad = woven(reverseSides).flatMap((p, k) =>
+        p.unreadable ? [{ n: k + 1, p }] : []
+      );
+      if (!bad.length) return '';
+      const one = bad.length === 1;
+      const note = `${pageList(bad.map((b) => b.n))} couldn’t be read: the scanner sent ${one ? 'an image' : 'images'} Paperwing can’t open.`;
+      if (!advice) return note;
+      const it = one ? 'it' : 'them';
+      const rescan =
+        bad.every((b) => b.p.rescannable) && scanner.value !== WATCH;
+      return `${note} Delete ${it}${rescan ? ` or rescan ${it}` : ''}.`;
+    }
+    /** A status message, with the pages that couldn't be read */
+    const withNote = (text: string) => {
+      const note = unreadableNote();
+      return note ? `${text} ${note}` : text;
+    };
+    /** A page that can't be opened: shown as such, and said at once */
+    function markUnreadable(page: Page) {
+      page.unreadable = true;
+      page.url = '';
+      if (page.source.kind === 'scan') page.source.processed = null;
+      if (busy === 'scan') status.textContent = unreadableNote();
+    }
+
     function enable() {
       const working = busy !== '';
-      const lock = (c: HTMLInputElement | HTMLSelectElement | HTMLButtonElement) => (c.disabled = working);
+      const lock = (
+        c: HTMLInputElement | HTMLSelectElement | HTMLButtonElement
+      ) => (c.disabled = working);
       for (const c of [
         preset,
         savePresetBtn,
@@ -1059,10 +1314,18 @@ export function showScanDialog(
       // a minute) mustn't hold the dialog: another scanner, Refresh, Add by
       // IP address and Options stay available meanwhile
       if (busy === 'caps')
-        for (const c of [preset, scanner, refreshBtn, addBtn, optionsBtn, folderBtn])
+        for (const c of [
+          preset,
+          scanner,
+          refreshBtn,
+          addBtn,
+          optionsBtn,
+          folderBtn,
+        ])
           c.disabled = false;
       // Pages scanned go together: the scanner stays the same
-      if (pages.length) scanner.disabled = refreshBtn.disabled = addBtn.disabled = true;
+      if (pages.length)
+        scanner.disabled = refreshBtn.disabled = addBtn.disabled = true;
       const ready = !!caps && !!device;
       scanBtn.disabled = working || !ready;
       previewBtn.disabled = working || !ready || settings.source === 'feeder';
@@ -1077,13 +1340,21 @@ export function showScanDialog(
     /** The actions at the bottom: Scan (and Preview), or after a pass the
      *  three choices with the last one made offered first */
     function showActions() {
-      if (!pages.length || scanner.value === WATCH) {
-        actions.replaceChildren(cancelBtn, ...(scanner.value === WATCH ? (pages.length ? [doneBtn] : []) : [previewBtn, scanBtn]));
+      if (!pages.length || importChosen()) {
+        actions.replaceChildren(
+          cancelBtn,
+          ...(importChosen()
+            ? pages.length
+              ? [doneBtn]
+              : []
+            : [previewBtn, scanBtn])
+        );
         doneBtn.className = 'accent-btn';
         enable();
         return;
       }
-      const canReverse = !!lastPass?.feeder && !lastPass.duplex && lastPass.ids.length > 0;
+      const canReverse =
+        !!lastPass?.feeder && !lastPass.duplex && lastPass.ids.length > 0;
       reverseBtn.hidden = !canReverse;
       const first = defaultAfterPass(scanPrefs().last.next, canReverse);
       for (const [b, k] of [
@@ -1092,7 +1363,13 @@ export function showScanDialog(
         [doneBtn, 'done'],
       ] as const)
         b.className = k === first ? 'accent-btn' : 'pill-btn';
-      actions.replaceChildren(cancelBtn, ...(previewBtn.hidden ? [] : [previewBtn]), reverseBtn, moreBtn, doneBtn);
+      actions.replaceChildren(
+        cancelBtn,
+        ...(previewBtn.hidden ? [] : [previewBtn]),
+        reverseBtn,
+        moreBtn,
+        doneBtn
+      );
       enable();
       ({ more: moreBtn, reverse: reverseBtn, done: doneBtn })[first].focus();
     }
@@ -1110,8 +1387,16 @@ export function showScanDialog(
         el(
           'ul',
           {},
-          el('li', {}, "Check that the scanner is on, and connected by USB or on the same network as this computer."),
-          el('li', {}, 'A network scanner that isn’t found: select Add by IP address.'),
+          el(
+            'li',
+            {},
+            'Check that the scanner is on, and connected by USB or on the same network as this computer.'
+          ),
+          el(
+            'li',
+            {},
+            'A network scanner that isn’t found: select Add by IP address.'
+          ),
           el(
             'li',
             {},
@@ -1119,12 +1404,20 @@ export function showScanDialog(
               ? 'Scanners that work in Image Capture work here.'
               : 'Scanners that work in Windows Scan or with a TWAIN driver work here.'
           ),
-          el('li', {}, 'A scanner that only works with its own app: choose Import from a scanner app.')
+          el(
+            'li',
+            {},
+            'A scanner that only works with its own app: choose Import from a scanner app.'
+          )
         )
       );
       // (macOS asks once for Local Network access: once it's allowed)
       if (r.error === 'blocked') {
-        const again = el('button', { type: 'button', class: 'pill-btn' }, 'Search again');
+        const again = el(
+          'button',
+          { type: 'button', class: 'pill-btn' },
+          'Search again'
+        );
         again.addEventListener('click', () => void loadScanners());
         none.append(again);
       }
@@ -1151,7 +1444,10 @@ export function showScanDialog(
 
     async function loadScanners() {
       busy = 'list';
-      enable();
+      // (no folder to choose, nor scanner settings, while looking)
+      refresh();
+      renderPages();
+      showActions();
       status.textContent = 'Looking for scanners…';
       none.hidden = true;
       const r = await bridge.scanners().catch((err: unknown) => ({
@@ -1167,7 +1463,8 @@ export function showScanDialog(
       fillScanners(
         scanners.some((s) => s.key === want)
           ? want
-          : (scanners.find((s) => s.connection !== 'network') ?? scanners[0])?.key
+          : (scanners.find((s) => s.connection !== 'network') ?? scanners[0])
+              ?.key
       );
       none.hidden = scanners.length > 0;
       if (!scanners.length) noScannersText(r);
@@ -1200,7 +1497,10 @@ export function showScanDialog(
         return;
       }
       // This scanner's own choices (driver, source, paper…)
-      Object.assign(settings, pick(settingsFor(presetId, entry.key), SCANNER_KEYS));
+      Object.assign(
+        settings,
+        pick(settingsFor(presetId, entry.key), SCANNER_KEYS)
+      );
       writeControls();
       await loadCaps();
     }
@@ -1213,15 +1513,23 @@ export function showScanDialog(
       busy = 'caps';
       enable();
       status.textContent = 'Getting the scanner ready…';
-      const r: { ok: boolean; caps?: ScanCaps; error?: ScanError; message?: string } =
-        await bridge
-          .scannerCaps(device!.id)
-          .catch((err: unknown) => ({ ok: false, error: 'failed', message: String(err) }));
+      const r: {
+        ok: boolean;
+        caps?: ScanCaps;
+        error?: ScanError;
+        message?: string;
+      } = await bridge.scannerCaps(device!.id).catch((err: unknown) => ({
+        ok: false,
+        error: 'failed',
+        message: String(err),
+      }));
       // (another scanner or driver was chosen meanwhile: this answer is stale)
       if (closed || asked !== capsRequest) return;
       if (busy === 'caps') busy = '';
       caps = r.ok ? (r.caps ?? null) : null;
-      status.textContent = r.ok ? '' : scanErrorMessage(r.error, r.message, options.isMac);
+      status.textContent = r.ok
+        ? ''
+        : scanErrorMessage(r.error, r.message, options.isMac);
       // A new scanner: its glass preview no longer applies
       previewImage = null;
       areaBox = null;
@@ -1230,7 +1538,12 @@ export function showScanDialog(
       refresh();
       renderPages();
       showActions();
-      if (!pages.length && source()?.canPreview && shown !== 'preview' && !options.autoStart)
+      if (
+        !pages.length &&
+        source()?.canPreview &&
+        shown !== 'preview' &&
+        !options.autoStart
+      )
         showPane('preview');
       if (options.autoStart && caps) {
         options.autoStart = false;
@@ -1248,7 +1561,11 @@ export function showScanDialog(
       } else p.presets[presetId] = presetPart;
       if (entry) p.scanners[entry.key] = pick(settings, SCANNER_KEYS);
       p.output = pick(settings, OUTPUT_KEYS);
-      p.last = { ...p.last, preset: presetId, ...(entry ? { scanner: entry.key } : {}) };
+      p.last = {
+        ...p.last,
+        preset: presetId,
+        ...(entry ? { scanner: entry.key } : {}),
+      };
       saveScanPrefs(p);
     }
 
@@ -1262,15 +1579,24 @@ export function showScanDialog(
       busy = 'preview';
       enable();
       status.textContent = 'Previewing…';
-      const r: ScanResult & { page?: ScanPageInfo & { data: Uint8Array } } = await bridge
-        .scanPreview(device.id, previewRequest(settings, caps, s))
-        .catch((err: unknown) => ({ ok: false, error: 'failed', message: String(err) }));
+      const r: ScanResult & { page?: ScanPageInfo & { data: Uint8Array } } =
+        await bridge
+          .scanPreview(device.id, previewRequest(settings, caps, s))
+          .catch((err: unknown) => ({
+            ok: false,
+            error: 'failed',
+            message: String(err),
+          }));
       if (closed) return;
       busy = '';
       if (r.ok && r.page) {
         const blob = new Blob([r.page.data as BlobPart], { type: r.page.mime });
-        const image: ScanImage | null = await decode(blob, r.page.dpi).catch((): null => null);
-        const box: Box | null = image ? await processor.findDocument(image).catch((): null => null) : null;
+        const image: ScanImage | null = await decode(blob, r.page.dpi).catch(
+          (): null => null
+        );
+        const box: Box | null = image
+          ? await processor.findDocument(image).catch((): null => null)
+          : null;
         if (closed) return;
         previewImage = image;
         lookShown = '';
@@ -1284,7 +1610,11 @@ export function showScanDialog(
             ? 'The box shows what will be scanned. Drag its corners to change it.'
             : 'Nothing stood out on the glass: drag the corners to choose what to scan.';
       } else if (!r.cancelled) {
-        status.textContent = scanErrorMessage(r.error, r.message, options.isMac);
+        status.textContent = scanErrorMessage(
+          r.error,
+          r.message,
+          options.isMac
+        );
       } else status.textContent = '';
       refresh();
     }
@@ -1292,35 +1622,54 @@ export function showScanDialog(
     /* Scanning --------------------------------------------------------------- */
     /** Cleans up each page as it arrives, one after another */
     let processing: Promise<void> = Promise.resolve();
-    const process = (page: Page, data: Uint8Array, info: ScanPageInfo, plan: ProcessPlan, flip = false) => {
+    const process = (
+      page: Page,
+      data: Uint8Array,
+      info: ScanPageInfo,
+      plan: ProcessPlan,
+      flip = false
+    ) => {
       processing = processing.then(async () => {
         try {
-          const done = await processor.process({ data, mime: info.mime, dpi: info.dpi }, plan, flip);
+          const done = await processor.process(
+            { data, mime: info.mime, dpi: info.dpi },
+            plan,
+            flip
+          );
           if (page.source.kind === 'scan') page.source.processed = done;
           page.blank = done.blank;
           page.url = thumb(done.thumb);
         } catch (err) {
-          // Kept as it came, if it can't be cleaned up
           console.error(err);
           const blob = new Blob([data as BlobPart], { type: info.mime });
-          if (page.source.kind === 'scan')
-            page.source.processed = {
-              kind: 'color',
-              image: blob,
-              bitmap: null,
-              thumb: blob,
-              width: info.width ?? 0,
-              height: info.height ?? 0,
-              dpi: info.dpi,
-              blank: false,
-            };
-          page.url = thumb(blob);
+          // Kept as it came if only the clean-up failed; a picture that
+          // can't be opened at all can't go in the PDF (#55)
+          const opened = await createImageBitmap(blob).catch((): null => null);
+          if (!opened) markUnreadable(page);
+          else {
+            if (page.source.kind === 'scan')
+              page.source.processed = {
+                kind: 'color',
+                image: blob,
+                bitmap: null,
+                thumb: blob,
+                width: opened.width,
+                height: opened.height,
+                dpi: info.dpi,
+                blank: false,
+              };
+            opened.close();
+            page.url = thumb(blob);
+          }
         }
         if (!closed) renderPages();
       });
     };
 
-    async function scanPass(kind: 'first' | 'more' | 'reverse' | 'rescan', rescanId?: number) {
+    async function scanPass(
+      kind: 'first' | 'more' | 'reverse' | 'rescan',
+      rescanId?: number
+    ) {
       if (busy || !device || !caps) return;
       readControls();
       remember();
@@ -1350,14 +1699,31 @@ export function showScanDialog(
           renderPages();
           review.showLast();
         }
-        // The backs of a top-bound stack come upside down
-        process(page, data, info, plan, settings.flipBacks && (kind === 'reverse' || info.side === 'back'));
         const total = pages.length + (kind === 'reverse' ? got.length : 0);
-        status.textContent = `Scanned ${total} page${total === 1 ? '' : 's'}…`;
+        status.textContent = withNote(
+          `Scanned ${total} page${total === 1 ? '' : 's'}…`
+        );
+        // A picture nothing can open (a JPEG with no height): said at once
+        if (info.unreadable) {
+          markUnreadable(page);
+          renderPages();
+        }
+        // The backs of a top-bound stack come upside down
+        else
+          process(
+            page,
+            data,
+            info,
+            plan,
+            settings.flipBacks && (kind === 'reverse' || info.side === 'back')
+          );
         // A rescan wants one page: the rest of a feeder stays in it
         if (got.length >= wanted) void bridge.cancelScan();
       });
-      const offStatus = bridge.onScanStatus((m) => (status.textContent = m));
+      const offStatus = bridge.onScanStatus(
+        (m) => (status.textContent = withNote(m))
+      );
+      reverseSides = kind === 'reverse' ? got : null;
       busy = 'scan';
       confirmDiscard = false;
       showPane('pages');
@@ -1377,43 +1743,68 @@ export function showScanDialog(
         for (let k = 0; got.length < sent && k < 100; k++)
           await new Promise((r) => setTimeout(r, 50));
       } catch (err) {
-        result = { ok: false, error: 'failed', message: String((err as Error)?.message ?? err) };
+        result = {
+          ok: false,
+          error: 'failed',
+          message: String((err as Error)?.message ?? err),
+        };
       } finally {
         off();
         offStatus();
       }
       // (clean-up runs in a worker; the slow filters can take a few seconds a page)
-      if (got.some((p) => !p.url)) status.textContent = 'Cleaning up the pages…';
+      if (got.some((p) => !p.url && !p.unreadable))
+        status.textContent = 'Cleaning up the pages…';
       await processing;
+      reverseSides = null;
       if (closed) return;
       busy = '';
       if (kind === 'reverse' && got.length && lastPass) {
         // The backs of the last pass, woven in after their fronts
-        const fronts = lastPass.ids
-          .map((id) => pages.find((p) => p.id === id))
-          .filter((p): p is Page => !!p);
-        const start = pages.indexOf(fronts[0]);
-        const rest = pages.filter((p) => !fronts.includes(p));
-        rest.splice(Math.max(0, start), 0, ...interleave(fronts, got));
-        pages = rest;
+        pages = woven(got);
         lastPass = null;
       } else if (kind === 'rescan' && got.length) {
         const at = pages.findIndex((p) => p.id === rescanId);
         if (at >= 0) pages[at] = got[0];
         else pages.push(got[0]);
       } else if ((kind === 'first' || kind === 'more') && got.length) {
-        lastPass = { ids: got.map((p) => p.id), feeder: request.source === 'feeder', duplex: request.duplex };
+        lastPass = {
+          ids: got.map((p) => p.id),
+          feeder: request.source === 'feeder',
+          duplex: request.duplex,
+        };
       }
       renderPages();
       const n = included().length;
       const blanks = pages.filter((p) => p.blank && !p.keep).length;
-      const count = `${n} page${n === 1 ? '' : 's'} scanned${blanks ? ` (${blanks} blank left out)` : ''}.`;
-      if (result.ok) {
+      const note = unreadableNote(true);
+      const count = `${n} page${n === 1 ? '' : 's'} scanned${blanks ? ` (${blanks} blank left out)` : ''}.${note ? ` ${note}` : ''}`;
+      // A feeder pass that ended well with nothing in it: the pages
+      // weren't where the scanner looks (any driver)
+      const nothing =
+        result.ok &&
+        !result.cancelled &&
+        !got.length &&
+        request.source === 'feeder';
+      if (nothing) {
+        const then =
+          kind === 'rescan'
+            ? 'rescan the page'
+            : `select ${kind === 'reverse' ? 'Scan reverse sides' : kind === 'more' ? 'Scan more pages' : 'Scan'}`;
+        status.textContent = `No pages came through the document feeder. Check that the pages are in the feeder, then ${then}.`;
+      } else if (result.ok) {
         // Both sides from a one-sided feeder: now the backs
         const needBacks =
-          kind !== 'reverse' && settings.sides === 'both' && request.source === 'feeder' && !request.duplex && got.length > 0;
+          kind !== 'reverse' &&
+          settings.sides === 'both' &&
+          request.source === 'feeder' &&
+          !request.duplex &&
+          got.length > 0;
         const oneSided =
-          kind !== 'reverse' && request.source === 'feeder' && !request.duplex && got.length > 0;
+          kind !== 'reverse' &&
+          request.source === 'feeder' &&
+          !request.duplex &&
+          got.length > 0;
         status.textContent = result.cancelled
           ? `Scanning stopped. ${count}`
           : needBacks
@@ -1421,7 +1812,13 @@ export function showScanDialog(
             : oneSided
               ? `${count} Printed on both sides? Turn the stack over, put it back in the feeder, then select Scan reverse sides.`
               : `${count} Scan more, or select Scan is complete.`;
-        if (!result.cancelled && !settings.promptMore && !needBacks && pages.length) {
+        if (
+          !result.cancelled &&
+          !settings.promptMore &&
+          !needBacks &&
+          pages.length &&
+          !note
+        ) {
           await finish();
           return;
         }
@@ -1432,7 +1829,8 @@ export function showScanDialog(
         }
       } else {
         status.textContent =
-          scanErrorMessage(result.error, result.message, options.isMac) + (pages.length ? ` ${count}` : '');
+          scanErrorMessage(result.error, result.message, options.isMac) +
+          (pages.length ? ` ${count}` : '');
       }
       refresh();
       showActions();
@@ -1475,7 +1873,9 @@ export function showScanDialog(
       if (closed) return;
       readControls();
       if (f.mime === 'application/pdf') {
-        const thumbs: string[] | null = await pdfPageThumbs(f.data).catch((): null => null);
+        const thumbs: string[] | null = await pdfPageThumbs(f.data).catch(
+          (): null => null
+        );
         if (!thumbs) {
           status.textContent = `${f.name} couldn't be read.`;
           return;
@@ -1505,34 +1905,61 @@ export function showScanDialog(
         };
         pages.push(page);
         // (an image's own resolution isn't read: scanner apps save 300 dpi)
-        process(page, f.data, { index: 0, dpi: 300, side: 'front', mime: f.mime }, plan);
+        process(
+          page,
+          f.data,
+          { index: 0, dpi: 300, side: 'front', mime: f.mime },
+          plan
+        );
         await processing;
       }
       if (closed) return;
-      status.textContent = `Added ${f.name}. Select Scan is complete when you have everything.`;
+      status.textContent = withNote(
+        `Added ${f.name}. Select Scan is complete when you have everything.`
+      );
       renderPages();
       showActions();
     }
 
     /* Finishing --------------------------------------------------------------- */
-    async function partsFor(list: Page[], progress: (k: number) => void): Promise<PdfPart[]> {
+    async function partsFor(
+      list: Page[],
+      progress: (k: number) => void
+    ): Promise<PdfPart[]> {
       const parts: PdfPart[] = [];
       for (const [k, p] of list.entries()) {
         progress(k);
         if (p.source.kind === 'pdf')
-          parts.push({ kind: 'pdf', bytes: p.source.bytes, index: p.source.index, rotation: p.rotation });
+          parts.push({
+            kind: 'pdf',
+            bytes: p.source.bytes,
+            index: p.source.index,
+            rotation: p.rotation,
+          });
         else if (p.source.processed)
-          parts.push({ kind: 'image', page: await encodePage(p.source.processed, settings), rotation: p.rotation });
+          parts.push({
+            kind: 'image',
+            page: await encodePage(p.source.processed, settings),
+            rotation: p.rotation,
+          });
       }
       return parts;
     }
 
     async function makePdf(list: Page[], label: string): Promise<Uint8Array> {
-      const parts = await partsFor(list, (k) => (status.textContent = `Making ${label}… page ${k + 1} of ${list.length}`));
+      const parts = await partsFor(
+        list,
+        (k) =>
+          (status.textContent = `Making ${label}… page ${k + 1} of ${list.length}`)
+      );
       let pdf = await buildPdf(parts);
       if (settings.ocr) {
         status.textContent = 'Recognizing text…';
-        pdf = await options.recognize(pdf, settings.ocrLanguage, (text) => (status.textContent = `Recognizing text: ${text}`));
+        pdf = await options.recognize(
+          pdf,
+          settings.ocrLanguage,
+          (text) => (status.textContent = `Recognizing text: ${text}`)
+        );
       }
       return pdf;
     }
@@ -1542,7 +1969,18 @@ export function showScanDialog(
       readControls();
       const list = included();
       if (!list.length) {
-        status.textContent = 'Every page was left out. Keep a page, or scan some.';
+        status.textContent =
+          'Every page was left out. Keep a page, or scan some.';
+        return;
+      }
+      // A page that can't be read would be a broken page in the PDF (#55)
+      const bad = pages.flatMap((p, k) => (p.unreadable ? [k + 1] : []));
+      if (bad.length) {
+        const it = bad.length === 1 ? 'it' : 'them';
+        const rescan =
+          pages.every((p) => !p.unreadable || p.rescannable) &&
+          scanner.value !== WATCH;
+        status.textContent = `${pageList(bad)} couldn’t be read, so the PDF wasn’t made. Delete ${it}${rescan ? ` or rescan ${it}` : ''}, then select Scan is complete.`;
         return;
       }
       remember();
@@ -1556,7 +1994,12 @@ export function showScanDialog(
             number: Number(insertNumber.value),
           };
           const pdf = await makePdf(list, 'the pages');
-          return close({ output: 'insert', pdf, pages: list.length, after: insertAfter(at, options.insert?.total ?? 1) });
+          return close({
+            output: 'insert',
+            pdf,
+            pages: list.length,
+            after: insertAfter(at, options.insert?.total ?? 1),
+          });
         }
         if (settings.output === 'multiple') {
           saveFolder ??= await bridge.chooseFolder('Save the scanned files in');
@@ -1568,11 +2011,23 @@ export function showScanDialog(
           const names = fileNames(settings.prefix, groups.length);
           const files: { name: string; data: Uint8Array }[] = [];
           for (const [k, g] of groups.entries())
-            files.push({ name: names[k], data: await makePdf(g.map((i) => list[i]), `file ${k + 1} of ${groups.length}`) });
+            files.push({
+              name: names[k],
+              data: await makePdf(
+                g.map((i) => list[i]),
+                `file ${k + 1} of ${groups.length}`
+              ),
+            });
           status.textContent = 'Saving…';
           const saved = await bridge.saveFiles(saveFolder.path, files);
-          if (!saved?.length) throw new Error("the files couldn't be saved there");
-          return close({ output: 'multiple', saved, folder: saveFolder.path, pages: list.length });
+          if (!saved?.length)
+            throw new Error("the files couldn't be saved there");
+          return close({
+            output: 'multiple',
+            saved,
+            folder: saveFolder.path,
+            pages: list.length,
+          });
         }
         if (settings.output === 'append') {
           const target = appendTo.value;
@@ -1621,7 +2076,8 @@ export function showScanDialog(
       if (pages.length && !confirmDiscard) {
         confirmDiscard = true;
         cancelBtn.textContent = `Discard ${pages.length} page${pages.length === 1 ? '' : 's'}`;
-        status.textContent = 'Select again to discard the scanned pages, or Scan is complete to keep them.';
+        status.textContent =
+          'Select again to discard the scanned pages, or Scan is complete to keep them.';
         return;
       }
       close(null);
@@ -1659,7 +2115,11 @@ export function showScanDialog(
       onOk: () => Promise<boolean> | boolean
     ) {
       const err = el('p', { class: 'muted sd-status', role: 'status' });
-      const cancelB = el('button', { type: 'button', class: 'quiet-btn' }, 'Cancel');
+      const cancelB = el(
+        'button',
+        { type: 'button', class: 'quiet-btn' },
+        'Cancel'
+      );
       const okB = el('button', { type: 'button', class: 'accent-btn' }, okText);
       const shut = () => {
         layer.remove();
@@ -1672,7 +2132,13 @@ export function showScanDialog(
           'div',
           { class: 'dlg', role: 'dialog', 'aria-label': heading },
           el('div', { class: 'dlg-head' }, el('h2', {}, heading)),
-          el('div', { class: 'dlg-body prefs' }, body, err, el('div', { class: 'dlg-actions' }, cancelB, okB))
+          el(
+            'div',
+            { class: 'dlg-body prefs' },
+            body,
+            err,
+            el('div', { class: 'dlg-actions' }, cancelB, okB)
+          )
         )
       );
       const esc = (e: KeyboardEvent) => {
@@ -1697,7 +2163,10 @@ export function showScanDialog(
       };
       okB.addEventListener('click', () => void ok());
       body.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') {
+        if (
+          e.key === 'Enter' &&
+          (e.target as HTMLElement).tagName === 'INPUT'
+        ) {
           e.preventDefault();
           void ok();
         }
@@ -1719,7 +2188,11 @@ export function showScanDialog(
         el(
           'div',
           {},
-          el('p', {}, 'The scanner’s IP address or host name (on its screen, or on its network settings page):'),
+          el(
+            'p',
+            {},
+            'The scanner’s IP address or host name (on its screen, or on its network settings page):'
+          ),
           input
         ),
         'Add',
@@ -1735,7 +2208,10 @@ export function showScanDialog(
             );
             return false;
           }
-          scanners = [...scanners.filter((s) => s.key !== r.scanner!.key), r.scanner];
+          scanners = [
+            ...scanners.filter((s) => s.key !== r.scanner!.key),
+            r.scanner,
+          ];
           fillScanners(r.scanner.key);
           none.hidden = true;
           await chooseScanner();
@@ -1782,7 +2258,8 @@ export function showScanDialog(
         v.transfer && row('Transfer method', transfer),
         invert.label,
         v.doubleFeedStop && stop.label,
-        v.networkTimeout && row('Wait for a slow network scanner (seconds)', timeout)
+        v.networkTimeout &&
+          row('Wait for a slow network scanner (seconds)', timeout)
       );
       smallDialog('Scanner options', body, 'OK', async () => {
         const before = settings.driver;
@@ -1819,9 +2296,14 @@ export function showScanDialog(
           }
           readControls();
           const p = scanPrefs();
-          const existing = p.custom.find((c) => c.name.toLowerCase() === name.toLowerCase());
+          const existing = p.custom.find(
+            (c) => c.name.toLowerCase() === name.toLowerCase()
+          );
           const id = existing?.id ?? crypto.randomUUID().slice(0, 8);
-          const entrySettings = omit(settings, [...SCANNER_KEYS, ...OUTPUT_KEYS]);
+          const entrySettings = omit(settings, [
+            ...SCANNER_KEYS,
+            ...OUTPUT_KEYS,
+          ]);
           if (existing) existing.settings = entrySettings;
           else p.custom.push({ id, name, settings: entrySettings });
           saveScanPrefs(p);
@@ -1840,7 +2322,11 @@ export function showScanDialog(
     preset.addEventListener('change', () => {
       presetId = preset.value;
       const keep = pick(settings, [...SCANNER_KEYS, ...OUTPUT_KEYS]);
-      settings = { ...settingsFor(presetId, entry?.key), ...keep, ocr: settings.ocr };
+      settings = {
+        ...settingsFor(presetId, entry?.key),
+        ...keep,
+        ocr: settings.ocr,
+      };
       writeControls();
       refresh();
     });
@@ -1850,7 +2336,9 @@ export function showScanDialog(
     addBtn.addEventListener('click', addByAddress);
     optionsBtn.addEventListener('click', scannerOptions);
     folderBtn.addEventListener('click', async () => {
-      const dir = await bridge.chooseFolder('The folder your scanner app saves to');
+      const dir = await bridge.chooseFolder(
+        'The folder your scanner app saves to'
+      );
       if (dir) await startWatching(dir);
     });
     saveFolderBtn.addEventListener('click', async () => {
@@ -1874,8 +2362,12 @@ export function showScanDialog(
       const was = settings.units;
       settings.units = units.value as ScanSettings['units'];
       // The same size in the other units
-      customW.value = String(fromInches(toInches(Number(customW.value), was), settings.units));
-      customH.value = String(fromInches(toInches(Number(customH.value), was), settings.units));
+      customW.value = String(
+        fromInches(toInches(Number(customW.value), was), settings.units)
+      );
+      customH.value = String(
+        fromInches(toInches(Number(customH.value), was), settings.units)
+      );
       readControls();
       refresh();
     });

@@ -190,6 +190,50 @@ public sealed class ScanJobTests : IDisposable
         Assert.Equal(20.0, page["height"]);
     }
 
+    /// <summary>
+    /// Like NAPS2.Wia's stream over a WIA page (#55): the driver left it at
+    /// its end, and its Position says 0 all the same
+    /// </summary>
+    private sealed class WrittenStream : Stream
+    {
+        private readonly MemoryStream _inner;
+
+        public WrittenStream(byte[] data)
+        {
+            _inner = new MemoryStream();
+            _inner.Write(data, 0, data.Length);
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => _inner.Length;
+        public override long Position { get => 0; set => _inner.Position = value; }
+        public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+        public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
+        public override void Flush() { }
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Fact]
+    public void PagesFromStreamsLeftAtTheirEnd()
+    {
+        var png = new MemoryStream();
+        using (var bmp = new Bitmap(12, 18, PixelFormat.Format24bppRgb)) bmp.Save(png, ImageFormat.Png);
+        using (var job = Job())
+        {
+            // WIA's page, as the driver left it
+            job.AddPage(new WrittenStream(png.ToArray()), 300, "front");
+            // and a MemoryStream that was written and not rewound
+            var written = new MemoryStream();
+            written.Write(png.ToArray(), 0, (int)png.Length);
+            job.AddPage(written, 300, "front");
+            Assert.Equal(2, job.Pages);
+        }
+        Assert.All(Lines(), l => Assert.Equal(18.0, l["height"]));
+    }
+
     [Fact]
     public void HalfAnImageIsAnOfflineError()
     {

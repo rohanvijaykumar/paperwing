@@ -13,6 +13,9 @@
  *    the open document; Ctrl+Z
  *  - errors: a jam, two sheets fed together after two pages, Stop mid-scan
  *    (the scanner free again), no scanners, a blocked helper
+ *  - pages the scanner sends as images that can't be opened (#55): said at
+ *    once and on their tiles, no PDF until they're deleted; a feeder pass
+ *    with nothing in it; no folder or settings while looking for scanners
  *   node bench/check-scan.mjs
  */
 import { fileURLToPath } from 'node:url';
@@ -20,7 +23,10 @@ import * as L from './scan-bench-lib.mjs';
 
 const { check, until, sleep, click, press, choose, dialog } = L;
 const sample = fileURLToPath(
-  new URL('../../docs/screenshots/samples/Invoice INV-2048.pdf', import.meta.url)
+  new URL(
+    '../../docs/screenshots/samples/Invoice INV-2048.pdf',
+    import.meta.url
+  )
 );
 
 /* The dialog and the scanners ----------------------------------------- */
@@ -39,7 +45,11 @@ check(
   'one entry per scanner (the one reached by three drivers once), and Import from a scanner app',
   JSON.stringify(d?.scanners)
 );
-check(d?.scanner === 'Paperwing Test Feeder', 'a scanner on this computer is chosen first', d?.scanner);
+check(
+  d?.scanner === 'Paperwing Test Feeder',
+  'a scanner on this computer is chosen first',
+  d?.scanner
+);
 await choose(page, 'Scanner', 'Paperwing Test Scanner');
 await L.waitReady(page);
 d = await dialog(page);
@@ -49,29 +59,47 @@ check(
   JSON.stringify(d?.sources)
 );
 check(
-  JSON.stringify(d?.colors) === JSON.stringify(['Autodetect', 'Color', 'Grayscale', 'Black and white']),
+  JSON.stringify(d?.colors) ===
+    JSON.stringify(['Autodetect', 'Color', 'Grayscale', 'Black and white']),
   'color modes, Autodetect first',
   JSON.stringify(d?.colors)
 );
 check(
-  d?.dpi?.includes('300 dpi') && d.dpi.includes('1200 dpi') && d.dpi.includes('75 dpi'),
+  d?.dpi?.includes('300 dpi') &&
+    d.dpi.includes('1200 dpi') &&
+    d.dpi.includes('75 dpi'),
   'its resolutions',
   JSON.stringify(d?.dpi)
 );
-check(d?.papers?.[0] === 'Auto-detect' && d.papers.includes('Whole glass') && d.papers.includes('Custom size') && d.papers.includes('Legal') && !d.papers.includes('Tabloid'),
+check(
+  d?.papers?.[0] === 'Auto-detect' &&
+    d.papers.includes('Whole glass') &&
+    d.papers.includes('Custom size') &&
+    d.papers.includes('Legal') &&
+    !d.papers.includes('Tabloid'),
   'paper: auto-detect (it can), sizes that fit the 8.5 × 14 in glass, whole glass, custom',
-  JSON.stringify(d?.papers));
-check(d?.previewTab && d.buttons.includes('Preview'), 'a flatbed that can preview: Preview');
+  JSON.stringify(d?.papers)
+);
+check(
+  d?.previewTab && d.buttons.includes('Preview'),
+  'a flatbed that can preview: Preview'
+);
 check(d && d.sides === null, 'no Pages (sides) for the flatbed');
 
 // Options…: the drivers that reach it
 await click(page, '.dlg-scan .sd-link', 'Options…');
-await until(page, () => document.querySelector('[aria-label="Scanner options"]'));
+await until(page, () =>
+  document.querySelector('[aria-label="Scanner options"]')
+);
 let opts = await page.evaluate(() => {
   const o = document.querySelector('[aria-label="Scanner options"]');
   return {
-    drivers: [...o.querySelectorAll('select[aria-label="Driver"] option')].map((x) => x.textContent),
-    labels: [...o.querySelectorAll('[aria-label]')].map((x) => x.getAttribute('aria-label')),
+    drivers: [...o.querySelectorAll('select[aria-label="Driver"] option')].map(
+      (x) => x.textContent
+    ),
+    labels: [...o.querySelectorAll('[aria-label]')].map((x) =>
+      x.getAttribute('aria-label')
+    ),
   };
 });
 const win = process.platform === 'win32';
@@ -87,15 +115,23 @@ check(
 );
 if (win)
   check(
-    opts.labels.includes('Show the scanner’s own window') && opts.labels.includes('Transfer method'),
+    opts.labels.includes('Show the scanner’s own window') &&
+      opts.labels.includes('Transfer method'),
     "TWAIN: the scanner's own window and the transfer method",
     JSON.stringify(opts.labels)
   );
-await choose(page, 'Driver', 'Network (eSCL)', '[aria-label="Scanner options"]');
+await choose(
+  page,
+  'Driver',
+  'Network (eSCL)',
+  '[aria-label="Scanner options"]'
+);
 await click(page, '[aria-label="Scanner options"] .accent-btn', 'OK');
 await L.waitReady(page);
 await click(page, '.dlg-scan .sd-link', 'Options…');
-await until(page, () => document.querySelector('[aria-label="Scanner options"]'));
+await until(page, () =>
+  document.querySelector('[aria-label="Scanner options"]')
+);
 opts = await page.evaluate(() =>
   [...document.querySelectorAll('[aria-label="Scanner options"] [aria-label]')]
     .filter((x) => !x.closest('[hidden]'))
@@ -106,7 +142,12 @@ check(
   'through the network: how long to wait, no TWAIN settings',
   JSON.stringify(opts)
 );
-await choose(page, 'Driver', win ? 'Automatic (TWAIN)' : 'Automatic (Network (eSCL))', '[aria-label="Scanner options"]');
+await choose(
+  page,
+  'Driver',
+  win ? 'Automatic (TWAIN)' : 'Automatic (Network (eSCL))',
+  '[aria-label="Scanner options"]'
+);
 await click(page, '[aria-label="Scanner options"] .accent-btn', 'OK');
 await L.waitReady(page);
 
@@ -116,8 +157,16 @@ await choose(page, 'Color mode', 'Color');
 await press(page, 'Preview');
 await L.waitIdle(page);
 d = await dialog(page);
-check(!!d?.box, 'Preview: the glass, with a box around the document', d?.status);
-check(d?.paper === 'Custom (from preview)', 'and the paper size follows it', d?.paper);
+check(
+  !!d?.box,
+  'Preview: the glass, with a box around the document',
+  d?.status
+);
+check(
+  d?.paper === 'Custom (from preview)',
+  'and the paper size follows it',
+  d?.paper
+);
 // The box sits where the stand-in's document lies: 1 in from the left of 8.5
 const left = Number(/left: ([\d.]+)%/.exec(d?.box ?? '')?.[1]);
 check(left > 8 && left < 16, 'the box found the document', d?.box);
@@ -135,28 +184,44 @@ await page.mouse.up();
 const dragged = (await dialog(page))?.box;
 // (in inches: how far the drag went depends on the window's size)
 const draggedBox = await L.boxNow(page, { width: 8.5, height: 14 });
-check(dragged && dragged !== d.box, 'dragging a corner changes the box', dragged);
+check(
+  dragged && dragged !== d.box,
+  'dragging a corner changes the box',
+  dragged
+);
 await press(page, 'Scan');
 await L.waitIdle(page);
 d = await dialog(page);
 check(d?.thumbs === 1, 'a flatbed pass scans one page', `${d?.thumbs}`);
 check(
-  d?.buttons.includes('Scan more pages') && d.buttons.includes('Scan is complete') && !d.buttons.includes('Scan reverse sides'),
+  d?.buttons.includes('Scan more pages') &&
+    d.buttons.includes('Scan is complete') &&
+    !d.buttons.includes('Scan reverse sides'),
   'then: Scan more pages or Scan is complete (no reverse sides for a flatbed)',
   JSON.stringify(d?.buttons)
 );
-check(d?.first === 'Scan more pages', 'the first time, Scan more pages is offered first (not "complete")', d?.first);
+check(
+  d?.first === 'Scan more pages',
+  'the first time, Scan more pages is offered first (not "complete")',
+  d?.first
+);
 await press(page, 'Scan more pages');
 await L.waitIdle(page);
 check((await dialog(page))?.thumbs === 2, 'Scan more pages adds one');
 await press(page, 'Scan is complete');
 await until(page, () => !document.querySelector('.dlg-scan'), undefined, 30000);
 let doc = await until(page, () =>
-  /^Scan \d{4}-\d\d-\d\d \d\d\.\d\d\.pdf$/.test(document.querySelector('#tabs .tab.is-active')?.textContent.trim() ?? '')
+  /^Scan \d{4}-\d\d-\d\d \d\d\.\d\d\.pdf$/.test(
+    document.querySelector('#tabs .tab.is-active')?.textContent.trim() ?? ''
+  )
 );
 await sleep(1500);
 let info = await L.docInfo(page);
-check(!!doc && info.pages === 2, 'Scan is complete: a new document "Scan <date> <time>.pdf" with both pages', JSON.stringify(info));
+check(
+  !!doc && info.pages === 2,
+  'Scan is complete: a new document "Scan <date> <time>.pdf" with both pages',
+  JSON.stringify(info)
+);
 check(info.dirty, "it isn't saved yet (closing asks)");
 // The page is the size of the box after the drag (not the whole glass)
 check(
@@ -167,23 +232,42 @@ check(
   'its pages are the size of the box, not the whole glass',
   `${JSON.stringify(info.size)} for ${JSON.stringify(draggedBox)}`
 );
-check(/Scanned 2 pages into Scan .*\.pdf/.test(await L.toasts(page)), 'and the notice offers to save it');
+check(
+  /Scanned 2 pages into Scan .*\.pdf/.test(await L.toasts(page)),
+  'and the notice offers to save it'
+);
 
 /* A one-sided feeder stack, then the reverse sides; the review strip -- */
 check(await L.openDialog(page), 'the dialog opens again');
 d = await dialog(page);
-check(d?.scanner === 'Paperwing Test Scanner', 'with the scanner used last', d?.scanner);
+check(
+  d?.scanner === 'Paperwing Test Scanner',
+  'with the scanner used last',
+  d?.scanner
+);
 await choose(page, 'Source', 'Document feeder');
 d = await dialog(page);
-check(d?.sides?.join() === 'Front sides,Both sides', 'Pages: front sides or both, for the feeder', JSON.stringify(d?.sides));
 check(
-  d?.buttons.includes('Preview') && (await page.evaluate(() => [...document.querySelectorAll('.dlg-scan .dlg-actions button')].find((b) => b.textContent === 'Preview')?.disabled)),
+  d?.sides?.join() === 'Front sides,Both sides',
+  'Pages: front sides or both, for the feeder',
+  JSON.stringify(d?.sides)
+);
+check(
+  d?.buttons.includes('Preview') &&
+    (await page.evaluate(
+      () =>
+        [...document.querySelectorAll('.dlg-scan .dlg-actions button')].find(
+          (b) => b.textContent === 'Preview'
+        )?.disabled
+    )),
   'a feeder can’t preview: Preview is unavailable'
 );
 await click(page, '.dlg-scan .sd-tabs .pd-seg-btn', 'Preview');
 check(
   /A document feeder can.t preview pages\. To preview, put the page on the glass and choose Flatbed\./.test(
-    await page.evaluate(() => document.querySelector('.dlg-scan .sp-message')?.textContent ?? '')
+    await page.evaluate(
+      () => document.querySelector('.dlg-scan .sp-message')?.textContent ?? ''
+    )
   ),
   'and the preview pane says why, and what to do instead'
 );
@@ -191,24 +275,52 @@ await choose(page, 'Pages', 'Front sides');
 await press(page, 'Scan');
 await L.waitIdle(page);
 d = await dialog(page);
-check(d?.thumbs === 3, 'the feeder scans the whole stack (3 sheets)', `${d?.thumbs}`);
-check(d?.buttons.includes('Scan reverse sides'), 'and offers Scan reverse sides', JSON.stringify(d?.buttons));
-check(d?.first === 'Scan is complete', 'the last choice made (Scan is complete) is offered first', d?.first);
+check(
+  d?.thumbs === 3,
+  'the feeder scans the whole stack (3 sheets)',
+  `${d?.thumbs}`
+);
+check(
+  d?.buttons.includes('Scan reverse sides'),
+  'and offers Scan reverse sides',
+  JSON.stringify(d?.buttons)
+);
+check(
+  d?.first === 'Scan is complete',
+  'the last choice made (Scan is complete) is offered first',
+  d?.first
+);
 await press(page, 'Scan reverse sides');
 await L.waitIdle(page);
 d = await dialog(page);
 check(d?.thumbs === 6, 'the backs are woven in: 6 pages', `${d?.thumbs}`);
-check(!d?.buttons.includes('Scan reverse sides'), 'reverse sides only once per stack');
+check(
+  !d?.buttons.includes('Scan reverse sides'),
+  'reverse sides only once per stack'
+);
 
-const ids = () => page.evaluate(() => [...document.querySelectorAll('.dlg-scan .sr-page')].map((p) => p.dataset.id));
+const ids = () =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('.dlg-scan .sr-page')].map(
+      (p) => p.dataset.id
+    )
+  );
 const before = await ids();
 await page.hover('.dlg-scan .sr-page');
 await click(page, '.dlg-scan .sr-tool', 'Rotate page 1 clockwise');
-check((await dialog(page))?.pages[0] === 'Page 1, turned 90°', 'rotate a page', (await dialog(page))?.pages[0]);
+check(
+  (await dialog(page))?.pages[0] === 'Page 1, turned 90°',
+  'rotate a page',
+  (await dialog(page))?.pages[0]
+);
 await page.hover('.dlg-scan .sr-page:nth-child(2)');
 await click(page, '.dlg-scan .sr-tool', 'Delete page 2');
 let now = await ids();
-check(now.length === 5 && !now.includes(before[1]), 'delete a page', JSON.stringify(now));
+check(
+  now.length === 5 && !now.includes(before[1]),
+  'delete a page',
+  JSON.stringify(now)
+);
 // Drag page 1 after page 3, with the mouse
 const pos = await page.evaluate(() =>
   [...document.querySelectorAll('.dlg-scan .sr-page')].map((p) => {
@@ -221,7 +333,11 @@ await page.mouse.down();
 await page.mouse.move(pos[2].x + 30, pos[2].y, { steps: 10 });
 await page.mouse.up();
 const moved = await ids();
-check(moved[2] === now[0] && moved[0] === now[1], 'drag a page to another place', `${JSON.stringify(now)} -> ${JSON.stringify(moved)}`);
+check(
+  moved[2] === now[0] && moved[0] === now[1],
+  'drag a page to another place',
+  `${JSON.stringify(now)} -> ${JSON.stringify(moved)}`
+);
 // Ctrl+Left moves it back one
 await page.focus(`.dlg-scan .sr-page[data-id="${now[0]}"]`);
 await page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
@@ -244,13 +360,23 @@ check(
 // Pages aren't thrown away on one click
 await press(page, 'Cancel');
 d = await dialog(page);
-check(!!d && d.buttons.includes('Discard 5 pages'), 'Cancel asks again before discarding scanned pages', JSON.stringify(d?.buttons));
+check(
+  !!d && d.buttons.includes('Discard 5 pages'),
+  'Cancel asks again before discarding scanned pages',
+  JSON.stringify(d?.buttons)
+);
 await press(page, 'Discard 5 pages');
-check(!!(await until(page, () => !document.querySelector('.dlg-scan'))), 'and discards them on the second click');
+check(
+  !!(await until(page, () => !document.querySelector('.dlg-scan'))),
+  'and discards them on the second click'
+);
 
 /* Both sides at once, a blank page, added to the open document -------- */
 await app.openFile(sample);
-await until(page, () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total > 0);
+await until(
+  page,
+  () => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total > 0
+);
 await sleep(1000);
 const pagesBefore = await L.pageCount(page);
 check(await L.openDialog(page), 'with a document open');
@@ -258,17 +384,30 @@ await choose(page, 'Source', 'Document feeder');
 await choose(page, 'Pages', 'Both sides');
 await L.openGroup(page, 'Clean-up');
 await L.tick(page, 'Remove blank pages', true);
-check((await L.shows(page, ['Blank page sensitivity']))['Blank page sensitivity'], 'Remove blank pages shows its sensitivity');
+check(
+  (await L.shows(page, ['Blank page sensitivity']))['Blank page sensitivity'],
+  'Remove blank pages shows its sensitivity'
+);
 await click(page, '.dlg-scan .pd-radio', 'Append to file');
 const target = await page.evaluate(() => {
-  const s = document.querySelector('.dlg-scan select[aria-label="File to append to"]');
+  const s = document.querySelector(
+    '.dlg-scan select[aria-label="File to append to"]'
+  );
   return s.options[s.selectedIndex]?.textContent;
 });
-check(/^Invoice/.test(target ?? ''), 'Append to file offers the open document first', target);
+check(
+  /^Invoice/.test(target ?? ''),
+  'Append to file offers the open document first',
+  target
+);
 await press(page, 'Scan');
 await L.waitIdle(page);
 d = await dialog(page);
-check(d?.thumbs === 6 && d.leftOut === 1, 'both sides at once: 6 pages, the blank one left out', `${d?.thumbs} / ${d?.leftOut}`);
+check(
+  d?.thumbs === 6 && d.leftOut === 1,
+  'both sides at once: 6 pages, the blank one left out',
+  `${d?.thumbs} / ${d?.leftOut}`
+);
 check(/1 blank left out/.test(d?.status ?? ''), 'and it says so', d?.status);
 await click(page, '.dlg-scan .sr-keep');
 check((await dialog(page))?.leftOut === 0, 'Keep keeps the blank page');
@@ -277,14 +416,24 @@ await click(page, '.dlg-scan .sr-tool', 'Delete page 4');
 await press(page, 'Scan is complete');
 const after = await until(
   page,
-  (n) => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === n,
+  (n) =>
+    window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === n,
   pagesBefore + 5,
   30000
 );
-check(!!after, 'Append: they go at the end of the open document', `${pagesBefore} -> ${await L.pageCount(page)}`);
+check(
+  !!after,
+  'Append: they go at the end of the open document',
+  `${pagesBefore} -> ${await L.pageCount(page)}`
+);
 await L.undo(page);
 check(
-  !!(await until(page, (n) => window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === n, pagesBefore)),
+  !!(await until(
+    page,
+    (n) =>
+      window.__acro.viewer.pageInfo(window.__acro.viewer.current)?.total === n,
+    pagesBefore
+  )),
   'and Ctrl+Z takes them back out'
 );
 await app.close();
@@ -303,7 +452,12 @@ async function errorRun(env, setup, expect, what) {
   check(expect.test(r?.status ?? ''), what, r?.status);
   return r;
 }
-d = await errorRun({ PAPERWING_SCAN_TEST_ERROR: 'paper-jam' }, null, /paper is jammed/, 'a jam says what to do');
+d = await errorRun(
+  { PAPERWING_SCAN_TEST_ERROR: 'paper-jam' },
+  null,
+  /paper is jammed/,
+  'a jam says what to do'
+);
 check(d?.thumbs === 0 && d.buttons.includes('Scan'), 'and nothing was scanned');
 await app.close();
 
@@ -313,7 +467,11 @@ d = await errorRun(
   /Two sheets went through together/,
   'two sheets fed together: stopped, and why'
 );
-check(d?.thumbs === 2 && /2 pages scanned/.test(d.status), 'the pages before it are kept', `${d?.thumbs}`);
+check(
+  d?.thumbs === 2 && /2 pages scanned/.test(d.status),
+  'the pages before it are kept',
+  `${d?.thumbs}`
+);
 await app.close();
 
 // Stop in the middle: the scanner is free again at once
@@ -324,18 +482,190 @@ await choose(page, 'Scanner', 'Paperwing Test Scanner');
 await L.waitReady(page);
 await choose(page, 'Source', 'Document feeder');
 await press(page, 'Scan');
-await until(page, () => document.querySelectorAll('.dlg-scan .sr-page').length >= 2);
+await until(
+  page,
+  () => document.querySelectorAll('.dlg-scan .sr-page').length >= 2
+);
 check(await press(page, 'Stop'), 'Stop while scanning');
 await L.waitIdle(page);
 d = await dialog(page);
-check(/Scanning stopped/.test(d?.status ?? '') && d.thumbs < 12, 'it stops after the page being scanned', `${d?.thumbs}: ${d?.status}`);
+check(
+  /Scanning stopped/.test(d?.status ?? '') && d.thumbs < 12,
+  'it stops after the page being scanned',
+  `${d?.thumbs}: ${d?.status}`
+);
 await press(page, 'Scan more pages');
-await until(page, () => document.querySelectorAll('.dlg-scan .sr-page').length >= 5);
+await until(
+  page,
+  () => document.querySelectorAll('.dlg-scan .sr-page').length >= 5
+);
 await press(page, 'Stop');
 await L.waitIdle(page);
-check(!/busy/i.test((await dialog(page))?.status ?? ''), 'and the scanner was let go (the next scan works)');
+check(
+  !/busy/i.test((await dialog(page))?.status ?? ''),
+  'and the scanner was let go (the next scan works)'
+);
 await press(page, 'Cancel');
-await press(page, (await dialog(page))?.buttons.find((b) => b.startsWith('Discard')));
+await press(
+  page,
+  (await dialog(page))?.buttons.find((b) => b.startsWith('Discard'))
+);
+await app.close();
+
+/* Pages that can't be read (#55) ------------------------------------------ */
+// Page 2 comes as a PNG cut short (the dialog can't open it), page 3 as a
+// JPEG with no height (the shell says so); finding scanners takes 4 s
+app = await L.start({
+  PAPERWING_SCAN_TEST_PAGES: '6',
+  PAPERWING_SCAN_TEST_UNREADABLE: '2',
+  PAPERWING_SCAN_TEST_NO_HEIGHT: '3',
+  PAPERWING_SCAN_TEST_SLOW_LIST: '4000',
+});
+page = app.page;
+await click(page, '#create-btn');
+await until(page, () => document.querySelector('.menu .menu-item'));
+await click(page, '.menu .menu-item', 'From scanner');
+const looking = await until(page, () => {
+  const d = document.querySelector('.dlg-scan');
+  const s = d?.querySelector('.sd-status')?.textContent ?? '';
+  if (!/Looking for scanners/.test(s)) return null;
+  const shown = (e) => !!e && !e.closest('[hidden]');
+  return {
+    folder: shown(d.querySelector('.sd-folder')),
+    flip: [...d.querySelectorAll('.pd-check')].some(
+      (l) => shown(l) && /Flip back sides/.test(l.textContent)
+    ),
+    pages: shown(d.querySelector('select[aria-label="Source"]')),
+  };
+});
+check(
+  !!looking && !looking.folder && !looking.flip && !looking.pages,
+  'while looking for scanners: no folder to choose, no Flip back sides',
+  JSON.stringify(looking)
+);
+if (process.env.SCAN_SHOTS)
+  await page.screenshot({
+    path: `${process.env.SCAN_SHOTS}/light-looking.png`,
+  });
+await L.waitReady(page, 30000);
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Document feeder');
+await choose(page, 'Pages', 'Front sides');
+await press(page, 'Scan');
+// Said while the feeder is still going, not only at the end
+const early = await until(
+  page,
+  () => {
+    const d = document.querySelector('.dlg-scan');
+    const stop = [...d.querySelectorAll('.dlg-actions button')].some(
+      (b) => b.textContent === 'Stop'
+    );
+    const s = d.querySelector('.sd-status').textContent;
+    return stop && /couldn.t be read/.test(s) ? s : null;
+  },
+  undefined,
+  30000
+);
+check(
+  /Pages? [0-9, and]+ couldn.t be read: the scanner sent (an image|images) Paperwing can.t open/.test(
+    early ?? ''
+  ),
+  'a page that can’t be read is said at once, while scanning',
+  early
+);
+await L.waitIdle(page, 60000);
+d = await dialog(page);
+const unreadable = await page.evaluate(() =>
+  [...document.querySelectorAll('.dlg-scan .sr-page')].map((p) =>
+    p.classList.contains('is-unreadable')
+  )
+);
+check(
+  d?.thumbs === 6 &&
+    JSON.stringify(unreadable) ===
+      JSON.stringify([false, true, true, false, false, false]),
+  'pages 2 and 3 show as unreadable on their tiles',
+  JSON.stringify(unreadable)
+);
+check(
+  d?.pages[1] === 'Page 2, can’t be read' &&
+    d.pages[2] === 'Page 3, can’t be read',
+  'and say so to a screen reader',
+  JSON.stringify(d?.pages)
+);
+check(
+  /Pages 2 and 3 couldn.t be read: the scanner sent images Paperwing can.t open\. Delete them or rescan them\./.test(
+    d?.status ?? ''
+  ),
+  'after the pass: which pages, and what to do',
+  d?.status
+);
+if (process.env.SCAN_SHOTS)
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((theme) => {
+      localStorage.setItem('paperwing:theme', theme);
+      window.dispatchEvent(new CustomEvent('paperwing:themechange'));
+    }, theme);
+    await sleep(400);
+    await page.screenshot({
+      path: `${process.env.SCAN_SHOTS}/${theme}-unreadable.png`,
+    });
+  }
+const tabsBefore = await page.evaluate(
+  () => document.querySelectorAll('#tabs .tab').length
+);
+await press(page, 'Scan is complete');
+await sleep(1500);
+d = await dialog(page);
+check(
+  !!d &&
+    /Pages 2 and 3 couldn.t be read, so the PDF wasn.t made\. Delete them or rescan them, then select Scan is complete\./.test(
+      d.status
+    ) &&
+    (await page.evaluate(
+      () => document.querySelectorAll('#tabs .tab').length
+    )) === tabsBefore,
+  'Scan is complete makes no PDF with a broken page, and says why',
+  d?.status
+);
+// Rescan one, delete the other: then the PDF is made
+await page.hover('.dlg-scan .sr-page:nth-child(2)');
+await click(page, '.dlg-scan .sr-tool', 'Rescan page 2');
+await L.waitIdle(page, 60000);
+d = await dialog(page);
+check(
+  d?.pages[1] === 'Page 2' && d.pages[2] === 'Page 3, can’t be read',
+  'a rescan replaces the unreadable page',
+  JSON.stringify(d?.pages)
+);
+await page.hover('.dlg-scan .sr-page:nth-child(3)');
+await click(page, '.dlg-scan .sr-tool', 'Delete page 3');
+await sleep(300);
+await L.complete(page, 5);
+check(
+  (await L.docInfo(page)).pages === 5,
+  'with it rescanned and the other deleted, the PDF is made'
+);
+await app.close();
+
+// A feeder pass that ends well with nothing in it (as WIA can)
+app = await L.start({ PAPERWING_SCAN_TEST_PAGES: '0' });
+page = app.page;
+await L.openDialog(page);
+await choose(page, 'Scanner', 'Paperwing Test Scanner');
+await L.waitReady(page);
+await choose(page, 'Source', 'Document feeder');
+await press(page, 'Scan');
+await L.waitIdle(page);
+d = await dialog(page);
+check(
+  /^No pages came through the document feeder\. Check that the pages are in the feeder, then select Scan\.$/.test(
+    d?.status ?? ''
+  ) && !/0 pages scanned/.test(d.status),
+  'a feeder pass with nothing in it says to check the feeder (not "0 pages scanned")',
+  d?.status
+);
 await app.close();
 
 for (const [code, expect, what] of [

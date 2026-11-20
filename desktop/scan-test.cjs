@@ -17,7 +17,8 @@
  * back, cut from the chart and converted (so the benches can check where
  * every part of a scan came from).
  *
- * PAPERWING_SCAN_TEST_PAGES   sheets in a feeder (3)
+ * PAPERWING_SCAN_TEST_PAGES   sheets in a feeder (3; 0: a feeder pass that
+ *                             ends without a page and without an error)
  * PAPERWING_SCAN_TEST_BLANK   pages of a pass that come out blank ("4" when
  *                             scanning both sides, else none; "none")
  * PAPERWING_SCAN_TEST_SKEW    pages fed crooked, 3° ("2"; "none")
@@ -41,6 +42,11 @@
  *                             JSON line: the driver and what it was asked)
  * PAPERWING_SCAN_TEST_SLOW    a scanner (its name) that takes 30 s to get ready,
  *                             like a slow or stuck driver
+ * PAPERWING_SCAN_TEST_SLOW_LIST  milliseconds looking for scanners takes
+ * PAPERWING_SCAN_TEST_UNREADABLE  pages of a pass that come as an image that
+ *                             can't be opened (a PNG cut short), "2,5" (#55)
+ * PAPERWING_SCAN_TEST_NO_HEIGHT  pages of a pass that come as a JPEG with
+ *                             height 0 and no DNL to give it (#55)
  * PAPERWING_SCAN_TEST_ERROR   an error code, failing at the start, or after
  *                             n pages with code@n (double-feed@2);
  *                             no-scanner and blocked fail the listing
@@ -468,6 +474,10 @@ function render(content, region, dpi, opts) {
 
 /* The stand-in scanners ------------------------------------------------ */
 
+/** SOI, a baseline frame header of 16 x 0 pixels, EOI */
+// prettier-ignore
+const NO_HEIGHT_JPEG = [0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 0, 0, 16, 1, 1, 0x11, 0, 0xff, 0xd9];
+
 const RANGE = (min, max, step, def) => ({ min, max, step, default: def });
 const PAPERS = [
   { name: 'Letter', width: 8.5, height: 11 },
@@ -682,7 +692,11 @@ function createTestBackends({
 
   /** The sheets and sides a feeder pass brings, in the order they come */
   function feederPass(duplex) {
-    const count = Number(env.PAPERWING_SCAN_TEST_PAGES) || 3;
+    const pages = Number(env.PAPERWING_SCAN_TEST_PAGES);
+    const count =
+      Number.isInteger(pages) && pages >= 0 && env.PAPERWING_SCAN_TEST_PAGES
+        ? pages
+        : 3;
     if (
       !duplex &&
       env.PAPERWING_SCAN_TEST_STACK === 'turn' &&
@@ -720,6 +734,8 @@ function createTestBackends({
     };
     return {
       async list() {
+        const slow = Number(env.PAPERWING_SCAN_TEST_SLOW_LIST);
+        if (slow > 0) await new Promise((r) => setTimeout(r, slow));
         if (failCode === 'blocked')
           return {
             ok: false,
@@ -823,6 +839,14 @@ function createTestBackends({
             env.PAPERWING_SCAN_TEST_UPSIDE_DOWN,
             new Set()
           );
+          const unreadable = pageSet(
+            env.PAPERWING_SCAN_TEST_UNREADABLE,
+            new Set()
+          );
+          const noHeight = pageSet(
+            env.PAPERWING_SCAN_TEST_NO_HEIGHT,
+            new Set()
+          );
           let n = 0;
           for (const { sheet, side } of pass) {
             if (failNow(n)) {
@@ -872,8 +896,18 @@ function createTestBackends({
               content = glassContent(env, dpi);
             }
             const img = render(content, region, dpi, opts);
-            const file = path.join(outDir, `page-${n}.png`);
-            await fsp.writeFile(file, img.png);
+            let file = path.join(outDir, `page-${n}.png`);
+            if (noHeight.has(n)) {
+              // A JPEG frame header saying 0 lines, and nothing to say more
+              file = path.join(outDir, `page-${n}.jpg`);
+              await fsp.writeFile(file, Buffer.from(NO_HEIGHT_JPEG));
+            } else
+              await fsp.writeFile(
+                file,
+                unreadable.has(n)
+                  ? img.png.subarray(0, img.png.length >> 1)
+                  : img.png
+              );
             onEvent({
               type: 'page',
               file,
