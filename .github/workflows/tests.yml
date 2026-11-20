@@ -183,6 +183,14 @@ jobs:
       - name: Network scanner tests
         run: node --test desktop/tests/escl.test.mjs
 
+      - name: Scanned JPEGs (height in a DNL marker)
+        run: node --test desktop/tests/jpeg.test.mjs
+
+      # A module missing from electron-builder's files only fails when the
+      # installed app starts
+      - name: Packaged files
+        run: node --test desktop/tests/packaging.test.mjs
+
       # Found on the real multicast group, as on a home or office network
       - name: Network scanner found over multicast DNS
         env:
