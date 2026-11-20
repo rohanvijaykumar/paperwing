@@ -65,6 +65,7 @@ import {
   ShieldCheck,
   Clock,
   TriangleAlert,
+  ArrowDownUp,
   type IconNode,
 } from 'lucide';
 
@@ -135,6 +136,7 @@ const ICONS = {
   certificate: ShieldCheck,
   clock: Clock,
   alert: TriangleAlert,
+  reorder: ArrowDownUp,
 } satisfies Record<string, IconNode>;
 
 export type IconName = keyof typeof ICONS;

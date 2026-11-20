@@ -209,15 +209,21 @@ interface MenuItem {
   divider?: boolean;
   /** The current choice among the items (shown ticked) */
   checked?: boolean;
+  /** What it does, in a line under the label (read as its description) */
+  hint?: string;
   onClick?: () => void;
 }
+let menuHints = 0;
 
 let closePopover: (() => void) | null = null;
+
+type Placement = 'below' | 'below-end' | 'right' | 'left';
 
 function showPopover(
   anchor: HTMLElement,
   content: HTMLElement,
-  placement: 'below' | 'right' | 'left' = 'below'
+  /** below-end: below, lined up with the anchor's right edge */
+  placement: Placement = 'below'
 ) {
   closePopover?.();
   const layer = $('#popover-layer');
@@ -228,10 +234,12 @@ function showPopover(
   let left =
     placement === 'below'
       ? r.left
-      : placement === 'left'
-        ? r.left - pr.width - 6
-        : r.right + 6;
-  let top = placement === 'below' ? r.bottom + 4 : r.top;
+      : placement === 'below-end'
+        ? r.right - pr.width
+        : placement === 'left'
+          ? r.left - pr.width - 6
+          : r.right + 6;
+  let top = placement.startsWith('below') ? r.bottom + 4 : r.top;
   left = Math.max(8, Math.min(left, innerWidth - pr.width - 8));
   top = Math.max(8, Math.min(top, innerHeight - pr.height - 8));
   pop.style.left = `${left}px`;
@@ -269,7 +277,7 @@ function showPopover(
 function showMenu(
   anchor: HTMLElement,
   items: MenuItem[],
-  placement?: 'below' | 'right' | 'left',
+  placement?: Placement,
   /** Shown above the items (e.g. an input) */
   header?: HTMLElement
 ) {
@@ -280,14 +288,18 @@ function showMenu(
       list.append(h('div', { class: 'menu-div' }));
       continue;
     }
+    const hintId = it.hint ? `mi-hint-${++menuHints}` : undefined;
     list.append(
       h(
         'button',
         {
           type: 'button',
-          class: `menu-item${it.checked ? ' is-checked' : ''}`,
+          class: `menu-item${it.checked ? ' is-checked' : ''}${it.hint ? ' has-hint' : ''}`,
           role: choice ? 'menuitemradio' : 'menuitem',
           'aria-checked': choice ? String(!!it.checked) : undefined,
+          // (named by its label alone; the line under it describes it)
+          'aria-label': it.hint ? it.label : undefined,
+          'aria-describedby': hintId,
           disabled: it.disabled,
           onClick: () => {
             closePopover?.();
@@ -295,7 +307,14 @@ function showMenu(
           },
         },
         h('span', { class: 'mi-icon' }, it.icon),
-        h('span', { class: 'mi-label' }, it.label),
+        it.hint
+          ? h(
+              'span',
+              { class: 'mi-label' },
+              h('span', { class: 'mi-name' }, it.label),
+              h('span', { class: 'mi-hint', id: hintId }, it.hint)
+            )
+          : h('span', { class: 'mi-label' }, it.label),
         it.shortcut && h('span', { class: 'mi-key' }, it.shortcut),
         choice &&
           h('span', { class: 'mi-check' }, it.checked && icon('check', 14))
@@ -5141,6 +5160,7 @@ async function scanToPdf(
       detectOrientation: async (image) =>
         (await import('./scan-finish')).detectOrientation(image),
       languages: tesseractLanguages,
+      menu: (anchor, items) => void showMenu(anchor, items, 'below-end'),
     });
     if (result) await placeScan(result, into);
   } finally {
