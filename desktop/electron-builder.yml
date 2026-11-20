@@ -15,6 +15,7 @@ files:
   - scan.cjs
   - escl.cjs
   - jpeg.cjs
+  - scan-diagnostics.cjs
   - mdns.cjs
   - engines.json
   - package.json
