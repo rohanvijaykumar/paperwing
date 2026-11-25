@@ -135,7 +135,8 @@ export class Presentation {
     setTimeout(() => this.go(this.page), 60);
   }
 
-  private go(page: number) {
+  /** Shows a page (read aloud moves on to the next one) */
+  go(page: number) {
     const info = this.viewer.pageInfo(this.tabId);
     if (!info || this.stopped) return;
     this.page = Math.min(Math.max(1, page), info.total);

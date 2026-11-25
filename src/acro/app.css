@@ -1706,6 +1706,118 @@ kbd {
   }
 }
 
+/* Read aloud's controls (read-aloud.ts): over the document, also in read
+   mode and full screen */
+.ra-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 32px);
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--float-shadow);
+  font-size: 13px;
+  transform: translateX(-50%);
+  animation: toast-in 0.18s ease-out;
+}
+body.is-reading-aloud #toasts {
+  bottom: 84px;
+}
+.ra-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  color: var(--text);
+}
+.ra-btn:hover,
+.ra-btn.is-open {
+  background: var(--hover-soft);
+}
+.ra-play {
+  color: var(--on-accent);
+  background: var(--accent);
+}
+.ra-play:hover {
+  background: var(--accent);
+  filter: brightness(1.1);
+}
+.ra-status {
+  min-width: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  color: var(--text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ra-sep {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--border);
+}
+.ra-bar .pref-select {
+  flex: none;
+  height: 32px;
+}
+.ra-bar .ra-voice {
+  width: 200px;
+}
+.ra-bar .ra-speed {
+  width: 80px;
+  min-width: 0;
+}
+.ra-swatch {
+  display: inline-block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgb(0 0 0 / 0.25);
+  border-radius: 50%;
+}
+.ra-swatch.is-custom {
+  background: conic-gradient(
+    #f87171,
+    #facc15,
+    #4ade80,
+    #60a5fa,
+    #c084fc,
+    #f87171
+  );
+}
+.ra-swatch.is-none {
+  background: linear-gradient(
+    135deg,
+    transparent 45%,
+    var(--text-2) 45% 55%,
+    transparent 55%
+  );
+}
+.ra-custom-color {
+  position: absolute;
+  width: 0;
+  height: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+@media (max-width: 720px) {
+  .ra-status,
+  .ra-sep {
+    display: none;
+  }
+}
+
 #drop-overlay {
   position: fixed;
   inset: 0;

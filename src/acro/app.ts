@@ -36,6 +36,7 @@ import { FormLayer, FormSession, type FormChange } from './form-layer';
 import { fillable, type FieldState, type LiveField } from './form-model';
 import type { PrintBridge } from './print';
 import type { Presentation } from './present';
+import { ReadAloud } from './read-aloud';
 import { showModal } from './modal';
 import type { ScanBridge, ScanOutcome } from './scan';
 import { scanName } from './scan-settings';
@@ -217,12 +218,13 @@ let menuHints = 0;
 
 let closePopover: (() => void) | null = null;
 
-type Placement = 'below' | 'below-end' | 'right' | 'left';
+type Placement = 'below' | 'below-end' | 'above' | 'right' | 'left';
 
 function showPopover(
   anchor: HTMLElement,
   content: HTMLElement,
-  /** below-end: below, lined up with the anchor's right edge */
+  /** below-end: below, lined up with the anchor's right edge; above:
+   *  over the anchor (a bar at the bottom of the window) */
   placement: Placement = 'below'
 ) {
   closePopover?.();
@@ -232,14 +234,18 @@ function showPopover(
   const r = anchor.getBoundingClientRect();
   const pr = pop.getBoundingClientRect();
   let left =
-    placement === 'below'
+    placement === 'below' || placement === 'above'
       ? r.left
       : placement === 'below-end'
         ? r.right - pr.width
         : placement === 'left'
           ? r.left - pr.width - 6
           : r.right + 6;
-  let top = placement.startsWith('below') ? r.bottom + 4 : r.top;
+  let top = placement.startsWith('below')
+    ? r.bottom + 4
+    : placement === 'above'
+      ? r.top - pr.height - 4
+      : r.top;
   left = Math.max(8, Math.min(left, innerWidth - pr.width - 8));
   top = Math.max(8, Math.min(top, innerHeight - pr.height - 8));
   pop.style.left = `${left}px`;
@@ -626,6 +632,23 @@ let tabSeq = 0;
 const viewer = new Viewer($('#viewer-host'));
 /** Full screen shows one page at a time (present.ts) */
 let presenting: Presentation | null = null;
+/** Read aloud (#60): the computer's voices read the document */
+const readAloud = new ReadAloud({
+  viewer,
+  turnTo: (tabId, page) => {
+    if (presenting) presenting.go(page);
+    else viewer.goToPage(tabId, page);
+  },
+  presenting: () => !!presenting,
+  toast: (message, action) => toast(message, action),
+  recognizeText: (tabId) => {
+    const tab = tabs.find((t) => t.id === tabId);
+    const ocr = getTool('ocr-pdf');
+    if (tab && ocr) void openToolOnDoc(tab, ocr);
+  },
+  menu: (anchor, items) => showMenu(anchor, items, 'above'),
+  shortcut: (id) => shortcutLabel(id),
+});
 /** Home's previews of recent files; made in the background only on Home */
 const thumbs = new Thumbnails(
   () => activeId === 'home' && !document.hidden,
@@ -799,6 +822,8 @@ function activate(id: string) {
   closePopover?.();
   // Full screen shows the document it was started on
   if (presenting && id !== activeId) setReadMode(false);
+  // Read aloud reads the document it was started on
+  if (readAloud.active && readAloud.tabId !== id) readAloud.stop();
   activeId = id;
   const tab = activeTab();
 
@@ -855,6 +880,7 @@ function closeTab(id: string) {
     .querySelectorAll(`[data-owner="${CSS.escape(id)}"]`)
     .forEach((el) => el.remove());
   void flushView(tab); // reads the viewer, so before it closes the document
+  readAloud.documentChanged(tab.id);
   cancelRecoveryCopy(tab);
   if (formLayer.current?.tabId === tab.id) formLayer.show(null);
   closeForm(tab);
@@ -1175,6 +1201,7 @@ async function refreshIfChanged(tab: Tab, file: File): Promise<void> {
   const fullTool = tab.fullTool?.tool;
   tab.pageBusy = true;
   try {
+    readAloud.documentChanged(tab.id);
     await viewer.replace(tab.id, await file.arrayBuffer(), {
       page: tab.page.current || 1,
       zoom,
@@ -1422,6 +1449,7 @@ async function showSignedVersion(
 ): Promise<void> {
   const bytes = signed.slice();
   try {
+    readAloud.documentChanged(tab.id);
     await viewer.replace(tab.id, bytes.buffer, {
       page: tab.page.current || 1,
       zoom: viewer.zoom(tab.id) ?? 1,
@@ -3383,6 +3411,7 @@ async function showPageVersion(
   // The fields on the page are the old version's: they go until the new
   // version's are read (inspectDoc)
   closeForm(tab);
+  readAloud.documentChanged(tab.id);
   await viewer.replace(tab.id, bytes, { page, zoom: zoom ?? 1, scroll });
   if (!tabs.includes(tab)) return;
   // A new document underneath: the viewer's and the form's undo start over
@@ -4884,6 +4913,40 @@ $('#menu-btn').addEventListener('click', (e) => {
       disabled: !doc,
       onClick: () => void toggleFullScreen(),
     },
+    { divider: true },
+    ...(readAloud.active && doc && readAloud.tabId === doc.id
+      ? [
+          {
+            label: readAloud.paused
+              ? 'Go on reading aloud'
+              : 'Pause reading aloud',
+            shortcut: sc('readPause'),
+            onClick: () => readAloud.togglePause(),
+          },
+          {
+            label: 'Stop reading aloud',
+            shortcut: sc('readStop'),
+            onClick: () => readAloud.stop(),
+          },
+        ]
+      : [
+          {
+            label: 'Read this page aloud',
+            shortcut: sc('readPage'),
+            disabled: !doc,
+            onClick: (): void => {
+              if (doc) void readAloud.start(doc.id, 'page');
+            },
+          },
+          {
+            label: 'Read aloud to the end',
+            shortcut: sc('readToEnd'),
+            disabled: !doc,
+            onClick: (): void => {
+              if (doc) void readAloud.start(doc.id, 'end');
+            },
+          },
+        ]),
     { divider: true },
     {
       label: 'Close tab',
@@ -6420,6 +6483,18 @@ function runShortcut(id: string): boolean {
       return cmd('rotate:counter-clockwise');
     case 'fullScreen':
       return needDoc(() => void toggleFullScreen());
+    case 'readPage':
+      return onViewer((d) => void readAloud.start(d.id, 'page'));
+    case 'readToEnd':
+      return onViewer((d) => void readAloud.start(d.id, 'end'));
+    case 'readPause':
+      if (!readAloud.active) return false;
+      readAloud.togglePause();
+      return true;
+    case 'readStop':
+      if (!readAloud.active) return false;
+      readAloud.stop();
+      return true;
     case 'readMode':
       return needDoc(() =>
         setReadMode(!document.body.classList.contains('is-reading'))
@@ -6696,7 +6771,7 @@ declare const __PAPERWING_VERSION__: string;
 declare const __PAPERWING_REPO__: string;
 
 // Inspection hook for the end-to-end tests (desktop/tests)
-(window as any).__acro = { viewer };
+(window as any).__acro = { viewer, readAloud };
 
 setTimeout(noteUpdated, 1500);
 
