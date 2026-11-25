@@ -161,6 +161,31 @@ export const SHORTCUTS: Shortcut[] = [
     label: 'Show/hide tools panel',
     keys: ['Shift+F4'],
   },
+  // Read aloud (Acrobat's Read Out Loud keys)
+  {
+    id: 'readPage',
+    group: 'Read aloud',
+    label: 'Read this page aloud',
+    keys: ['Shift+Ctrl+V'],
+  },
+  {
+    id: 'readToEnd',
+    group: 'Read aloud',
+    label: 'Read aloud to the end',
+    keys: ['Shift+Ctrl+B'],
+  },
+  {
+    id: 'readPause',
+    group: 'Read aloud',
+    label: 'Pause or go on reading aloud',
+    keys: ['Shift+Ctrl+C'],
+  },
+  {
+    id: 'readStop',
+    group: 'Read aloud',
+    label: 'Stop reading aloud',
+    keys: ['Shift+Ctrl+E'],
+  },
   // Single-key tool accelerators
   {
     id: 'toolHand',

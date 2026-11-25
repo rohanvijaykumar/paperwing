@@ -136,6 +136,11 @@ jobs:
           node bench/check-cert-placement.mjs
           node bench/check-save-bytes.mjs
 
+      - name: Read aloud with Windows' voices
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-read-aloud.mjs
+
       - name: Use a certificate as a user would, every result checked (OCR, pyHanko, OpenSSL)
         working-directory: desktop
         shell: bash

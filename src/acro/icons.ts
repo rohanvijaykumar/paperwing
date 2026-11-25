@@ -18,6 +18,8 @@ import {
   List,
   Maximize2,
   Menu,
+  Pause,
+  Play,
   ScanLine,
   MessageSquare,
   MessageSquarePlus,
@@ -137,6 +139,9 @@ const ICONS = {
   clock: Clock,
   alert: TriangleAlert,
   reorder: ArrowDownUp,
+  play: Play,
+  pause: Pause,
+  stop: Square,
 } satisfies Record<string, IconNode>;
 
 export type IconName = keyof typeof ICONS;

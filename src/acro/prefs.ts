@@ -31,6 +31,9 @@ export interface Prefs {
   /** Scanning's presets, per-scanner choices and last choices (scan.ts
    *  checks what it reads back) */
   scan: unknown;
+  /** Read aloud's voice, speed and highlight colour (read-aloud.ts checks
+   *  what it reads back) */
+  readAloud: unknown;
 }
 
 const KEY = 'paperwing:prefs';
@@ -50,6 +53,7 @@ const DEFAULTS: Prefs = {
   defaultZoom: 'automatic',
   seenVersion: '',
   scan: {},
+  readAloud: {},
 };
 
 /** Has Paperwing run here before (anything stored, as of this launch) */

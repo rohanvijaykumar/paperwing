@@ -733,6 +733,45 @@ export class Viewer {
     return text?.trim() || null;
   }
 
+  /**
+   * A page's text with where each character sits (PDF points from the
+   * page's top left, unrotated; spaces and line ends PDFium adds have no
+   * size). `text[i]` is the character drawn in `boxes[i]`. Read aloud
+   * speaks the text and highlights words by these boxes.
+   */
+  async pageText(
+    tabId: string,
+    pageIndex: number
+  ): Promise<{
+    text: string;
+    boxes: { x: number; y: number; w: number; h: number }[];
+  } | null> {
+    const id = this.docIds.get(tabId);
+    if (!id || !this.registry) return null;
+    const doc = this.cap('document-manager').getDocument(id);
+    const page = doc?.pages?.[pageIndex];
+    if (!page) return null;
+    const engine = (this.registry as any).getEngine();
+    const glyphs: {
+      origin: { x: number; y: number };
+      size: { width: number; height: number };
+      tightOrigin?: { x: number; y: number };
+      tightSize?: { width: number; height: number };
+    }[] = await engine.getPageGlyphs(doc, page).toPromise();
+    if (!glyphs.length) return { text: '', boxes: [] };
+    const [text = '']: string[] = await engine
+      .getTextSlices(doc, [
+        { pageIndex: page.index, charIndex: 0, charCount: glyphs.length },
+      ])
+      .toPromise();
+    const boxes = glyphs.map((g) => {
+      const o = g.tightOrigin ?? g.origin;
+      const z = g.tightSize ?? g.size;
+      return { x: o.x, y: o.y, w: z.width, h: z.height };
+    });
+    return { text, boxes };
+  }
+
   /** "Copy text" in a highlight's menu (Comment, Link, Style, Delete): the
    *  viewer has no way to copy a highlight's text (#38) */
   private addCopyText() {

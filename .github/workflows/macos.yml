@@ -274,6 +274,11 @@ jobs:
         working-directory: desktop
         run: node bench/check-update.mjs
 
+      - name: Read aloud with the Mac's voices
+        if: ${{ !cancelled() }}
+        working-directory: desktop
+        run: node bench/check-read-aloud.mjs
+
       - name: Viewer, engine, signatures and results benches
         if: ${{ !cancelled() }}
         working-directory: desktop
