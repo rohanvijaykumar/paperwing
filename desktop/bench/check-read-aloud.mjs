@@ -52,8 +52,24 @@ const FIRST = 'Paperwing reads this sentence aloud.';
     size: 18,
     font,
   });
+  // (enough to still be reading while the voice and speed change)
+  [
+    'More sentences follow, so the page takes a while to read.',
+    'Each one is spoken in turn, a sentence at a time.',
+    'The voice and the speed can change while it reads.',
+    'A highlight marks each word as the voice gets to it.',
+    'And this is the last sentence on the first page.',
+  ].forEach((line, i) =>
+    p1.drawText(line, { x: 72, y: 620 - i * 24, size: 14, font })
+  );
   const p2 = doc.addPage([612, 792]);
   p2.drawText('Turned pages are read too.', { x: 72, y: 700, size: 24, font });
+  p2.drawText('Their words are highlighted where they are.', {
+    x: 72,
+    y: 660,
+    size: 18,
+    font,
+  });
   p2.setRotation(degrees(90));
   const p3 = doc.addPage([612, 792]);
   p3.drawRectangle({
@@ -170,6 +186,49 @@ if (!voices) {
   process.exit(failures ? 1 : 0);
 }
 
+// Can this computer speak at all? (A server without a sound device may
+// list voices that never start.) If not, the app must say so.
+const speaks = await page.evaluate(
+  () =>
+    new Promise((resolve) => {
+      const u = new SpeechSynthesisUtterance('Testing.');
+      u.volume = 0;
+      const timer = setTimeout(() => resolve('never started'), 12000);
+      u.onstart = () => {
+        clearTimeout(timer);
+        speechSynthesis.cancel();
+        resolve('ok');
+      };
+      u.onerror = (e) => {
+        clearTimeout(timer);
+        resolve(`error: ${e.error}`);
+      };
+      speechSynthesis.speak(u);
+    })
+);
+console.log(`a voice speaks here: ${speaks}`);
+if (speaks !== 'ok') {
+  await shortcut('v');
+  const said = await until(async () => {
+    const t = await page.evaluate(
+      () => document.querySelector('#toasts')?.textContent ?? ''
+    );
+    return /voice didn.t start|voice stopped reading/.test(t) && t;
+  }, 20000);
+  check(
+    !!said && !(await state()).active,
+    'a voice that can’t speak here: the app says so and stops',
+    String(said)
+  );
+  console.log('skip the rest: voices on this computer can’t speak');
+  await app.close();
+  rmSync(dir, { recursive: true, force: true });
+  console.log(
+    failures ? `\n${failures} check(s) failed` : '\nall checks passed'
+  );
+  process.exit(failures ? 1 : 0);
+}
+
 // Where PDFium says a word is, on the screen
 const expected = (pageIndex, from, to) =>
   page.evaluate(
@@ -206,9 +265,20 @@ const near = (a, b, d = 4) =>
  *  meanwhile, so the highlight stays on one word) */
 const underHighlight = async () => {
   await page.evaluate(() => window.__acro.readAloud.pause());
-  await sleep(300);
-  const w = (await state()).word;
-  const result = w ? await pixelsAt(w) : null;
+  // Until the highlight stays put (the page may still be moving there)
+  let w = null;
+  for (let i = 0; i < 30; i++) {
+    await sleep(200);
+    const now = (await state()).word;
+    if (now && w && JSON.stringify(now) === JSON.stringify(w)) break;
+    w = now;
+  }
+  const inView = await page.evaluate(
+    (w) => !!w && w.y >= 0 && w.y + w.h <= innerHeight && w.x >= 0,
+    w
+  );
+  if (!inView) console.log(`  (highlight not on screen: ${JSON.stringify(w)})`);
+  const result = w && inView ? await pixelsAt(w) : null;
   await page.evaluate(() => window.__acro.readAloud.resume());
   return result;
 };

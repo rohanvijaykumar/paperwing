@@ -85,6 +85,8 @@ interface Session {
 }
 
 const MAX_CHUNK = 320;
+/** How long a voice may take to start speaking */
+const START_TIMEOUT = 10000;
 
 /** Prefs as stored, with anything missing or broken put right */
 export function readAloudPrefs(): ReadAloudPrefs {
@@ -250,6 +252,7 @@ export class ReadAloud {
   private status: HTMLElement | null = null;
   private playBtn: HTMLButtonElement | null = null;
   private offs: (() => void)[] = [];
+  private watchdog = 0;
   /** Tests turn the voice down */
   volume = 1;
 
@@ -311,6 +314,7 @@ export class ReadAloud {
     if (!s || s.paused) return;
     s.paused = true;
     s.gen++;
+    clearTimeout(this.watchdog);
     speechSynthesis.cancel();
     this.updateBar();
   }
@@ -334,6 +338,7 @@ export class ReadAloud {
     if (!s) return;
     s.gen++;
     this.session = null;
+    clearTimeout(this.watchdog);
     speechSynthesis.cancel();
     this.utterance = null;
     this.word = null;
@@ -428,7 +433,18 @@ export class ReadAloud {
     }
     u.rate = readAloudPrefs().rate;
     u.volume = this.volume;
+    // A voice that never starts (no sound device, a broken voice): say so
+    // rather than show "Reading" with nothing heard
+    clearTimeout(this.watchdog);
+    this.watchdog = window.setTimeout(() => {
+      if (gen !== s.gen || this.session !== s) return;
+      this.stop();
+      this.host.toast(
+        'The voice didn’t start. Check your computer’s sound and speech settings, or choose another voice.'
+      );
+    }, START_TIMEOUT);
     u.onstart = () => {
+      clearTimeout(this.watchdog);
       if (gen !== s.gen) return;
       s.pos = a;
       this.mark(page, a);
@@ -442,6 +458,7 @@ export class ReadAloud {
       if (gen === s.gen) void this.speakFrom(page, b);
     };
     u.onerror = (e) => {
+      clearTimeout(this.watchdog);
       if (gen !== s.gen) return;
       if (e.error === 'interrupted' || e.error === 'canceled') return;
       this.stop();
