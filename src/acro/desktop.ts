@@ -265,6 +265,8 @@ export interface DesktopBridge {
   installUpdate?(): Promise<boolean>;
   /** A downloaded update is ready to install */
   onUpdateReady?(callback: (info: { version: string }) => void): () => void;
+  /** The window went into or out of full screen (sent once on load too) */
+  onFullScreen?(callback: (on: boolean) => void): () => void;
   /** Recovery copies of unsaved documents (see main.cjs) */
   recovery?: {
     save(id: string, name: string, data: Uint8Array): Promise<boolean>;

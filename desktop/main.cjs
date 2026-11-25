@@ -834,6 +834,18 @@ function createWindow() {
     allowClose = false;
     if (quitting) app.quit();
   });
+  // Full screen on a Mac hides the window buttons: the title bar stops
+  // keeping room for them (#62)
+  const sendFullScreen = () => {
+    if (mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.send(
+        'paperwing:full-screen',
+        mainWindow.isFullScreen()
+      );
+  };
+  mainWindow.on('enter-full-screen', sendFullScreen);
+  mainWindow.on('leave-full-screen', sendFullScreen);
+  mainWindow.webContents.on('did-finish-load', sendFullScreen);
   // A crashed page can't answer the unsaved-changes check: let it close
   mainWindow.webContents.on('render-process-gone', () => {
     rendererReady = false;
@@ -1230,12 +1242,20 @@ function scannerHelpers() {
     return {
       scan: app.isPackaged
         ? res('paperwing-scan')
-        : path.join(__dirname, 'native', 'mac-scanner', 'out', 'paperwing-scan'),
+        : path.join(
+            __dirname,
+            'native',
+            'mac-scanner',
+            'out',
+            'paperwing-scan'
+          ),
     };
   const dev = (name) =>
     path.join(__dirname, 'native', 'win-scanner', 'out', name);
   return {
-    scan: app.isPackaged ? res('paperwing-scan.exe') : dev('paperwing-scan.exe'),
+    scan: app.isPackaged
+      ? res('paperwing-scan.exe')
+      : dev('paperwing-scan.exe'),
     twain32: app.isPackaged
       ? res('paperwing-twain32.exe')
       : dev('paperwing-twain32.exe'),
@@ -1379,7 +1399,10 @@ ipcMain.handle('paperwing:save-files', async (e, dir, files) => {
       .replace(/^[.\s]+|[.\s]+$/g, '')
       .slice(0, 150);
     if (!clean || !(f.data instanceof Uint8Array)) continue;
-    const name = await freeName(dir, /\.pdf$/i.test(clean) ? clean : `${clean}.pdf`);
+    const name = await freeName(
+      dir,
+      /\.pdf$/i.test(clean) ? clean : `${clean}.pdf`
+    );
     const full = path.join(dir, name);
     await writeAtomic(full, f.data);
     openedPath(full);

@@ -393,6 +393,10 @@ button:disabled {
 .is-mac #titlebar {
   padding-left: 78px;
 }
+/* Full screen hides the Mac's window buttons (#62) */
+.is-mac.is-full-screen #titlebar {
+  padding-left: 6px;
+}
 
 /* ------------------------------------------------------------------ */
 /* Views                                                               */
