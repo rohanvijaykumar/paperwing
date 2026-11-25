@@ -6629,6 +6629,10 @@ void desktop?.setTheme(getThemePref());
 // the right (Windows) or left (macOS) end of our title bar.
 if (desktop) {
   document.body.classList.add('is-desktop', isMac ? 'is-mac' : 'is-win');
+  // (a Mac in full screen hides its window buttons: no room kept for them)
+  desktop.onFullScreen?.((on) =>
+    document.body.classList.toggle('is-full-screen', on)
+  );
   desktop.onFileChanged?.((path) => void noticeDiskChange(path));
   desktop.onOpenFile((f) => {
     performance.mark('pw:file-received');

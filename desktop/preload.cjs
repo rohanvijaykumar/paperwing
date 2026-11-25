@@ -38,6 +38,11 @@ contextBridge.exposeInMainWorld('paperwing', {
     ipcRenderer.on('paperwing:update-ready', listener);
     return () => ipcRenderer.removeListener('paperwing:update-ready', listener);
   },
+  onFullScreen: (callback) => {
+    const listener = (_e, on) => callback(on);
+    ipcRenderer.on('paperwing:full-screen', listener);
+    return () => ipcRenderer.removeListener('paperwing:full-screen', listener);
+  },
   recovery: {
     save: (id, name, data) =>
       ipcRenderer.invoke('paperwing:recovery-save', id, name, data),
@@ -64,8 +69,7 @@ contextBridge.exposeInMainWorld('paperwing', {
       ipcRenderer.invoke('paperwing:certs-save-id', name, data),
   },
   scanners: () => ipcRenderer.invoke('paperwing:scanners'),
-  addScanner: (address) =>
-    ipcRenderer.invoke('paperwing:scanner-add', address),
+  addScanner: (address) => ipcRenderer.invoke('paperwing:scanner-add', address),
   scannerCaps: (id) => ipcRenderer.invoke('paperwing:scanner-caps', id),
   scanPreview: (id, options) =>
     ipcRenderer.invoke('paperwing:scan-preview', id, options),

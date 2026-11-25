@@ -267,6 +267,40 @@ check(
 );
 check((await seen()) === version, 'and the version is noted again');
 
+// The window in full screen (#62): a Mac hides its window buttons there, so
+// the title bar stops keeping room for them, and keeps it again after
+const titlebar = () =>
+  page.evaluate(() => ({
+    full: document.body.classList.contains('is-full-screen'),
+    pad: parseFloat(
+      getComputedStyle(document.querySelector('#titlebar')).paddingLeft
+    ),
+  }));
+const fsBefore = await titlebar();
+await page.evaluate(() => document.documentElement.requestFullscreen());
+let during = fsBefore;
+for (let i = 0; i < 40 && !during.full; i++) {
+  await sleep(250);
+  during = await titlebar();
+}
+await page.evaluate(() => document.exitFullscreen().catch(() => {}));
+let after = during;
+for (let i = 0; i < 40 && after.full; i++) {
+  await sleep(250);
+  after = await titlebar();
+}
+check(
+  !fsBefore.full && during.full && !after.full,
+  'the app is told when the window goes into and out of full screen',
+  JSON.stringify({ before: fsBefore, during, after })
+);
+if (mac)
+  check(
+    fsBefore.pad === 78 && during.pad === 6 && after.pad === 78,
+    'Mac: no room kept for the hidden window buttons in full screen',
+    JSON.stringify({ before: fsBefore, during, after })
+  );
+
 await app.close();
 rmSync(dir, { recursive: true, force: true });
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed');
